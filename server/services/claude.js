@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import config from '../config.js';
 import { getChatHistory, saveChatMessage, getUserProfile } from '../db/history.js';
 import { readFileSync, existsSync } from 'fs';
@@ -7,13 +6,10 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { artistName } from '../domain/hosting/artistName.js';
 import { fallbackTransitionScript } from '../domain/hosting/fallbackTransitionScript.js';
+import { llmClient as client } from '../infrastructure/llm/llmClient.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
-
-const client = config.deepseekApiKey && config.deepseekApiKey !== 'sk-xxx'
-  ? new OpenAI({ apiKey: config.deepseekApiKey, baseURL: config.deepseekBaseUrl })
-  : null;
 
 function loadDjPersona() {
   const path = resolve(ROOT, 'prompts', 'dj-persona.md');

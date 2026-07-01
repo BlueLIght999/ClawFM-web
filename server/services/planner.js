@@ -3,15 +3,11 @@
  * Falls back to time-of-day templates when LLM is unavailable.
  */
 
-import OpenAI from 'openai';
 import config from '../config.js';
 import { assemblePrompt, getTimeOfDayMood } from './context.js';
 import { getWeather } from './weather.js';
 import { savePlan as dbSavePlan, getPlan as dbGetPlan } from '../db/history.js';
-
-const client = config.deepseekApiKey && config.deepseekApiKey !== 'sk-xxx'
-  ? new OpenAI({ apiKey: config.deepseekApiKey, baseURL: config.deepseekBaseUrl })
-  : null;
+import { llmClient as client } from '../infrastructure/llm/llmClient.js';
 
 // In-memory cache
 let _cache = null;

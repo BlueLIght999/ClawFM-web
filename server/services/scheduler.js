@@ -6,6 +6,7 @@ import {
   scrobbleSong,
 } from './netease.js';
 import { SpeechTimer } from './speech-timer.js';
+import { toPlayableSong } from '../domain/curation/toPlayableSong.js';
 
 const CROSSFADE_MS = 2500; // Start transition 2.5s before song ends
 const DJ_SPEECH_BUFFER_MS = 4000; // Buffer for DJ speech
@@ -294,12 +295,12 @@ export class RadioScheduler {
     const song = this.playhead.currentSong;
     const sid = song ? (song.id || song.song_id) : null;
     return {
-      currentSong: song,
+      currentSong: toPlayableSong(song),
       startedAt: this.playhead.startedAt,
       isPlaying: this.playhead.isPlaying,
       audioUrl: sid ? this.audioUrlCache.get(String(sid))?.url || null : null,
       queueMode: queue.mode,
-      upcomingSongs: queue.upcomingSongs,
+      upcomingSongs: queue.upcomingSongs.map(toPlayableSong),
       elapsed: this.elapsed / 1000,
       duration: (this.playhead.songDuration || 0) / 1000,
     };

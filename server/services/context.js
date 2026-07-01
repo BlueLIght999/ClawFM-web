@@ -11,17 +11,9 @@
  *   ⑥ 执行轨迹      scheduler · webhook
  */
 
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
 import { getListenHistory, getUserProfile, getSeedPool } from '../db/history.js';
 import { formatUserCorpus } from '../domain/curation/formatUserCorpus.js';
-import { FileCorpus } from '../infrastructure/storage/FileCorpus.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const USER_DIR = resolve(__dirname, '..', '..', 'user');
-
-// Default corpus adapter (composition root may inject a different one).
-const defaultCorpus = new FileCorpus(USER_DIR);
+import { defaultCorpus } from '../infrastructure/storage/defaultCorpus.js';
 
 // --- Slot loaders ---
 

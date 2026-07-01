@@ -18,13 +18,13 @@ import {
   getArtistPlayCount,
 } from '../db/history.js';
 import { queue } from './queue.js';
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
 import { buildTasteMarkdown } from '../domain/curation/buildTasteMarkdown.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const USER_DIR = resolve(__dirname, '..', '..', 'user');
+import {
+  isTasteTemplate,
+  isRoutinesTemplate,
+  buildRoutinesMarkdown,
+} from '../domain/curation/userCorpusRules.js';
+import { defaultCorpus } from '../infrastructure/storage/defaultCorpus.js';
 
 export class Recommender {
   constructor() {
@@ -131,56 +131,25 @@ export class Recommender {
   _writeUserCorpus(totalSongs, artistCount) {
     try {
       console.log('[Recommender] _writeUserCorpus called, totalSongs:', totalSongs, 'artists:', this.topArtists.length);
-      if (!existsSync(USER_DIR)) mkdirSync(USER_DIR, { recursive: true });
 
       // Build taste.md — only overwrite if still a template (empty artists list)
-      const tastePath = resolve(USER_DIR, 'taste.md');
-      const existingTaste = existsSync(tastePath) ? readFileSync(tastePath, 'utf-8') : '';
-      const isEmpty = !/^-\s*\S/m.test(existingTaste); // no non-empty list items
-      console.log('[Recommender] taste.md exists:', existsSync(tastePath), 'isEmpty:', isEmpty);
-
-      if (isEmpty) {
+      const existingTaste = defaultCorpus.readTaste();
+      if (isTasteTemplate(existingTaste)) {
         const tasteContent = buildTasteMarkdown({
           topArtists: this.topArtists,
           topGenres: this.topGenres,
           totalSongs,
           date: new Date().toISOString().split('T')[0],
         });
-        writeFileSync(tastePath, tasteContent, 'utf-8');
+        defaultCorpus.writeTaste(tasteContent);
         console.log('[Recommender] User taste.md auto-filled');
       }
 
       // Fill routines.md genre gaps
-      const routinesPath = resolve(USER_DIR, 'routines.md');
-      const existingRoutines = existsSync(routinesPath) ? readFileSync(routinesPath, 'utf-8') : '';
-      const routinesEmpty = existingRoutines && !/Genre: \S/.test(existingRoutines);
-      console.log('[Recommender] routines.md exists:', existsSync(routinesPath), 'routinesEmpty:', routinesEmpty);
-      if (routinesEmpty) {
-        // Map time-of-day to genres from top artists
+      const existingRoutines = defaultCorpus.readRoutines();
+      if (isRoutinesTemplate(existingRoutines)) {
         const topArtistNames = this.topArtists.slice(0, 10).map(a => a.name);
-        const routinesContent = `# Daily Routines
-
-## Morning (06:00 - 10:00)
-Mood: energetic but gentle
-Genre: pop, acoustic, indie folk
-
-## Daytime (10:00 - 17:00)
-Mood: focused, neutral
-Genre: instrumental, ambient, post-rock
-
-## Evening (17:00 - 22:00)
-Mood: warm, engaged
-Genre: ${topArtistNames.slice(0, 3).join(', ') || 'indie, electronic, jazz'}
-
-## Late Night (22:00 - 06:00)
-Mood: intimate, chill
-Genre: ambient, lo-fi, dream pop
-
-## Weekend
-Mood: relaxed, exploratory
-Genre: mix of favorites + new discoveries
-`;
-        writeFileSync(routinesPath, routinesContent, 'utf-8');
+        defaultCorpus.writeRoutines(buildRoutinesMarkdown(topArtistNames));
         console.log('[Recommender] User routines.md auto-filled');
       }
     } catch (e) {

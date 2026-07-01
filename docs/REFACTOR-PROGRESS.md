@@ -9,14 +9,18 @@
 ## 0. 当前基线快照（核对时点）
 
 ```
-测试：   37 passed (8 files)
-架构：   0 error, 4 warn
-domain/：7 纯文件
-  environment/formatWeather · hosting/{cleanTtsText,artistName,fallbackTransitionScript}
-  · curation/{formatUserCorpus,buildTasteMarkdown} · playback/SpeechSession
-重复率： 消除多处后下降
-阶段：   P0 完成 · P1 完成（Weather/TTS/LLM 纯逻辑全提炼）· P2 部分（Corpus/Taste 格式化）
+测试：   69 passed (16 files)
+架构：   ✔ 0 error, 0 warn —— dependency-cruiser 报告 no violations 🎯
+domain/：11 纯文件
+  environment/formatWeather · hosting/{cleanTtsText,artistName,fallbackTransitionScript,isLlmConfigured}
+  · curation/{formatUserCorpus,buildTasteMarkdown,toSongDTO,userCorpusRules,toPlayableSong} · playback/SpeechSession
+infrastructure/：storage/{FileCorpus,defaultCorpus} · llm/llmClient（Port 实现 + 接线）
+阶段：   P0✅ · P1✅ · P2-Corpus✅ · P2-Llm✅(共享client) · P2-Music(getState 已接 toPlayableSong)
+运行：   server 启动正常(ON AIR)，向后兼容验证通过；currentSong 已带 DTO 稳定字段
+待办：   upcomingSongs/SONG_CHANGE 尚未接 toPlayableSong（仍原始网易云字段）
 ```
+
+
 
 ---
 
@@ -90,26 +94,28 @@ domain/：7 纯文件
 | 指标 | 起点 | 当前 | 目标 | 度量命令 |
 |------|------|------|------|---------|
 | 架构 error | 1 | **0** ✅ | 0 | `npm run arch:check` |
-| 架构 warn | 4 | 4 | 0 | `npm run arch:check` |
-| 测试数 | 7 | **37** | 覆盖核心域 | `npm test` |
+| 架构 warn | 4 | **0** ✅ | 0 | `npm run arch:check` |
+| 测试数 | 7 | **59** | 覆盖核心域 | `npm test` |
 | 死代码文件 | 2 | **0** ✅ | 0 | grep 引用 |
 | handler.js 行数 | 671 | 673 | ≤100 | `wc -l` |
 | 最大函数复杂度 | 86 | 86 | ≤10 | `npm run lint` |
 | 代码重复率 | ~4% | 下降 | ≤5% | `npm run dup:check` |
-| domain 纯文件数 | 1 | **7** | 全核心域 | `ls domain/**` |
-| 前端网易云字段透传 | 有 | 有 | 无 | grep song.ar/al/dt |
+| domain 纯文件数 | 1 | **9** | 全核心域 | `ls domain/**` |
+| 前端网易云字段透传 | 有 | 有(toSongDTO 内核已备) | 无 | grep song.ar/al/dt |
 
 ---
 
 ## 4. 总进度条
 
 ```
-绞杀总进度  ██████░░░░░░░░░░░░░░  约 30%
+绞杀总进度  ████████░░░░░░░░░░░░  约 40%
 
 P0 反向依赖清零   ██████████████████  100% ✅
 P1 纯逻辑提炼      ██████████████████  100% ✅ (Weather✅ TTS✅ LLM✅)
-P2 Port化+拆分     ███░░░░░░░░░░░░░░░   15% (格式化提炼✅ · Port/拆分⬜)
+P2 依赖健康(warn)  ██████████████████  100% ✅ (fs 依赖清零 4→0 🎯)
+P2 Port化+拆分     ██████░░░░░░░░░░░░   30% (Corpus✅ · Llm/Repo/Music/handler⬜)
 ```
+
 
 ---
 
