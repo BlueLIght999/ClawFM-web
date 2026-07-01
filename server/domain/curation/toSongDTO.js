@@ -1,4 +1,5 @@
 import { artistName } from '../hosting/artistName.js';
+import { firstTruthy } from './firstTruthy.js';
 
 /**
  * Pure Song DTO mapper — converts a raw NetEase song object
@@ -16,10 +17,10 @@ export function toSongDTO(song) {
   if (!song) return null;
   return {
     id: String(song.id),
-    title: song.name || song.title || 'Unknown Track',
+    title: firstTruthy(song.name, song.title, 'Unknown Track'),
     artist: artistName(song),
-    album: song.al?.name || song.album || '',
-    durationMs: song.dt || song.duration || 0,
-    coverUrl: song.al?.picUrl || song.coverUrl || '',
+    album: firstTruthy(song.al?.name, song.album, ''),
+    durationMs: firstTruthy(song.dt, song.duration, 0),
+    coverUrl: firstTruthy(song.al?.picUrl, song.coverUrl, ''),
   };
 }

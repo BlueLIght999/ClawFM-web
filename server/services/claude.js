@@ -7,6 +7,8 @@ import { dirname } from 'path';
 import { artistName } from '../domain/hosting/artistName.js';
 import { fallbackTransitionScript } from '../domain/hosting/fallbackTransitionScript.js';
 import { llmClient as client } from '../infrastructure/llm/llmClient.js';
+import { buildProactivePrompt } from '../domain/hosting/buildProactivePrompt.js';
+import { buildTransitionPrompt } from '../domain/hosting/buildTransitionPrompt.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -66,16 +68,9 @@ export async function generateDjResponse({
   if (userInput) {
     messages.push({ role: 'user', content: userInput });
   } else if (prevSong && nextSong) {
-    const prevTitle = prevSong?.name || prevSong?.title || 'the last track';
-    const prevArtist = getArtistStr(prevSong);
-    const nextTitle = nextSong?.name || nextSong?.title || 'this next track';
-    const nextArtist = getArtistStr(nextSong);
-    const album = nextSong?.al?.name || nextSong?.album || '';
-    const timeStr = timeOfDay || 'this moment';
-
     messages.push({
       role: 'user',
-      content: `Previous: "${prevTitle}" by ${prevArtist}\nNext: "${nextTitle}" by ${nextArtist}${album ? ` (${album})` : ''}\nTime: ${timeStr}\n\nGenerate a DJ transition.`,
+      content: buildTransitionPrompt(prevSong, nextSong, timeOfDay),
     });
   }
 
@@ -317,34 +312,7 @@ export const generateTransition = async (prev, next, timeOfDay, assembledPrompt)
 export async function decideProactiveSpeech(ctx) {
   if (!client) return null;
 
-  const songTitle = ctx.currentSong?.name || ctx.currentSong?.title || '?';
-  const songArtist = ctx.currentSong?.ar?.map(a => a.name).join(', ') || ctx.currentSong?.artist || '';
-  const blockTheme = ctx.activeBlock?.theme || 'auto';
-  const blockHints = (ctx.activeBlock?.genreHints || []).join(', ') || 'varied';
-  const nextTitle = ctx.nextSong ? (ctx.nextSong.name || ctx.nextSong.title || '?') : '?';
-  const secondTitle = ctx.secondNext ? (ctx.secondNext.name || ctx.secondNext.title || '?') : '?';
-
-  const prompt = `你是 Qclaudio 88.7 的 AI DJ CLAWED（一只螃蟹）。
-
-当前歌曲: "${songTitle}" by ${songArtist}
-时间: ${ctx.timeOfDay}, 天气: ${ctx.weatherChanged ? '(刚变化) ' : ''}${ctx.weather || 'unknown'}
-当前计划板块: "${blockTheme}" (${blockHints})
-下首: ${nextTitle}, 再下一首: ${secondTitle}
-距上次发言: ${ctx.secondsSinceLastSpeech}s, ${ctx.songsSinceLastSpeech} 首歌前
-${ctx.lastChatMessage ? `最近听众聊天: "${ctx.lastChatMessage}"` : '最近无听众互动'}
-${ctx.hourChanged ? '(刚刚进入新的小时段)' : ''}
-
-现在适合主动说话吗？只有以下情况才适合说话：
-- 天气刚刚变化了，可以随口提一句
-- 刚进入新的小时段，时间节点值得 mark
-- 听众刚聊完天，可以接话/问候
-- 已经很久没说话了（超过 3 首歌），可以活跃一下气氛
-- 板块风格有明显变化
-
-如果没什么特别的可说，就不要说话。宁缺毋滥。
-
-输出 JSON (不要 markdown 代码块):
-{"shouldSpeak": true/false, "message": "说的话（1-3句中文，DJ 口吻，纯文本，不要加动作标签）", "reason": "简短原因"}`;
+  const prompt = buildProactivePrompt(ctx);
 
   try {
     const res = await client.chat.completions.create({

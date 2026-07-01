@@ -11,6 +11,7 @@ import { getWeather, setClientLocation } from '../services/weather.js';
 import { generatePlan, isPlanStale, getPlan } from '../services/planner.js';
 import { maybeProactiveSpeech, resetLastSpeechTime, setLastUserChat, setProactiveEnabled } from '../services/proactive.js';
 import { SocketEventPublisher } from './SocketEventPublisher.js';
+import { buildSongChangePayload } from '../domain/curation/buildSongChangePayload.js';
 
 let preRecommendSnapshot = null; // { future: [...], current: {...} } for rejection rollback
 
@@ -22,11 +23,7 @@ export function setupSocketHandler(io) {
     try {
       const audioUrl = await scheduler.getAudioUrl(song);
       console.log('[Scheduler] onSongChange:', song?.name || song?.title, '| audioUrl:', audioUrl ? 'YES' : 'NULL');
-      io.emit(EVENTS.SONG_CHANGE, {
-        song,
-        startedAt: scheduler.playhead.startedAt,
-        audioUrl,
-      });
+      io.emit(EVENTS.SONG_CHANGE, buildSongChangePayload(song, scheduler.playhead.startedAt, audioUrl));
     } catch (e) {
       console.error('[Scheduler] onSongChange error:', e.message);
     }
