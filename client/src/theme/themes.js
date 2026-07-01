@@ -1,0 +1,118 @@
+export const THEME_NAMES = ['morning', 'afternoon', 'night'];
+
+export function getTimeTheme(hours) {
+  if (hours >= 6 && hours < 14) return 'morning';
+  if (hours >= 14 && hours < 18.5) return 'afternoon';
+  return 'night';
+}
+
+export const THEME_PALETTES = {
+  morning: {
+    '--bg-primary': '#ffffff',
+    '--bg-secondary': '#f5f5f7',
+    '--bg-panel': '#e8e8ed',
+    '--text-primary': '#1d1d1f',
+    '--text-secondary': '#6e6e73',
+    '--text-dim': '#aeaeb2',
+    '--accent': '#1d1d1f',
+    '--accent-glow': '#6e6e73',
+    '--accent-dark': '#aeaeb2',
+    '--neon-cyan': '#0071e3',
+    '--neon-pink': '#ff375f',
+    '--neon-blue': '#0071e3',
+    '--border-color': '#d2d2d7',
+    '--border-dim': '#e8e8ed',
+    '--shadow-border-inset': 'rgba(210, 210, 215, 0.25)',
+    '--shadow-border-outer': 'rgba(210, 210, 215, 0.35)',
+    '--shadow-accent-inset': 'rgba(29, 29, 31, 0.06)',
+    '--shadow-accent-outer': 'rgba(29, 29, 31, 0.10)',
+    '--shadow-cyan-hover': 'rgba(0, 113, 227, 0.15)',
+    '--shadow-cyan-focus': 'rgba(0, 113, 227, 0.15)',
+    '--shadow-accent-hover': 'rgba(29, 29, 31, 0.08)',
+    '--shadow-accent-glow': 'rgba(29, 29, 31, 0.15)',
+    '--shadow-accent-title': 'rgba(29, 29, 31, 0.15)',
+    '--shadow-neon-cyan': 'rgba(0, 113, 227, 0.3)',
+    '--shadow-neon-cyan-dim': 'rgba(0, 113, 227, 0.15)',
+    '--shadow-neon-accent': 'rgba(29, 29, 31, 0.25)',
+    '--scanline-opacity': '0',
+  },
+  afternoon: {
+    '--bg-primary': '#faf8f5',
+    '--bg-secondary': '#f5f0e8',
+    '--bg-panel': '#ede4d3',
+    '--text-primary': '#2d1f0e',
+    '--text-secondary': '#6b4c2a',
+    '--text-dim': '#b8956e',
+    '--accent': '#cc7850',
+    '--accent-glow': '#e89860',
+    '--accent-dark': '#a45a3a',
+    '--neon-cyan': '#d4855b',
+    '--neon-pink': '#c75d4a',
+    '--neon-blue': '#b08050',
+    '--border-color': '#d4b896',
+    '--border-dim': '#e8dcc8',
+    '--shadow-border-inset': 'rgba(180, 150, 120, 0.12)',
+    '--shadow-border-outer': 'rgba(180, 150, 120, 0.18)',
+    '--shadow-accent-inset': 'rgba(204, 120, 80, 0.08)',
+    '--shadow-accent-outer': 'rgba(204, 120, 80, 0.14)',
+    '--shadow-cyan-hover': 'rgba(212, 133, 91, 0.25)',
+    '--shadow-cyan-focus': 'rgba(212, 133, 91, 0.20)',
+    '--shadow-accent-hover': 'rgba(204, 120, 80, 0.12)',
+    '--shadow-accent-glow': 'rgba(204, 120, 80, 0.25)',
+    '--shadow-accent-title': 'rgba(204, 120, 80, 0.2)',
+    '--shadow-neon-cyan': 'rgba(212, 133, 91, 0.35)',
+    '--shadow-neon-cyan-dim': 'rgba(212, 133, 91, 0.18)',
+    '--shadow-neon-accent': 'rgba(204, 120, 80, 0.35)',
+    '--scanline-opacity': '0',
+  },
+  night: {
+    '--bg-primary': '#050a10',
+    '--bg-secondary': '#0a1018',
+    '--bg-panel': '#0d1520',
+    '--text-primary': '#00ccff',
+    '--text-secondary': '#0099cc',
+    '--text-dim': '#004466',
+    '--accent': '#E07B56',
+    '--accent-glow': '#F4A885',
+    '--accent-dark': '#C56B3F',
+    '--neon-cyan': '#00ccff',
+    '--neon-pink': '#ff66aa',
+    '--neon-blue': '#0088ff',
+    '--border-color': '#00aaff',
+    '--border-dim': '#003355',
+    '--shadow-border-inset': 'rgba(0, 170, 255, 0.08)',
+    '--shadow-border-outer': 'rgba(0, 170, 255, 0.1)',
+    '--shadow-accent-inset': 'rgba(224, 123, 86, 0.08)',
+    '--shadow-accent-outer': 'rgba(224, 123, 86, 0.15)',
+    '--shadow-cyan-hover': 'rgba(0, 204, 255, 0.3)',
+    '--shadow-cyan-focus': 'rgba(0, 204, 255, 0.25)',
+    '--shadow-accent-hover': 'rgba(224, 123, 86, 0.15)',
+    '--shadow-accent-glow': 'rgba(224, 123, 86, 0.3)',
+    '--shadow-accent-title': 'rgba(224, 123, 86, 0.3)',
+    '--shadow-neon-cyan': 'rgba(0, 204, 255, 0.5)',
+    '--shadow-neon-cyan-dim': 'rgba(0, 204, 255, 0.3)',
+    '--shadow-neon-accent': 'rgba(224, 123, 86, 0.5)',
+    '--scanline-opacity': '0.03',
+  },
+};
+
+export const SPECTRUM_COLORS = {
+  morning: {
+    barR: 30, barG: 30, barB: 30,
+    highlightR: 80, highlightG: 80, highlightB: 80,
+  },
+  afternoon: {
+    barR: 90, barG: 50, barB: 30,
+    highlightR: 180, highlightG: 100, highlightB: 60,
+  },
+};
+
+export const NIGHT_SPECTRUM_COLORS = [
+  { r: 0,   g: 204, b: 255 },  // cyan
+  { r: 255, g: 102, b: 170 },  // pink
+  { r: 255, g: 170, b: 0   },  // orange
+  { r: 0,   g: 255, b: 102 },  // green
+  { r: 255, g: 68,  b: 68  },  // red
+  { r: 170, g: 102, b: 255 },  // purple
+  { r: 255, g: 221, b: 0   },  // yellow
+];

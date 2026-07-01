@@ -1,0 +1,213 @@
+/* === CLAWED Crab — Pixel Art SVG === */
+
+.crab-mascot {
+  transition: filter 0.3s ease;
+}
+
+/* Hide all state groups by default */
+.g { display: none; }
+
+/* State visibility */
+.crab-state-default .g-default { display: inline; }
+.crab-state-play .g-default { display: inline; }
+.crab-state-loading .g-default { display: inline; }
+.crab-state-play .g-play { display: inline; }
+
+/* Idle subtle glow */
+.crab-state-default {
+  filter: drop-shadow(0 0 6px rgba(224,123,86,0.3));
+}
+
+/* Talking/Bouncing glow + bounce */
+.crab-state-play {
+  filter: drop-shadow(0 0 14px rgba(224,123,86,0.55));
+  animation: crabBounce 0.6s ease-in-out infinite;
+}
+
+@keyframes crabBounce {
+  0%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-8px); }
+  50% { transform: translateY(0); }
+  70% { transform: translateY(-4px); }
+}
+
+/* Pulse for loading/thinking */
+@keyframes crabPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.crab-loading {
+  animation: crabPulse 1.2s ease-in-out infinite;
+}
+
+/* Loading: eating music notes */
+.crab-state-loading {
+  filter: drop-shadow(0 0 8px rgba(224,123,86,0.4));
+  animation: crabBounce 0.8s ease-in-out infinite;
+}
+.crab-state-loading .g-loading { display: inline; }
+
+/* Music notes floating from right side toward crab mouth (~x=100, y=95) */
+@keyframes noteFloat1 {
+  0%   { transform: translate(160px, 85px) scale(1); opacity: 1; }
+  80%  { transform: translate(105px, 92px) scale(0.6); opacity: 1; }
+  100% { transform: translate(95px, 95px) scale(0.3); opacity: 0; }
+}
+@keyframes noteFloat2 {
+  0%   { transform: translate(165px, 100px) scale(1); opacity: 0; }
+  15%  { transform: translate(165px, 100px) scale(1); opacity: 1; }
+  80%  { transform: translate(108px, 97px) scale(0.6); opacity: 1; }
+  100% { transform: translate(98px, 95px) scale(0.3); opacity: 0; }
+}
+@keyframes noteFloat3 {
+  0%   { transform: translate(158px, 75px) scale(1); opacity: 0; }
+  30%  { transform: translate(158px, 75px) scale(1); opacity: 1; }
+  85%  { transform: translate(102px, 90px) scale(0.5); opacity: 1; }
+  100% { transform: translate(92px, 93px) scale(0.3); opacity: 0; }
+}
+@keyframes noteFloat4 {
+  0%   { transform: translate(162px, 110px) scale(1); opacity: 0; }
+  25%  { transform: translate(162px, 110px) scale(1); opacity: 1; }
+  85%  { transform: translate(106px, 100px) scale(0.6); opacity: 1; }
+  100% { transform: translate(96px, 97px) scale(0.3); opacity: 0; }
+}
+
+.note-1 { animation: noteFloat1 1.6s ease-out infinite; }
+.note-2 { animation: noteFloat2 1.8s ease-out 0.4s infinite; }
+.note-3 { animation: noteFloat3 1.5s ease-out 0.8s infinite; }
+.note-4 { animation: noteFloat4 1.7s ease-out 0.2s infinite; }
+
+/* === LISTENING STATE === */
+
+.crab-state-listening {
+  filter: drop-shadow(0 0 12px rgba(224,123,86,0.45));
+}
+.crab-state-listening .g-listening { display: inline; }
+.crab-state-listening .g-default { display: none; }
+
+/* === Claw transition animation === */
+/* Claws move up, hold, then back down */
+
+@keyframes clawUp {
+  0%   { transform: translateY(0); }
+  30%  { transform: translateY(-14px); }
+  70%  { transform: translateY(-14px); }
+  100% { transform: translateY(0); }
+}
+
+.crab-anim-in .claw-left,
+.crab-anim-in .claw-right {
+  animation: clawUp 0.9s ease-in-out forwards;
+}
+
+.crab-anim-out .claw-left,
+.crab-anim-out .claw-right {
+  animation: clawUp 0.9s ease-in-out forwards;
+}
+
+/* Headphones fade in sync with claw raise */
+@keyframes headphonesIn {
+  0%, 40%  { opacity: 0; }
+  50%, 100% { opacity: 1; }
+}
+@keyframes headphonesOut {
+  0%, 50%  { opacity: 1; }
+  70%, 100% { opacity: 0; }
+}
+.crab-anim-in  .g-listening { animation: headphonesIn 0.9s ease forwards; }
+.crab-anim-out .g-listening { animation: headphonesOut 0.9s ease forwards; }
+
+/* === Sway animation (only when animPhase = 'active') === */
+
+@keyframes crabSway {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-3px); }
+  75%      { transform: translateX(3px); }
+}
+
+.crab-anim-active {
+  animation: crabSway 2.4s ease-in-out infinite;
+}
+
+/* === Colored floating music notes === */
+
+@keyframes noteFloatBlue {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.6; }
+  50%      { transform: translate(-6px, -14px) scale(1.3); opacity: 1; }
+}
+@keyframes noteFloatOrange {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.5; }
+  50%      { transform: translate(5px, -12px) scale(1.2); opacity: 1; }
+}
+@keyframes noteFloatPurple {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.7; }
+  50%      { transform: translate(-4px, -10px) scale(1.25); opacity: 1; }
+}
+@keyframes noteFloatCyan {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.55; }
+  50%      { transform: translate(6px, -13px) scale(1.15); opacity: 1; }
+}
+
+.listen-note-1 { animation: noteFloatBlue   2.6s ease-in-out 0.0s infinite; }
+.listen-note-2 { animation: noteFloatOrange 3.0s ease-in-out 0.7s infinite; }
+.listen-note-3 { animation: noteFloatPurple 2.8s ease-in-out 1.4s infinite; }
+.listen-note-4 { animation: noteFloatCyan   3.2s ease-in-out 2.1s infinite; }
+
+/* === Cold-start exit animation === */
+
+/* Overlay fades out after notes are eaten */
+@keyframes overlayExit {
+  0%   { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.cold-overlay.cold-exit {
+  animation: overlayExit 0.9s ease-in forwards;
+  pointer-events: none;
+}
+
+/* All notes rapidly converge to mouth (~x=100, y=95) and vanish */
+.cold-overlay.cold-exit .note-1,
+.cold-overlay.cold-exit .note-2,
+.cold-overlay.cold-exit .note-3,
+.cold-overlay.cold-exit .note-4 {
+  animation: noteEaten 0.5s ease-in forwards;
+}
+@keyframes noteEaten {
+  0%   { opacity: 1; }
+  100% { transform: translate(100px, 95px) scale(0); opacity: 0; }
+}
+
+/* Crab does a quick triple-bounce then fades */
+.cold-overlay.cold-exit .crab-mascot {
+  animation: crabExit 0.7s ease-in forwards;
+}
+@keyframes crabExit {
+  0%   { transform: translateY(0) scale(1); opacity: 1; }
+  30%  { transform: translateY(-16px) scale(1.15); opacity: 1; }
+  50%  { transform: translateY(0) scale(1); opacity: 1; }
+  70%  { transform: translateY(-8px) scale(1.05); opacity: 1; }
+  100% { transform: translateY(0) scale(0.8); opacity: 0; }
+}
+
+/* Scanline wipe reveal */
+.cold-overlay.cold-exit::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(224,123,86,0.15) 3px,
+    rgba(224,123,86,0.15) 4px
+  );
+  animation: scanWipe 0.9s ease-in forwards;
+  pointer-events: none;
+}
+@keyframes scanWipe {
+  0%   { opacity: 0; }
+  50%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(100%); }
+}

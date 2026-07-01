@@ -1,0 +1,16 @@
+{
+  "name": "Qclaudio 88.7",
+  "short_name": "Qclaudio",
+  "description": "24/7 AI Radio Station — Personal AI DJ",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050a10",
+  "theme_color": "#00aaff",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦀</text></svg>",
+      "sizes": "100x100",
+      "type": "image/svg+xml"
+    }
+  ]
+}

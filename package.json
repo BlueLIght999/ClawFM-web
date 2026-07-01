@@ -1,0 +1,17 @@
+{
+  "name": "qclaudio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "24/7 AI Radio Station — Qclaudio 88.7",
+  "bin": {
+    "qclaudio": "./bin/qclaudio.js"
+  },
+  "scripts": {
+    "start": "node bin/qclaudio.js",
+    "build": "cd client && npx vite build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}

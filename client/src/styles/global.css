@@ -1,0 +1,232 @@
+/* === Pixel Font Import === */
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+
+/* === CSS Variables === */
+:root {
+  --bg-primary: #050a10;
+  --bg-secondary: #0a1018;
+  --bg-panel: #0d1520;
+  --text-primary: #00ccff;
+  --text-secondary: #0099cc;
+  --text-dim: #004466;
+  --accent: #E07B56;
+  --accent-glow: #F4A885;
+  --accent-dark: #C56B3F;
+  --neon-cyan: #00ccff;
+  --neon-pink: #ff66aa;
+  --neon-blue: #0088ff;
+  --border-color: #00aaff;
+  --border-dim: #003355;
+  --font-pixel: 'Press Start 2P', monospace;
+  --font-mono: 'VT323', 'Courier New', monospace;
+  --scanline-opacity: 0.03;
+  --shadow-border-inset: rgba(0, 170, 255, 0.08);
+  --shadow-border-outer: rgba(0, 170, 255, 0.1);
+  --shadow-accent-inset: rgba(224, 123, 86, 0.08);
+  --shadow-accent-outer: rgba(224, 123, 86, 0.15);
+  --shadow-cyan-hover: rgba(0, 204, 255, 0.3);
+  --shadow-cyan-focus: rgba(0, 204, 255, 0.25);
+  --shadow-accent-hover: rgba(224, 123, 86, 0.15);
+  --shadow-accent-glow: rgba(224, 123, 86, 0.3);
+  --shadow-accent-title: rgba(224, 123, 86, 0.3);
+  --shadow-neon-cyan: rgba(0, 204, 255, 0.5);
+  --shadow-neon-cyan-dim: rgba(0, 204, 255, 0.3);
+  --shadow-neon-accent: rgba(224, 123, 86, 0.5);
+}
+
+/* === Reset === */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  line-height: 1.25;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+/* === CRT Scanline Effect (night theme only) === */
+[data-theme="night"] body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.06) 0px,
+    rgba(0, 0, 0, 0.06) 2px,
+    transparent 2px,
+    transparent 6px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* === Pixel Borders === */
+.pixel-border {
+  border: 2px solid var(--border-color);
+  box-shadow:
+    inset 0 0 0 1px var(--shadow-border-inset),
+    0 0 6px var(--shadow-border-outer);
+  image-rendering: pixelated;
+}
+
+.pixel-border-accent {
+  border: 2px solid var(--accent);
+  box-shadow:
+    inset 0 0 0 1px var(--shadow-accent-inset),
+    0 0 6px var(--shadow-accent-outer);
+}
+
+/* === Pixel Button === */
+.pixel-btn {
+  background: var(--bg-panel);
+  border: 2px solid var(--border-color);
+  color: var(--text-primary);
+  font-family: var(--font-pixel);
+  font-size: 6px;
+  padding: 2px 6px;
+  cursor: pointer;
+  image-rendering: pixelated;
+  transition: all 0.1s;
+  text-transform: uppercase;
+}
+.pixel-btn:hover {
+  background: var(--text-dim);
+  box-shadow: 0 0 8px var(--shadow-cyan-hover);
+}
+.pixel-btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+.pixel-btn.accent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.pixel-btn.accent:hover {
+  background: var(--shadow-accent-hover);
+  box-shadow: 0 0 8px var(--shadow-accent-glow);
+}
+
+/* === Pixel Input === */
+.pixel-input {
+  background: var(--bg-primary);
+  border: 2px solid var(--border-dim);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 6px;
+  outline: none;
+}
+.pixel-input:focus {
+  border-color: var(--text-primary);
+  box-shadow: 0 0 6px var(--shadow-cyan-focus);
+}
+
+/* === Pixel Text === */
+.pixel-text {
+  font-family: var(--font-pixel);
+  font-size: 6px;
+  letter-spacing: 0.5px;
+  image-rendering: pixelated;
+}
+
+.pixel-title {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: var(--accent);
+  text-shadow: 1px 1px 0 var(--shadow-accent-title);
+  letter-spacing: 1px;
+}
+
+/* === Neon Glow === */
+.neon-text {
+  color: var(--neon-cyan);
+  text-shadow:
+    0 0 4px var(--neon-cyan),
+    0 0 8px var(--shadow-neon-cyan),
+    0 0 16px var(--shadow-neon-cyan-dim);
+}
+
+.neon-accent {
+  color: var(--accent);
+  text-shadow:
+    0 0 4px var(--accent),
+    0 0 8px var(--shadow-neon-accent);
+}
+
+/* === Marquee Text === */
+@keyframes marquee {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+
+.marquee {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.marquee-inner {
+  display: inline-block;
+  animation: marquee 12s linear infinite;
+}
+
+/* === Blink cursor === */
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.cursor-blink::after {
+  content: '_';
+  animation: blink 1s step-end infinite;
+  color: var(--text-primary);
+}
+
+/* === Scrollbar === */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-dim);
+  border: 1px solid var(--border-color);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
+/* === Chat Panel Transitions === */
+@keyframes chatSlideUp {
+  0% { opacity: 0; transform: translateY(16px) scaleY(0.92); }
+  100% { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+.chat-panel-enter {
+  animation: chatSlideUp 0.35s ease-out;
+}
+
+/* === Layout === */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: 680px;
+  margin: 0 auto;
+  position: relative;
+}

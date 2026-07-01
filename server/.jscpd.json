@@ -1,0 +1,14 @@
+{
+  "threshold": 5,
+  "reporters": ["consoleFull"],
+  "absolute": true,
+  "gitignore": true,
+  "ignore": [
+    "**/node_modules/**",
+    "**/netease-api/**",
+    "**/data/**",
+    "**/coverage/**",
+    "**/__tests__/**"
+  ],
+  "format": ["javascript"]
+}
