@@ -1,5 +1,6 @@
 import { artistName } from './artistName.js';
 import { firstTruthy } from '../curation/firstTruthy.js';
+import { proactiveContextLines } from './proactiveContextLines.js';
 
 /**
  * Pure builder for the proactive-speech decision prompt.
@@ -17,11 +18,7 @@ export function buildProactivePrompt(ctx = {}) {
   const blockHints = firstTruthy((ctx.activeBlock?.genreHints || []).join(', '), 'varied');
   const nextTitle = ctx.nextSong ? firstTruthy(ctx.nextSong.name, ctx.nextSong.title, '?') : '?';
   const secondTitle = ctx.secondNext ? firstTruthy(ctx.secondNext.name, ctx.secondNext.title, '?') : '?';
-  const weatherMark = ctx.weatherChanged ? '(刚变化) ' : '';
-  const chatLine = ctx.lastChatMessage
-    ? `最近听众聊天: "${ctx.lastChatMessage}"`
-    : '最近无听众互动';
-  const hourLine = ctx.hourChanged ? '(刚刚进入新的小时段)' : '';
+  const { weatherMark, chatLine, hourLine } = proactiveContextLines(ctx);
 
   return `你是 Qclaudio 88.7 的 AI DJ CLAWED（一只螃蟹）。
 
