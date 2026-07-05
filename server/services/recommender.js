@@ -1,33 +1,37 @@
-import {
-  getUserPlaylists,
-  getPlaylistTracks,
-  getLikedSongs,
-  getRecommendSongs,
-  getPersonalFm,
-  getSimilarSongs,
-  getSmartPlaylist,
-  searchSongs,
-  getSongDetail,
-} from './netease.js';
-import {
-  setUserProfile,
-  getUserProfile,
-  getRecentSongIds,
-  getSeedPool,
-  upsertSeedPool,
-  getArtistPlayCount,
-} from '../db/history.js';
 import { queue } from './queue.js';
 import { buildTasteMarkdown } from '../domain/curation/buildTasteMarkdown.js';
+import { artistName } from '../domain/hosting/artistName.js';
 import {
   isTasteTemplate,
   isRoutinesTemplate,
   buildRoutinesMarkdown,
 } from '../domain/curation/userCorpusRules.js';
+import {
+  rankSongsByTopArtists,
+  seedSongMatchesPreference,
+  toSeedSongFromTrack,
+} from '../domain/curation/recommenderRules.js';
 import { defaultCorpus } from '../infrastructure/storage/defaultCorpus.js';
+import { legacyNeteaseMusicSourceAdapter } from '../infrastructure/music/LegacyNeteaseMusicSourceAdapter.js';
+import { legacyListenHistoryRepository } from '../infrastructure/persistence/repositories/LegacyListenHistoryRepository.js';
+import { legacySeedPoolRepository } from '../infrastructure/persistence/repositories/LegacySeedPoolRepository.js';
+import { legacyListenerProfileRepository } from '../infrastructure/persistence/repositories/LegacyListenerProfileRepository.js';
 
 export class Recommender {
-  constructor() {
+  constructor({
+    music = legacyNeteaseMusicSourceAdapter,
+    listenHistory = legacyListenHistoryRepository,
+    seedPool = legacySeedPoolRepository,
+    profile = legacyListenerProfileRepository,
+    corpus = defaultCorpus,
+    queueStore = queue,
+  } = {}) {
+    this.music = music;
+    this.listenHistory = listenHistory;
+    this.seedPoolRepo = seedPool;
+    this.profile = profile;
+    this.corpus = corpus;
+    this.queueStore = queueStore;
     this.uid = null;
     this.seedPool = [];
     this.topArtists = [];
@@ -39,7 +43,7 @@ export class Recommender {
   async init(uid) {
     this.uid = uid;
     // Load cached profile
-    const profile = getUserProfile();
+    const profile = this.profile.get();
     if (profile.topArtists) this.topArtists = profile.topArtists;
     if (profile.topGenres) this.topGenres = profile.topGenres;
 
@@ -53,33 +57,23 @@ export class Recommender {
   async _buildSeedPool() {
     try {
       // Fetch user playlists
-      const playlistRes = await getUserPlaylists(this.uid);
-      const playlists = playlistRes.playlist || [];
+      const playlists = await this.music.userPlaylists(this.uid);
 
       const songs = new Map();
       const artistCount = {};
-      const genreCount = {};
 
       // Process playlists (limit to top 10 to avoid rate limiting)
       for (const pl of playlists.slice(0, 10)) {
         try {
-          const tracksRes = await getPlaylistTracks(pl.id);
-          const tracks = tracksRes.songs || tracksRes.tracks || [];
+          const tracks = await this.music.playlistTracks(pl.id);
           for (const track of tracks) {
-            const sid = String(track.id);
+            const seedSong = toSeedSongFromTrack(track, `playlist:${pl.name}`);
+            const sid = seedSong.songId;
             if (songs.has(sid)) continue;
-            songs.set(sid, {
-              song_id: sid,
-              title: track.name || track.title,
-              artist: (track.ar || []).map(a => a.name).join(', ') || track.artist || '',
-              album: track.al?.name || track.album || '',
-              duration: track.dt || track.duration || 0,
-              source: `playlist:${pl.name}`,
-              genre_tags: JSON.stringify(track.genres || []),
-            });
+            songs.set(sid, seedSong);
             // Count artists
-            for (const a of (track.ar || [])) {
-              artistCount[a.name] = (artistCount[a.name] || 0) + 1;
+            for (const name of seedSong.artist.split(',').map(a => a.trim()).filter(Boolean)) {
+              artistCount[name] = (artistCount[name] || 0) + 1;
             }
           }
         } catch (e) { /* skip failed playlist */ }
@@ -87,27 +81,19 @@ export class Recommender {
 
       // Add liked songs
       try {
-        const likedRes = await getLikedSongs(this.uid);
-        const likedSongs = likedRes.ids || [];
+        const likedSongs = await this.music.likedSongs(this.uid);
         for (const item of likedSongs.slice(0, 500)) {
-          const sid = String(item.id);
+          const seedSong = toSeedSongFromTrack(item, 'liked');
+          const sid = seedSong.songId;
           if (!songs.has(sid)) {
-            songs.set(sid, {
-              song_id: sid,
-              title: item.name || '',
-              artist: (item.ar || []).map(a => a.name).join(', '),
-              album: item.al?.name || '',
-              duration: item.dt || 0,
-              source: 'liked',
-              genre_tags: '[]',
-            });
+            songs.set(sid, seedSong);
           }
         }
       } catch (e) { /* skip */ }
 
       // Store in DB
       for (const [, song] of songs) {
-        upsertSeedPool(song);
+        this.seedPoolRepo.upsert(song);
       }
 
       // Store profile
@@ -116,8 +102,8 @@ export class Recommender {
         .slice(0, 30)
         .map(([name, count]) => ({ name, count }));
 
-      setUserProfile('topArtists', this.topArtists);
-      this.seedPool = getSeedPool();
+      this.profile.set('topArtists', this.topArtists);
+      this.seedPool = this.seedPoolRepo.all();
 
       console.log(`[Recommender] Seed pool built: ${songs.size} songs, ${this.topArtists.length} top artists`);
 
@@ -133,7 +119,7 @@ export class Recommender {
       console.log('[Recommender] _writeUserCorpus called, totalSongs:', totalSongs, 'artists:', this.topArtists.length);
 
       // Build taste.md — only overwrite if still a template (empty artists list)
-      const existingTaste = defaultCorpus.readTaste();
+      const existingTaste = this.corpus.readTaste();
       if (isTasteTemplate(existingTaste)) {
         const tasteContent = buildTasteMarkdown({
           topArtists: this.topArtists,
@@ -141,15 +127,15 @@ export class Recommender {
           totalSongs,
           date: new Date().toISOString().split('T')[0],
         });
-        defaultCorpus.writeTaste(tasteContent);
+        this.corpus.writeTaste(tasteContent);
         console.log('[Recommender] User taste.md auto-filled');
       }
 
       // Fill routines.md genre gaps
-      const existingRoutines = defaultCorpus.readRoutines();
+      const existingRoutines = this.corpus.readRoutines();
       if (isRoutinesTemplate(existingRoutines)) {
         const topArtistNames = this.topArtists.slice(0, 10).map(a => a.name);
-        defaultCorpus.writeRoutines(buildRoutinesMarkdown(topArtistNames));
+        this.corpus.writeRoutines(buildRoutinesMarkdown(topArtistNames));
         console.log('[Recommender] User routines.md auto-filled');
       }
     } catch (e) {
@@ -164,8 +150,7 @@ export class Recommender {
       for (const genre of genres.slice(0, 2)) {
         if (songs.length >= 20) break;
         try {
-          const res = await searchSongs(genre, 5);
-          const tracks = (res.result?.songs || []).filter(t => {
+          const tracks = (await this.music.search(genre, 5)).filter(t => {
             const sid = String(t.id);
             return !recentIds.has(sid);
           });
@@ -179,8 +164,8 @@ export class Recommender {
   async fillQueue(targetSize = 15, hints = null) {
     if (!this.initialized) { console.log('[Recommender] fillQueue: not initialized'); return []; }
 
-    const recentIds = new Set(getRecentSongIds(200));
-    const hourArtists = new Set(getArtistPlayCount(1).slice(0, 10).map(a => a.artist));
+    const recentIds = new Set(this.listenHistory.recentSongIds(200));
+    const hourArtists = new Set(this.listenHistory.artistPlayCount(1).slice(0, 10).map(a => a.artist));
     const allSongs = [];
     console.log(`[Recommender] fillQueue target=${targetSize}, recentIds=${recentIds.size}, hints=${hints ? hints.length : 0}`);
 
@@ -234,7 +219,7 @@ export class Recommender {
 
     console.log(`[Recommender] fillQueue total: ${allSongs.length} songs (target ${targetSize})`);
     if (allSongs.length > 0) {
-      queue.addSongs(allSongs);
+      this.queueStore.addSongs(allSongs);
       if (activeBlockHints) {
         this._planProgress.songsFilledInBlock += allSongs.length;
       }
@@ -248,7 +233,7 @@ export class Recommender {
    * Uses seed pool matching first, then preference-aware search, then fallback.
    */
   async fillQueueByPreference(preference, targetSize = 10) {
-    const recentIds = new Set(getRecentSongIds(200));
+    const recentIds = new Set(this.listenHistory.recentSongIds(200));
     const allSongs = [];
 
     // Step 1: try matching from seed pool
@@ -256,8 +241,7 @@ export class Recommender {
       const seedMatches = this._filterSeedPoolByPreference(preference);
       if (seedMatches.length > 0) {
         try {
-          const details = await getSongDetail(seedMatches.slice(0, 20));
-          const tracks = (details.songs || []).filter(t => {
+          const tracks = (await this.music.details(seedMatches.slice(0, 20))).filter(t => {
             const sid = String(t.id);
             return !recentIds.has(sid);
           });
@@ -273,20 +257,11 @@ export class Recommender {
     // Step 2: preference-aware search (filter by user's top artists affinity)
     if (allSongs.length < targetSize && preference) {
       try {
-        const res = await searchSongs(preference, 15);
-        const tracks = (res.result?.songs || []).filter(t => {
+        const tracks = (await this.music.search(preference, 15)).filter(t => {
           const sid = String(t.id);
           return !recentIds.has(sid);
         });
-        // Prioritize songs by user's top artists
-        const topArtistNames = new Set(this.topArtists.slice(0, 15).map(a => a.name.toLowerCase()));
-        const scored = tracks.map(t => {
-          const artists = (t.ar || []).map(a => a.name.toLowerCase());
-          const score = artists.filter(a => topArtistNames.has(a)).length;
-          return { track: t, score };
-        });
-        scored.sort((a, b) => b.score - a.score);
-        for (const { track } of scored) {
+        for (const track of rankSongsByTopArtists(tracks, this.topArtists)) {
           if (allSongs.length >= targetSize) break;
           allSongs.push(track);
           recentIds.add(String(track.id));
@@ -312,14 +287,14 @@ export class Recommender {
     }
 
     if (allSongs.length > 0) {
-      queue.addSongs(allSongs);
+      this.queueStore.addSongs(allSongs);
     }
     return allSongs;
   }
 
   /** Generic fill without plan hints — used as fallback */
   async _fillGeneric(targetSize, recentIds) {
-    const hourArtists = new Set(getArtistPlayCount(1).slice(0, 10).map(a => a.artist));
+    const hourArtists = new Set(this.listenHistory.artistPlayCount(1).slice(0, 10).map(a => a.artist));
     const strategies = [
       () => this._fetchPersonalFm(recentIds, hourArtists),
       () => this._fetchSimilarSongs(recentIds, hourArtists),
@@ -343,23 +318,12 @@ export class Recommender {
 
   /** Filter seed pool by preference keyword (genre, instrument, style) */
   _filterSeedPoolByPreference(preference) {
-    const pool = getSeedPool();
+    const pool = this.seedPoolRepo.all();
     if (!pool.length) return [];
-    const kw = preference.toLowerCase();
     const matched = [];
     for (const row of pool) {
-      try {
-        const tags = JSON.parse(row.genre_tags || '[]');
-        const tagStr = (Array.isArray(tags) ? tags : []).join(' ').toLowerCase();
-        const title = (row.title || '').toLowerCase();
-        const artist = (row.artist || '').toLowerCase();
-        if (tagStr.includes(kw) || title.includes(kw) || artist.includes(kw)) {
-          matched.push(String(row.song_id));
-        }
-      } catch {
-        // Simple string match fallback
-        const all = `${row.title||''} ${row.artist||''} ${row.genre_tags||''}`.toLowerCase();
-        if (all.includes(kw)) matched.push(String(row.song_id));
+      if (seedSongMatchesPreference(row, preference)) {
+        matched.push(String(row.songId));
       }
     }
     return [...new Set(matched)]; // deduplicate
@@ -377,28 +341,25 @@ export class Recommender {
 
   async _fetchPersonalFm(recentIds, hourArtists) {
     try {
-      const res = await getPersonalFm();
-      const tracks = res.data || [];
+      const tracks = await this.music.personalFm();
       return tracks.filter(t => {
-        const artist = (t.ar || []).map(a => a.name).join(', ');
+        const artist = artistName(t);
         return !hourArtists.has(artist);
       });
     } catch (e) { console.log('[Recommender] _fetchPersonalFm error:', e.message); return []; }
   }
 
   async _fetchSimilarSongs(recentIds, hourArtists) {
-    if (!queue.current) { console.log('[Recommender] _fetchSimilarSongs: no queue.current'); return []; }
+    if (!this.queueStore.current) { console.log('[Recommender] _fetchSimilarSongs: no queue.current'); return []; }
     try {
-      const currentId = queue.current.id || queue.current.song_id;
-      const res = await getSimilarSongs(String(currentId));
-      return (res.songs || []).slice(0, 10);
+      const currentId = this.queueStore.current.id || this.queueStore.current.song_id;
+      return (await this.music.similar(String(currentId))).slice(0, 10);
     } catch (e) { console.log('[Recommender] _fetchSimilarSongs error:', e.message); return []; }
   }
 
   async _fetchDailyRecommendations(recentIds, hourArtists) {
     try {
-      const res = await getRecommendSongs();
-      return (res.data?.dailySongs || res.recommend || []).slice(0, 15);
+      return (await this.music.dailyRecommend()).slice(0, 15);
     } catch (e) { console.log('[Recommender] _fetchDailyRecommendations error:', e.message); return []; }
   }
 
@@ -407,16 +368,14 @@ export class Recommender {
       // Search by top artist
       const artist = this.topArtists[Math.floor(Math.random() * Math.min(this.topArtists.length, 10))];
       if (!artist) { console.log('[Recommender] _fetchGenreSearch: no top artists'); return []; }
-      const res = await searchSongs(artist.name, 10);
-      return (res.result?.songs || []).slice(0, 5);
+      return (await this.music.search(artist.name, 10)).slice(0, 5);
     } catch (e) { console.log('[Recommender] _fetchGenreSearch error:', e.message); return []; }
   }
 
   async getSongDetails(songIds) {
     if (songIds.length === 0) return [];
     try {
-      const res = await getSongDetail(songIds);
-      return res.songs || [];
+      return await this.music.details(songIds);
     } catch { return []; }
   }
 }

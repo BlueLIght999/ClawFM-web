@@ -1,4 +1,4 @@
-import { getLatestQueueSnapshot, saveQueueSnapshot } from '../db/history.js';
+import { legacyQueueSnapshotRepository } from '../infrastructure/persistence/repositories/LegacyQueueSnapshotRepository.js';
 
 export class SongQueue {
   constructor() {
@@ -115,11 +115,11 @@ export class SongQueue {
   }
 
   persist() {
-    saveQueueSnapshot(JSON.stringify(this.toState()));
+    legacyQueueSnapshotRepository.save(this.toState());
   }
 
   init() {
-    const saved = getLatestQueueSnapshot();
+    const saved = legacyQueueSnapshotRepository.latest();
     if (saved) this.loadFromState(saved);
   }
 

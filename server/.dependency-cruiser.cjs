@@ -41,6 +41,38 @@ module.exports = {
     },
 
     // ───────────────────────────────────────────────────────────
+    // 目标四层守卫：新建 application/infrastructure 代码从一开始受约束
+    // ───────────────────────────────────────────────────────────
+    {
+      name: 'target-domain-is-pure',
+      severity: 'error',
+      comment: 'D1: domain 禁止依赖 application/infrastructure/interface/services/db/socket。',
+      from: { path: '^domain/' },
+      to: { path: '^(application|infrastructure|interface|services|db|socket)/' },
+    },
+    {
+      name: 'target-domain-no-node-builtins',
+      severity: 'error',
+      comment: 'D2: domain 禁止 import node 内置模块。',
+      from: { path: '^domain/' },
+      to: { dependencyTypes: ['core'] },
+    },
+    {
+      name: 'target-application-no-outer-layer',
+      severity: 'error',
+      comment: 'D3/D4: application 只能依赖 domain 与自身 ports，禁止依赖 infrastructure/interface/services/db/socket。',
+      from: { path: '^application/' },
+      to: { path: '^(infrastructure|interface|services|db|socket)/' },
+    },
+    {
+      name: 'target-infrastructure-no-interface',
+      severity: 'error',
+      comment: 'D6: infrastructure 禁止依赖 interface/socket 边界。',
+      from: { path: '^infrastructure/' },
+      to: { path: '^(interface|socket)/' },
+    },
+
+    // ───────────────────────────────────────────────────────────
     // 通用健康规则
     // ───────────────────────────────────────────────────────────
     {
@@ -61,6 +93,7 @@ module.exports = {
           '\\.d\\.ts$',
           '(^|/)index\\.js$',
           '(^|/)server\\.js$',
+          '^application/ports/',
           '\\.cjs$',
         ],
       },

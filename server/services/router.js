@@ -6,12 +6,12 @@
  * or be routed through Claude/DJ for natural language processing.
  */
 
-import { searchSongs } from './netease.js';
 import { extractIntent } from './claude.js';
 import { isGenreQuery } from '../domain/routing/isGenreQuery.js';
 import { matchFastRoute } from '../domain/routing/matchFastRoute.js';
 import { moodToQuery } from '../domain/routing/moodToQuery.js';
 import { pickStartSong } from '../domain/routing/pickStartSong.js';
+import { legacyNeteaseMusicSourceAdapter } from '../infrastructure/music/LegacyNeteaseMusicSourceAdapter.js';
 
 // Keywords that indicate a live/concert version (case-insensitive)
 const LIVE_PATTERNS = [
@@ -28,7 +28,7 @@ function isLiveVersion(song) {
     if (pattern.test(titleOrig)) return true;
   }
   // Also check for (live) suffixes in any case
-  if (/[\(\[]\s*live(\s+version)?\s*[\)\]]/i.test(titleOrig)) return true;
+  if (/[([]\s*live(\s+version)?\s*[)\]]/i.test(titleOrig)) return true;
   return false;
 }
 
@@ -42,7 +42,16 @@ function filterLive(songs) {
  * @param {string} text — raw user input
  * @returns {{ route: 'ncm'|'claude'|'hybrid', action: string, params: object, results?: object }}
  */
-export async function routeIntent(text) {
+export async function routeIntent(text, dependencies = {}) {
+  return routeIntentWithDependencies(text, {
+    music: legacyNeteaseMusicSourceAdapter,
+    ...dependencies,
+  });
+}
+
+export async function routeIntentWithDependencies(text, {
+  music = legacyNeteaseMusicSourceAdapter,
+} = {}) {
   const msg = text.toLowerCase().trim();
 
   // Fast path: simple commands that don't need AI
@@ -58,8 +67,7 @@ export async function routeIntent(text) {
       return { route: 'ncm', action: 'play_personalized', params: { preference: query } };
     }
     try {
-      const res = await searchSongs(query, 5);
-      const songs = filterLive(res?.result?.songs || []);
+      const songs = filterLive(await searchSongsViaMusic(music, query, 5));
       return {
         route: 'ncm',
         action: 'play_search',
@@ -74,7 +82,7 @@ export async function routeIntent(text) {
   // Default: use AI for intent extraction, then dispatch to a handler.
   const intent = await extractIntent(text);
   const handler = AI_ACTION_HANDLERS[intent?.action];
-  return handler ? handler(intent, text) : handleChat(intent);
+  return handler ? handler(intent, text, { music }) : handleChat(intent);
 }
 
 const CHAT_FALLBACK = { route: 'claude', action: 'chat', params: {} };
@@ -83,29 +91,27 @@ function handleChat(intent) {
   return { route: 'claude', action: 'chat', params: intent?.params || {} };
 }
 
-async function handlePlayMood(intent) {
+async function handlePlayMood(intent, _text, { music = legacyNeteaseMusicSourceAdapter } = {}) {
   const query = moodToQuery(intent.params?.mood);
   try {
-    const res = await searchSongs(query, 5);
     return {
       route: 'hybrid',
       action: 'play_mood',
       params: intent.params,
-      results: filterLive(res?.result?.songs || []).slice(0, 5),
+      results: filterLive(await searchSongsViaMusic(music, query, 5)).slice(0, 5),
     };
   } catch {
     return CHAT_FALLBACK;
   }
 }
 
-async function handlePlayArtist(intent) {
+async function handlePlayArtist(intent, _text, { music = legacyNeteaseMusicSourceAdapter } = {}) {
   try {
     const artistName = intent.params?.artist || '';
     const startSong = intent.params?.song || '';
-    const artistRes = await searchSongs(artistName, 15);
-    let songs = filterLive(artistRes?.result?.songs || []).slice(0, 10);
+    let songs = filterLive(await searchSongsViaMusic(music, artistName, 15)).slice(0, 10);
     if (startSong && songs.length > 0) {
-      songs = await orderByStartSong(songs, artistName, startSong);
+      songs = await orderByStartSong(songs, artistName, startSong, music);
     }
     return { route: 'hybrid', action: 'play_artist', params: intent.params, results: songs };
   } catch {
@@ -114,13 +120,12 @@ async function handlePlayArtist(intent) {
 }
 
 /** Put the requested start song first; fall back to a combined search if not in list. */
-async function orderByStartSong(songs, artistName, startSong) {
+async function orderByStartSong(songs, artistName, startSong, music = legacyNeteaseMusicSourceAdapter) {
   const needle = startSong.toLowerCase();
   const inList = songs.some(s => (s.name || s.title || '').toLowerCase().includes(needle));
   if (inList) return pickStartSong(songs, startSong);
 
-  const specificRes = await searchSongs(`${artistName} ${startSong}`, 5);
-  const specificSongs = filterLive(specificRes?.result?.songs || []);
+  const specificSongs = filterLive(await searchSongsViaMusic(music, `${artistName} ${startSong}`, 5));
   const bestMatch = specificSongs.find(s =>
     (s.name || s.title || '').toLowerCase().includes(needle)
   ) || specificSongs[0];
@@ -128,14 +133,13 @@ async function orderByStartSong(songs, artistName, startSong) {
   return [bestMatch, ...songs.filter(s => s.id !== bestMatch.id)];
 }
 
-async function handlePlaySong(intent) {
+async function handlePlaySong(intent, _text, { music = legacyNeteaseMusicSourceAdapter } = {}) {
   try {
-    const res = await searchSongs(intent.params?.song || '', 5);
     return {
       route: 'hybrid',
       action: 'play_song',
       params: intent.params,
-      results: filterLive(res?.result?.songs || []).slice(0, 3),
+      results: filterLive(await searchSongsViaMusic(music, intent.params?.song || '', 5)).slice(0, 3),
     };
   } catch {
     return CHAT_FALLBACK;
@@ -155,6 +159,10 @@ const AI_ACTION_HANDLERS = {
   chat: handleChat,
   none: handleChat,
 };
+
+function searchSongsViaMusic(music, query, limit) {
+  return music.search(query, limit);
+}
 
 export function isFastRoute(text) {
   const fast = /^(skip|next|切歌|下一首|pause|stop|暂停|play|resume|播放|继续|what'?s playing|now playing)/i;

@@ -1,19 +1,29 @@
 import { queue } from './queue.js';
-import { recordListen } from '../db/history.js';
-import {
-  getSongUrl,
-  getSongDetail,
-  scrobbleSong,
-} from './netease.js';
 import { SpeechTimer } from './speech-timer.js';
 import { toPlayableSong } from '../domain/curation/toPlayableSong.js';
-
-const CROSSFADE_MS = 2500; // Start transition 2.5s before song ends
-const DJ_SPEECH_BUFFER_MS = 4000; // Buffer for DJ speech
-const SPEECH_GEN_TIMEOUT_MS = 15000; // Max time for LLM + TTS generation
+import { buildListenHistoryRecord } from '../domain/playback/listenHistoryRecord.js';
+import {
+  pausePlayhead,
+  playheadElapsedMs,
+  resumePlayhead,
+  seekPlayhead,
+} from '../domain/playback/playheadRules.js';
+import {
+  beginTransitionIfIdle,
+  shouldHonorTransition,
+  transitionSpeechPlan,
+} from '../domain/playback/transitionLifecycle.js';
+import { normalizePlaybackDurationMs, nextTransitionDelayMs } from '../domain/playback/transitionTiming.js';
+import { legacyListenHistoryRepository } from '../infrastructure/persistence/repositories/LegacyListenHistoryRepository.js';
+import { legacyNeteaseMusicSourceAdapter } from '../infrastructure/music/LegacyNeteaseMusicSourceAdapter.js';
 
 export class RadioScheduler {
-  constructor() {
+  constructor({
+    music = legacyNeteaseMusicSourceAdapter,
+    listenHistory = legacyListenHistoryRepository,
+  } = {}) {
+    this.music = music;
+    this.listenHistory = listenHistory;
     this.playhead = {
       currentSong: null,
       startedAt: null,
@@ -34,8 +44,7 @@ export class RadioScheduler {
   get currentSong() { return this.playhead.currentSong; }
   get isAdvancing() { return !!this.playhead._advancing; }
   get elapsed() {
-    if (!this.playhead.isPlaying || !this.playhead.startedAt) return 0;
-    return Math.min(Date.now() - this.playhead.startedAt, this.playhead.songDuration || 0);
+    return playheadElapsedMs(this.playhead, Date.now());
   }
 
   prepareQueue() {
@@ -64,16 +73,11 @@ export class RadioScheduler {
       this._speechTimer.dispose();
       this._speechTimer = null;
     }
-    if (this.playhead.currentSong) {
-      recordListen({
-        song_id: this.playhead.currentSong.id || this.playhead.currentSong.song_id,
-        title: this.playhead.currentSong.name || this.playhead.currentSong.title,
-        artist: this._getArtist(this.playhead.currentSong),
-        album: this.playhead.currentSong.al?.name || this.playhead.currentSong.album || '',
-        duration: Math.floor((this.playhead.songDuration || 0) / 1000),
-        source: 'queue',
-      });
-    }
+    const skipHistoryRecord = buildListenHistoryRecord({
+      song: this.playhead.currentSong,
+      durationMs: this.playhead.songDuration,
+    });
+    if (skipHistoryRecord) this.listenHistory.record(skipHistoryRecord);
     const song = queue.advance();
     if (!song) {
       this.playhead.currentSong = null;
@@ -99,41 +103,46 @@ export class RadioScheduler {
   seek(positionSeconds) {
     const positionMs = positionSeconds * 1000;
     // Adjust startedAt so elapsed ≈ positionMs
-    this.playhead.startedAt = Date.now() - positionMs;
+    this.playhead = seekPlayhead(this.playhead, { positionMs, nowMs: Date.now() });
     // Reschedule transition timer
     if (this.playhead.transitionTimer) clearTimeout(this.playhead.transitionTimer);
     if (this._speechTimer) {
       this._speechTimer.dispose();
       this._speechTimer = null;
     }
-    const remaining = this.playhead.songDuration - positionMs - CROSSFADE_MS - DJ_SPEECH_BUFFER_MS;
-    if (remaining > 0) {
-      this.playhead.transitionTimer = setTimeout(() => this._onSongEnding(), Math.max(remaining, 5000));
+    const transitionDelay = nextTransitionDelayMs({
+      durationMs: this.playhead.songDuration,
+      elapsedMs: positionMs,
+    });
+    if (transitionDelay !== null) {
+      this.playhead.transitionTimer = setTimeout(() => this._onSongEnding(), transitionDelay);
     }
     this._notifyState();
   }
 
   pause() {
-    if (!this.playhead.isPlaying) return;
+    const nextPlayhead = pausePlayhead(this.playhead, Date.now());
+    if (nextPlayhead === this.playhead) return;
     if (this.playhead.transitionTimer) clearTimeout(this.playhead.transitionTimer);
     if (this._speechTimer) {
       this._speechTimer.dispose();
       this._speechTimer = null;
     }
-    this.playhead.remainingAtPause = this.playhead.songDuration - this.elapsed;
-    this.playhead.isPlaying = false;
+    this.playhead = nextPlayhead;
     this._notifyState();
   }
 
   resume() {
-    if (this.playhead.isPlaying) return;
-    if (!this.playhead.currentSong) return;
-    this.playhead.startedAt = Date.now();
-    this.playhead.songDuration = this.playhead.remainingAtPause || this.playhead.songDuration || 240000;
-    this.playhead.isPlaying = true;
-    const remaining = this.playhead.songDuration - CROSSFADE_MS - DJ_SPEECH_BUFFER_MS;
-    if (remaining > 0) {
-      this.playhead.transitionTimer = setTimeout(() => this._onSongEnding(), remaining);
+    const nextPlayhead = resumePlayhead(this.playhead, Date.now());
+    if (nextPlayhead === this.playhead) return;
+    this.playhead = nextPlayhead;
+    // Resume historically used the raw positive delay; keep that timing while sharing the rule.
+    const transitionDelay = nextTransitionDelayMs({
+      durationMs: this.playhead.songDuration,
+      minimumDelayMs: 0,
+    });
+    if (transitionDelay !== null) {
+      this.playhead.transitionTimer = setTimeout(() => this._onSongEnding(), transitionDelay);
     }
     this._notifyState();
   }
@@ -145,47 +154,40 @@ export class RadioScheduler {
     this.playhead.currentSong = song;
     this.playhead.startedAt = Date.now();
 
-    // Get duration
-    const dur = song.dt || song.duration || 240000;
-    this.playhead.songDuration = dur < 1000 ? dur * 1000 : dur;
+    this.playhead.songDuration = normalizePlaybackDurationMs(song);
     this.playhead.isPlaying = true;
 
     // Scrobble to NetEase (for FM recommendations)
     const sid = song.id || song.song_id;
-    scrobbleSong(String(sid)).catch(() => {});
+    this.music.scrobble(String(sid)).catch(() => {});
 
     // Await so audioUrl is cached before any getState() call reads it
     if (this.onSongChange) await this.onSongChange(song);
 
     // Set up next transition
-    const remaining = this.playhead.songDuration - CROSSFADE_MS - DJ_SPEECH_BUFFER_MS;
-    if (remaining > 0) {
-      this.playhead.transitionTimer = setTimeout(() => this._onSongEnding(), Math.max(remaining, 5000));
+    const transitionDelay = nextTransitionDelayMs({ durationMs: this.playhead.songDuration });
+    if (transitionDelay !== null) {
+      this.playhead.transitionTimer = setTimeout(() => this._onSongEnding(), transitionDelay);
     }
 
     this._notifyState();
   }
 
   _onSongEnding() {
-    // Prevent double-advance from player:ended or skip() racing with transition
-    if (this.playhead._advancing) return;
-    this.playhead._advancing = true;
-    const myId = this._transitionId;
+    const transitionStart = beginTransitionIfIdle(this.playhead, this._transitionId);
+    if (!transitionStart.shouldStart) return;
+    this.playhead = transitionStart.playhead;
+    const myId = transitionStart.transitionId;
 
-    // Record as played
-    if (this.playhead.currentSong) {
-      recordListen({
-        song_id: this.playhead.currentSong.id || this.playhead.currentSong.song_id,
-        title: this.playhead.currentSong.name || this.playhead.currentSong.title,
-        artist: this._getArtist(this.playhead.currentSong),
-        album: this.playhead.currentSong.al?.name || this.playhead.currentSong.album || '',
-        duration: Math.floor((this.playhead.songDuration || 0) / 1000),
-        source: 'queue',
-      });
-    }
+    const transitionHistoryRecord = buildListenHistoryRecord({
+      song: this.playhead.currentSong,
+      durationMs: this.playhead.songDuration,
+    });
+    if (transitionHistoryRecord) this.listenHistory.record(transitionHistoryRecord);
 
     const prevSong = this.playhead.currentSong;
     const nextSong = queue.peek();
+    const speechPlan = transitionSpeechPlan(nextSong);
 
     // Dispose any previous speech timer
     if (this._speechTimer) {
@@ -193,36 +195,36 @@ export class RadioScheduler {
       this._speechTimer = null;
     }
 
-    if (!nextSong) {
+    if (speechPlan.kind === 'refill') {
       // Queue exhausted — use longer timeout for refill (60s)
       this._speechTimer = new SpeechTimer({
-        generationTimeoutMs: 60000,
+        generationTimeoutMs: speechPlan.generationTimeoutMs,
         onGenerationTimeout: () => {
-          if (this._transitionId !== myId) return;
+          if (!shouldHonorTransition({ currentTransitionId: this._transitionId, expectedTransitionId: myId })) return;
           console.log('[Scheduler] Refill speech safety timeout — advancing without speech');
           this._advanceToNext();
         },
         onPlaybackTimeout: () => {
-          if (this._transitionId !== myId) return;
+          if (!shouldHonorTransition({ currentTransitionId: this._transitionId, expectedTransitionId: myId })) return;
           console.log('[Scheduler] Refill playback timeout — advancing');
           this._advanceToNext();
         },
       });
       this._speechTimer.startGeneration();
-      if (this.onDjSpeechNeeded) this.onDjSpeechNeeded(prevSong, null, myId);
+      if (this.onDjSpeechNeeded) this.onDjSpeechNeeded(prevSong, speechPlan.nextSong, myId);
       return;
     }
 
     // Normal transition: split timeout for generation (15s) vs playback
     this._speechTimer = new SpeechTimer({
-      generationTimeoutMs: SPEECH_GEN_TIMEOUT_MS,
+      generationTimeoutMs: speechPlan.generationTimeoutMs,
       onGenerationTimeout: () => {
-        if (this._transitionId !== myId) return;
+        if (!shouldHonorTransition({ currentTransitionId: this._transitionId, expectedTransitionId: myId })) return;
         console.log('[Scheduler] Speech generation timeout — advancing without speech');
         this._advanceToNext();
       },
       onPlaybackTimeout: () => {
-        if (this._transitionId !== myId) return;
+        if (!shouldHonorTransition({ currentTransitionId: this._transitionId, expectedTransitionId: myId })) return;
         console.log('[Scheduler] Speech playback timeout — advancing');
         this._advanceToNext();
       },
@@ -231,7 +233,7 @@ export class RadioScheduler {
 
     // Trigger DJ speech generation (handler will call speechComplete() when client finishes)
     if (this.onDjSpeechNeeded) {
-      this.onDjSpeechNeeded(prevSong, nextSong, myId);
+      this.onDjSpeechNeeded(prevSong, speechPlan.nextSong, myId);
     } else {
       this._advanceToNext();
     }
@@ -271,8 +273,7 @@ export class RadioScheduler {
     if (cached && cached.expires > Date.now()) return cached.url;
 
     try {
-      const result = await getSongUrl(String(sid));
-      const url = result?.data?.[0]?.url;
+      const url = await this.music.songUrl(String(sid));
       if (url) {
         this.audioUrlCache.set(String(sid), { url, expires: Date.now() + 15 * 60 * 1000 });
         return url;
@@ -304,13 +305,6 @@ export class RadioScheduler {
       elapsed: this.elapsed / 1000,
       duration: (this.playhead.songDuration || 0) / 1000,
     };
-  }
-
-  _getArtist(song) {
-    if (song.ar && Array.isArray(song.ar)) return song.ar.map(a => a.name).join(', ');
-    if (song.artist) return song.artist;
-    if (song.artists && Array.isArray(song.artists)) return song.artists.map(a => a.name || a).join(', ');
-    return '';
   }
 
   _notifyState() {

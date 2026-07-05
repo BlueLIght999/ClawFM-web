@@ -14,6 +14,14 @@ export class SocketEventPublisher {
     this._io = io;
   }
 
+  emit(event, payload) {
+    this._io.emit(event, payload);
+  }
+
+  toClient(socketId, event, payload) {
+    this._io.to(socketId).emit(event, payload);
+  }
+
   djMessage(text) {
     this._io.emit(EVENTS.DJ_MESSAGE, { text });
   }

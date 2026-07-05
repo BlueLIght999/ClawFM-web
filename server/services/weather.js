@@ -68,7 +68,9 @@ async function ipLocation() {
         if (geo) return { city: `${province}${city}`, lat: geo.lat, lon: geo.lon };
       }
     }
-  } catch {}
+  } catch {
+    // Falling back to IP lookup is expected when reverse geocoding is unavailable.
+  }
 
   // Fallback to ipapi.co
   const res = await fetch('https://ipapi.co/json/', { headers: HEADERS });
