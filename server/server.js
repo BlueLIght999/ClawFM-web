@@ -7,14 +7,19 @@ import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import config from './config.js';
 import { initDb } from './db/schema.js';
-import { getCookie } from './services/netease.js';
 import { setupSocketHandler } from './socket/handler.js';
 import { recommender } from './services/recommender.js';
 import { queue } from './services/queue.js';
 import { scheduler } from './services/scheduler.js';
-import { getUserProfile } from './db/history.js';
+import { legacyListenerProfileRepository } from './infrastructure/persistence/repositories/LegacyListenerProfileRepository.js';
 import { getTimeOfDayMood } from './services/context.js';
 import { checkTtsHealth, getTtsStatus } from './services/tts.js';
+import { generatePlan as generateInitialPlan } from './services/planner.js';
+import { createAuthenticationService } from './application/services/AuthenticationService.js';
+import { legacyNeteaseAuthClient } from './infrastructure/auth/LegacyNeteaseAuthClient.js';
+import { legacyAuthRepository } from './infrastructure/persistence/repositories/LegacyAuthRepository.js';
+import { legacyNeteaseMusicSourceAdapter } from './infrastructure/music/LegacyNeteaseMusicSourceAdapter.js';
+import { SocketEventPublisher } from './socket/SocketEventPublisher.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,31 +32,31 @@ const io = new Server(httpServer, {
 app.use(cors());
 app.use(express.json());
 
+const authenticationService = createAuthenticationService({
+  authClient: legacyNeteaseAuthClient,
+  authRepository: legacyAuthRepository,
+  recommender,
+  queue,
+  scheduler,
+  planner: {
+    generatePlan: generateInitialPlan,
+  },
+  eventPublisher: new SocketEventPublisher(io),
+});
+
+const musicSource = legacyNeteaseMusicSourceAdapter;
+
 // Auth status endpoint
 app.get('/api/auth/status', async (req, res) => {
-  try {
-    const { checkLoginStatus } = await import('./services/netease.js');
-    const status = await checkLoginStatus();
-    // Normalize: status may have {profile, account} at top level or inside {data: {profile, account}}
-    const profile = status.profile || status.data?.profile || null;
-    const account = status.account || status.data?.account || null;
-    // Anonymous users have account but no profile — require a real profile
-    const isAnonymous = account?.anonimousUser === true;
-    const loggedIn = !!profile && !isAnonymous;
-    res.json({ loggedIn, profile: profile || account });
-  } catch (e) {
-    res.json({ loggedIn: false, error: e.message });
-  }
+  res.json(await authenticationService.currentStatus());
 });
 
 // GET /api/playlists — user playlists
 app.get('/api/playlists', async (req, res) => {
   try {
-    const { getUserPlaylists } = await import('./services/netease.js');
     const uid = recommender.uid;
     if (!uid) return res.json({ playlists: [] });
-    const result = await getUserPlaylists(uid);
-    const playlists = (result.playlist || []).map(p => ({
+    const playlists = (await musicSource.userPlaylists(uid)).map(p => ({
       id: p.id,
       name: p.name,
       trackCount: p.trackCount,
@@ -67,10 +72,7 @@ app.get('/api/playlists', async (req, res) => {
 // GET /api/playlist/:id/tracks — tracks in a playlist
 app.get('/api/playlist/:id/tracks', async (req, res) => {
   try {
-    const { getPlaylistTracks } = await import('./services/netease.js');
-    const result = await getPlaylistTracks(req.params.id);
-    const tracks = (result.songs || result.playlist?.tracks || result.body?.songs || [])
-      .map(t => (typeof t === 'object' ? t : null)).filter(Boolean);
+    const tracks = await musicSource.playlistTracks(req.params.id);
     res.json({ tracks });
   } catch (e) {
     res.json({ tracks: [], error: e.message });
@@ -80,10 +82,7 @@ app.get('/api/playlist/:id/tracks', async (req, res) => {
 // POST /api/playlist/:id/play — queue entire playlist
 app.post('/api/playlist/:id/play', async (req, res) => {
   try {
-    const { getPlaylistTracks } = await import('./services/netease.js');
-    const result = await getPlaylistTracks(req.params.id);
-    const tracks = (result.songs || result.playlist?.tracks || result.body?.songs || [])
-      .map(t => (typeof t === 'object' ? t : null)).filter(Boolean);
+    const tracks = await musicSource.playlistTracks(req.params.id);
     if (tracks.length > 0) {
       queue.clear();
       queue.addSongs(tracks);
@@ -115,10 +114,9 @@ app.get('/api/next', (req, res) => {
 // GET /api/lyric/:id — song lyrics
 app.get('/api/lyric/:id', async (req, res) => {
   try {
-    const { getLyric } = await import('./services/netease.js');
-    const result = await getLyric(req.params.id);
-    const lrc = result?.lrc?.lyric || result?.data?.lrc?.lyric || '';
-    const tlrc = result?.tlyric?.lyric || result?.data?.tlyric?.lyric || '';
+    const lyric = await musicSource.lyric(req.params.id);
+    const lrc = lyric?.lrc || '';
+    const tlrc = lyric?.tlrc || '';
     res.json({ lrc, tlrc });
   } catch (e) {
     res.json({ lrc: '', tlrc: '', error: e.message });
@@ -127,7 +125,7 @@ app.get('/api/lyric/:id', async (req, res) => {
 
 // GET /api/taste — user taste profile
 app.get('/api/taste', (req, res) => {
-  const profile = getUserProfile();
+  const profile = legacyListenerProfileRepository.get();
   res.json({
     topArtists: (profile.topArtists || []).slice(0, 10),
     topGenres: (profile.analysis?.topGenres || []),
@@ -152,7 +150,7 @@ app.get('/api/plan/today', async (req, res) => {
   try {
     const { generatePlan, isPlanStale, getPlan } = await import('./services/planner.js');
     const force = req.query.force === 'true';
-    let cached = getPlan();
+    const cached = getPlan();
     if (force || !cached || isPlanStale()) {
       const newPlan = await generatePlan(force);
       res.json(newPlan);
@@ -229,7 +227,9 @@ async function waitForNeteaseApi(timeoutMs = 15000) {
     try {
       const res = await fetch('http://localhost:3000/login/status');
       if (res.ok) return true;
-    } catch {}
+    } catch {
+      // NetEase API may still be booting; keep polling until timeout.
+    }
     await new Promise(r => setTimeout(r, 500));
   }
   return false;
@@ -268,47 +268,32 @@ async function start() {
     console.warn('');
   }
 
-  // Load initial cookie and auto-start if logged in
-  const cookie = getCookie();
-  console.log('[Server] Cookie loaded:', cookie ? 'YES (' + cookie.slice(0, 40) + '...)' : 'NO');
-  if (cookie) {
-    console.log('[Server] NetEase cookie loaded');
-    try {
-      const { checkLoginStatus } = await import('./services/netease.js');
-      const status = await checkLoginStatus();
-      // Normalize: API response nests under .data
-      const data = status.data || status;
-      const profile = data.profile || data.account;
-      const uid = String(profile?.userId || data.account?.id || '');
-      if (uid) {
-        await recommender.init(uid);
+  // Restore a stored NetEase session without letting this entrypoint call legacy auth directly.
+  try {
+    const restoredSession = await authenticationService.restoreStoredSession();
+    const preview = restoredSession.cookiePreview;
+    console.log('[Server] Cookie loaded:', preview ? `YES (${preview.slice(0, 40)}...)` : 'NO');
 
-        // Generate initial listening plan first so fillQueue can use its hints
-        let plan = null;
-        try {
-          const { generatePlan: genPlan } = await import('./services/planner.js');
-          plan = await genPlan();
-          io.emit('plan:update', plan);
-          console.log('[Server] Initial listening plan generated');
-        } catch (e) {
-          console.log('[Server] Initial plan skipped:', e.message);
-        }
-
-        if (plan?.blocks) recommender.setPlanBlocks(plan.blocks);
-        await recommender.fillQueue(15, plan?.blocks || null);
-        console.log('[Server] Queue filled:', queue.length, 'songs');
-        if (!queue.isEmpty) {
-          scheduler.prepareQueue();
-          console.log('[Server] Queue prepared, awaiting first client for cold start. Current:', queue.current?.name || queue.current?.title);
-        } else {
-          console.log('[Server] Queue still empty after fillQueue');
-        }
+    if (!restoredSession.cookieFound) {
+      console.log('[Server] No NetEase cookie found — login required');
+    } else if (!restoredSession.restored) {
+      console.log('[Server] Auto-start skipped: no authenticated NetEase profile');
+    } else {
+      console.log('[Server] NetEase cookie loaded');
+      if (restoredSession.planGenerated) {
+        console.log('[Server] Initial listening plan generated');
+      } else if (restoredSession.planError) {
+        console.log('[Server] Initial plan skipped:', restoredSession.planError);
       }
-    } catch (e) {
-      console.log('[Server] Auto-start skipped:', e.message);
+      console.log('[Server] Queue filled:', restoredSession.queueLength, 'songs');
+      if (restoredSession.queuePrepared) {
+        console.log('[Server] Queue prepared, awaiting first client for cold start. Current:', restoredSession.currentSongTitle);
+      } else {
+        console.log('[Server] Queue still empty after fillQueue');
+      }
     }
-  } else {
-    console.log('[Server] No NetEase cookie found — login required');
+  } catch (e) {
+    console.log('[Server] Auto-start skipped:', e.message);
   }
 
   httpServer.listen(config.port, () => {

@@ -12,6 +12,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../services/netease.js', () => ({
   searchSongs: vi.fn(),
+  getSongUrl: vi.fn(async () => ({ data: [{ url: null }] })),
+  getLyric: vi.fn(async () => ({})),
+  getSimilarSongs: vi.fn(async () => ({ songs: [] })),
+  getPersonalFm: vi.fn(async () => ({ data: [] })),
+  getRecommendSongs: vi.fn(async () => ({ data: { dailySongs: [] } })),
+  getSongDetail: vi.fn(async () => ({ songs: [] })),
+  getLikedSongs: vi.fn(async () => ({ ids: [] })),
+  getUserPlaylists: vi.fn(async () => ({ playlist: [] })),
+  getPlaylistTracks: vi.fn(async () => ({ songs: [] })),
+  scrobbleSong: vi.fn(async () => {}),
 }));
 vi.mock('../services/claude.js', () => ({
   extractIntent: vi.fn(),

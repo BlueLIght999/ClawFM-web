@@ -2,18 +2,161 @@ import { EVENTS } from './events.js';
 import { queue } from '../services/queue.js';
 import { scheduler } from '../services/scheduler.js';
 import { recommender } from '../services/recommender.js';
-import { generateTransition, streamColdOpen, generateRefillSpeech, chatWithDj, isConfigured as isDjConfigured } from '../services/claude.js';
+import { chatWithDj, isConfigured as isDjConfigured } from '../services/claude.js';
 import { routeIntent } from '../services/router.js';
 import { assemblePrompt, getTimeOfDayMood } from '../services/context.js';
-import { generateSpeech, isTtsAvailable, getTtsStatus } from '../services/tts.js';
-import { getRecentSongIds, saveChatMessage, getUserProfile } from '../db/history.js';
-import { getWeather, setClientLocation } from '../services/weather.js';
+import { isTtsAvailable } from '../services/tts.js';
 import { generatePlan, isPlanStale, getPlan } from '../services/planner.js';
 import { maybeProactiveSpeech, resetLastSpeechTime, setLastUserChat, setProactiveEnabled } from '../services/proactive.js';
 import { SocketEventPublisher } from './SocketEventPublisher.js';
 import { buildSongChangePayload } from '../domain/curation/buildSongChangePayload.js';
+import { legacyWeatherAdapter } from '../infrastructure/environment/LegacyWeatherAdapter.js';
+import { legacySpeechSynthAdapter } from '../infrastructure/speech/LegacySpeechSynthAdapter.js';
+import { legacyNeteaseMusicSourceAdapter } from '../infrastructure/music/LegacyNeteaseMusicSourceAdapter.js';
+import { legacyColdOpenWriter } from '../infrastructure/llm/LegacyColdOpenWriter.js';
+import { legacyDjSpeechWriter } from '../infrastructure/llm/LegacyDjSpeechWriter.js';
+import { legacyNeteaseAuthClient } from '../infrastructure/auth/LegacyNeteaseAuthClient.js';
+import { createPlaybackService } from '../application/services/PlaybackService.js';
+import { legacyChatHistoryRepository } from '../infrastructure/persistence/repositories/LegacyChatHistoryRepository.js';
+import { legacyListenerProfileRepository } from '../infrastructure/persistence/repositories/LegacyListenerProfileRepository.js';
+import { createConversationService } from '../application/services/ConversationService.js';
+import { createColdStartService } from '../application/services/ColdStartService.js';
+import { createStreamingConversationService } from '../application/services/StreamingConversationService.js';
+import { createAuthenticationService } from '../application/services/AuthenticationService.js';
+import { createDjSpeechService } from '../application/services/DjSpeechService.js';
 
 let preRecommendSnapshot = null; // { future: [...], current: {...} } for rejection rollback
+
+const playbackService = createPlaybackService({
+  queue,
+  scheduler,
+  recommender,
+  music: legacyNeteaseMusicSourceAdapter,
+  getPlan,
+});
+
+const repositories = {
+  chatHistory: legacyChatHistoryRepository,
+  profile: legacyListenerProfileRepository,
+};
+
+const conversationService = createConversationService({
+  queue,
+  scheduler,
+  recommender,
+  repositories,
+  music: legacyNeteaseMusicSourceAdapter,
+  planner: {
+    generatePlan,
+    getPlan,
+  },
+});
+
+const coldStartService = createColdStartService({
+  queue,
+  scheduler,
+  speech: legacySpeechSynthAdapter,
+  ttsAvailability: isTtsAvailable,
+  weather: legacyWeatherAdapter,
+  timeOfDay: getTimeOfDayMood,
+  introWriter: legacyColdOpenWriter,
+});
+
+const streamingConversationService = createStreamingConversationService({
+  chatWithDj,
+  chatHistory: repositories.chatHistory,
+  speech: legacySpeechSynthAdapter,
+  ttsAvailability: isTtsAvailable,
+});
+
+const authenticationService = createAuthenticationService({
+  authClient: legacyNeteaseAuthClient,
+  recommender,
+  queue,
+  scheduler,
+});
+
+const djSpeechService = createDjSpeechService({
+  scheduler,
+  recommender,
+  queueStore: queue,
+  transitionWriter: legacyDjSpeechWriter,
+  refillWriter: legacyDjSpeechWriter,
+  weather: legacyWeatherAdapter,
+  timeOfDay: getTimeOfDayMood,
+  promptBuilder: assemblePrompt,
+  speech: legacySpeechSynthAdapter,
+  ttsAvailability: isTtsAvailable,
+});
+
+function emitPlaybackResult(io, result) {
+  if (!result) return;
+  if (result.state) io.emit(EVENTS.RADIO_STATE, result.state);
+  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+  if (result.playbackPosition) io.emit(EVENTS.PLAYBACK_POSITION, result.playbackPosition);
+  if (result.crabAnimation) io.emit(EVENTS.CRAB_ANIMATION, result.crabAnimation);
+  if (result.resume) io.emit(EVENTS.RESUME, result.resume);
+}
+
+function emitSongRequestResult(io, socket, result) {
+  if (!result) return;
+  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+  if (result.djMessage) socket.emit(EVENTS.DJ_MESSAGE, result.djMessage);
+  if (result.error) socket.emit(EVENTS.ERROR, result.error);
+}
+
+function emitConversationResult(io, socket, result) {
+  if (!result) return;
+  if (result.state) io.emit(EVENTS.RADIO_STATE, result.state);
+  if (result.pause) io.emit(EVENTS.PAUSE);
+  if (result.resume) io.emit(EVENTS.RESUME, result.resume);
+  if (result.toClient?.state) socket.emit(EVENTS.RADIO_STATE, result.toClient.state);
+  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+  if (result.planUpdate) io.emit(EVENTS.PLAN_UPDATE, result.planUpdate);
+}
+
+function emitColdStartResult(io, result) {
+  if (!result) return;
+  if (result.speechStart) io.emit(EVENTS.DJ_SPEECH_START, result.speechStart);
+  if (result.textOnlyPhase) io.emit('cold-start:phase', result.textOnlyPhase);
+  if (result.radioState) io.emit(EVENTS.RADIO_STATE, result.radioState);
+  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+}
+
+function emitStreamingConversationResult(socket, result) {
+  if (!result) return;
+  if (result.unavailableMessage) socket.emit(EVENTS.DJ_MESSAGE, result.unavailableMessage);
+  if (result.streamEnd) socket.emit(EVENTS.DJ_STREAM_END, result.streamEnd);
+}
+
+function emitAuthenticationResult(socket, result) {
+  if (!result) return;
+  if (result.loginSuccess) socket.emit('auth:login-success', result.loginSuccess);
+  if (result.qrCreated) socket.emit('auth:qr-created', result.qrCreated);
+  if (result.qrStatus) socket.emit('auth:qr-status', result.qrStatus);
+  if (result.qrExpired) socket.emit('auth:qr-expired');
+  if (result.queueUpdate) socket.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+}
+
+function emitDjSpeechResult(io, result) {
+  if (!result) return;
+  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+  if (result.djMessage) io.emit(EVENTS.DJ_MESSAGE, { ...result.djMessage, timestamp: Date.now() });
+  if (result.speechStart) {
+    io.emit(EVENTS.DJ_SPEECH_START, result.speechStart);
+    if (result.resetLastSpeechTime) resetLastSpeechTime();
+  }
+}
+
+function startChatAnnouncement(io, result) {
+  if (!result?.speechAnnouncement) return;
+  streamingConversationService.synthesizeAnnouncement(result.speechAnnouncement).then(speechStart => {
+    if (speechStart) {
+      io.emit(EVENTS.DJ_SPEECH_START, speechStart);
+      resetLastSpeechTime();
+    }
+  }).catch(() => {});
+}
 
 export function setupSocketHandler(io) {
   let connectedClients = 0;
@@ -32,70 +175,20 @@ export function setupSocketHandler(io) {
   scheduler.onDjSpeechNeeded = async (prevSong, nextSong, transitionId) => {
     let speechHandled = false;
     try {
-    if (!nextSong) {
-      // Queue exhausted — refill and generate recommendation speech
-      const cachedPlan = getPlan();
-      const newSongs = await recommender.fillQueue(15, cachedPlan?.plan?.blocks || null);
-      if (newSongs.length > 0) {
-        io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
-        const next = queue.peek();
-        if (!next) { speechHandled = true; scheduler.speechComplete(); return; }
-        const weather = await getWeather();
-        const refill = await generateRefillSpeech(queue.upcomingSongs.slice(0, 3), weather, getTimeOfDayMood());
-        if (refill?.say) {
-          io.emit(EVENTS.DJ_MESSAGE, { text: refill.say, timestamp: Date.now() });
-          const speechText = refill.say.replace(/<[^>]+>/g, '');
-          const audioUrl = (isTtsAvailable() === false) ? null : await generateSpeech(speechText);
-          if (audioUrl) {
-            if (scheduler._transitionId !== transitionId || scheduler.isPlaying) return;
-            io.emit(EVENTS.DJ_SPEECH_START, { audioUrl, text: refill.say, type: 'refill' });
-            resetLastSpeechTime();
-            // Estimate speech duration: ~15 chars per second
-            scheduler.speechGenerationDone(speechText.length / 15);
-            speechHandled = true;
-            return;
-          }
-          // No TTS — pause so DJ text is readable
-          console.log('[Socket] TTS unavailable for refill — pausing 2.5s');
-          await new Promise(r => setTimeout(r, 2500));
-        }
-        speechHandled = true; scheduler.speechComplete();
+      if (!nextSong) {
+        const cachedPlan = getPlan();
+        const refillResult = await djSpeechService.handleRefillSpeech({
+          transitionId,
+          planBlocks: cachedPlan?.plan?.blocks || null,
+        });
+        emitDjSpeechResult(io, refillResult);
+        speechHandled = refillResult?.speechHandled === true;
+        return;
       }
-      return;
-    }
 
-    // Generate DJ transition script
-    const weather = await getWeather();
-    const t = getTimeOfDayMood();
-    const contextPrompt = assemblePrompt({ environment: { weather } });
-    const transition = await generateTransition(prevSong, nextSong, t, contextPrompt);
-
-    if (transition?.say) {
-      // Broadcast text
-      io.emit(EVENTS.DJ_MESSAGE, { text: transition.say, timestamp: Date.now() });
-
-      // Generate TTS speech
-      const speech = transition.say.replace(/<[^>]+>/g, ''); // strip emotion tags
-      const ttsOk = isTtsAvailable();
-      const audioUrl = (ttsOk === false) ? null : await generateSpeech(speech);
-
-      if (audioUrl) {
-        // Guard: if music already started (safety timeout raced us), drop stale speech
-        if (scheduler._transitionId !== transitionId || scheduler.isPlaying) return;
-        io.emit(EVENTS.DJ_SPEECH_START, { audioUrl, text: transition.say });
-        resetLastSpeechTime();
-        // Estimate speech duration: ~15 chars per second
-        scheduler.speechGenerationDone(speech.length / 15);
-        speechHandled = true;
-        // Client will emit dj-speech-finished → scheduler.speechComplete()
-        return; // Speech started — wait for client
-      }
-      // No TTS — pause so DJ text is readable before next song
-      console.log('[Socket] TTS unavailable for transition — pausing 3s');
-      await new Promise(r => setTimeout(r, 3000));
-    }
-    // No speech generated — advance
-    speechHandled = true; scheduler.speechComplete();
+      const transitionResult = await djSpeechService.handleTransitionSpeech({ prevSong, nextSong, transitionId });
+      emitDjSpeechResult(io, transitionResult);
+      speechHandled = transitionResult?.speechHandled === true;
     } catch (err) {
       console.error('[Scheduler] onDjSpeechNeeded error:', err.message);
       if (!speechHandled) scheduler.speechComplete();
@@ -143,33 +236,21 @@ export function setupSocketHandler(io) {
     }
 
     // Send TTS status
-    socket.emit('tts:status', getTtsStatus());
+    socket.emit('tts:status', legacySpeechSynthAdapter.health());
 
     // === Cold Start (triggered by client:ready) ===
     async function triggerColdStart() {
-      // Move a song to current if we have songs waiting
-      if (!queue.hasCurrent && queue.future.length > 0) {
-        queue.advance();
-      }
-      if (scheduler.coldStartState !== 'pending' || scheduler.isPlaying
-          || scheduler.isAdvancing || scheduler.playhead.currentSong || !queue.hasCurrent) {
-        return;
-      }
-      scheduler.coldStartState = 'in-progress';
-      const firstSong = queue.current;
+      const start = coldStartService.beginIfReady();
+      if (!start.shouldStart) return;
+      const firstSong = start.firstSong;
       try {
-        const weather = await getWeather();
-        const timeOfDay = getTimeOfDayMood();
-        const coldMsgId = Date.now().toString();
-
-        // Phase 1: LLM writing
-        io.emit('cold-start:phase', { phase: 'writing' });
-
-        // Stream cold open text to chat box
-        const fullText = await streamColdOpen(firstSong, weather, timeOfDay, (token) => {
-          io.emit(EVENTS.DJ_STREAM_CHUNK, { messageId: coldMsgId, token });
+        const intro = await coldStartService.writeIntro({
+          firstSong,
+          onPhase: payload => io.emit('cold-start:phase', payload),
+          onChunk: payload => io.emit(EVENTS.DJ_STREAM_CHUNK, payload),
         });
-        io.emit(EVENTS.DJ_STREAM_END, { messageId: coldMsgId, fullText });
+        io.emit(EVENTS.DJ_STREAM_END, intro.streamEnd);
+        const { fullText } = intro;
 
         if (fullText) {
           io.emit(EVENTS.DJ_MESSAGE, { text: fullText, timestamp: Date.now() });
@@ -177,65 +258,22 @@ export function setupSocketHandler(io) {
           // Phase 2: generating TTS
           io.emit('cold-start:phase', { phase: 'speaking' });
 
-          // Trim for TTS — limit to ~200 chars, break at sentence boundary
-          const cleanText = fullText.replace(/<[^>]+>/g, '');
-          const sentenceEnd = Math.max(
-            cleanText.lastIndexOf('。', 200),
-            cleanText.lastIndexOf('！', 200),
-            cleanText.lastIndexOf('？', 200),
-            cleanText.lastIndexOf('.', 200),
-            cleanText.lastIndexOf('!', 200),
-            cleanText.lastIndexOf('?', 200),
-          );
-          const speechText = sentenceEnd > 30 ? cleanText.slice(0, sentenceEnd + 1) : cleanText.slice(0, 200);
-
-          let audioUrl = null;
-          if (isTtsAvailable() !== false) {
-            audioUrl = await generateSpeech(speechText);
-
-            // Retry once with shorter text on failure
-            if (!audioUrl) {
-              console.log('[Socket] Cold start TTS first attempt failed, retrying with shorter text...');
-              const sentences = speechText.split(/[。！？\.!\?]/).filter(Boolean);
-              const shorterText = sentences.slice(0, 2).join('。') + (sentences.length > 2 ? '。' : '');
-              if (shorterText && shorterText.length < speechText.length && shorterText.length > 5) {
-                await new Promise(r => setTimeout(r, 1000));
-                audioUrl = await generateSpeech(shorterText);
-              }
-            }
-          } else {
-            console.log('[Socket] Cold start — TTS known unavailable, skipping generateSpeech');
-          }
-
-          if (audioUrl) {
-            io.emit(EVENTS.DJ_SPEECH_START, { audioUrl, text: fullText, type: 'cold-start' });
+          const coldStartResult = await coldStartService.handleGeneratedIntro({ fullText });
+          emitColdStartResult(io, coldStartResult);
+          if (coldStartResult.speechStart) {
             // Safety timeout: if speech never ends, start music anyway
             setTimeout(async () => {
-              if (scheduler.coldStartState === 'in-progress') {
+              const safetyResult = await coldStartService.startMusicIfStillInProgress();
+              if (safetyResult) {
                 console.log('[Socket] Cold start safety timeout — starting music');
-                scheduler.coldStartState = 'done';
-                await scheduler.startWithQueue();
-                io.emit(EVENTS.RADIO_STATE, scheduler.getState());
+                emitColdStartResult(io, safetyResult);
               }
             }, 30000);
-          } else {
-            // TTS completely failed — text-only intro with brief pause for user to read
-            console.log('[Socket] Cold start TTS failed after retry, using text-only intro');
-            const status = getTtsStatus();
-            io.emit('cold-start:phase', { phase: 'text-only', text: fullText, reason: status.reason || 'TTS unavailable' });
-            await new Promise(r => setTimeout(r, 3500));
-            scheduler.coldStartState = 'done';
-            await scheduler.startWithQueue();
-            io.emit(EVENTS.RADIO_STATE, scheduler.getState());
-            io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
           }
         } else { throw new Error('Cold open returned empty text'); }
       } catch (e) {
         console.log('[Socket] Cold start failed (' + e.message + '), starting music directly');
-        scheduler.coldStartState = 'done';
-        await scheduler.startWithQueue();
-        io.emit(EVENTS.RADIO_STATE, scheduler.getState());
-        io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
+        emitColdStartResult(io, await coldStartService.startMusicDirectly());
       }
     }
 
@@ -248,24 +286,7 @@ export function setupSocketHandler(io) {
     // === Auth Events ===
     socket.on(EVENTS.AUTH_LOGIN_PHONE, async ({ phone, password }) => {
       try {
-        const { phoneLogin } = await import('../services/netease.js');
-        const result = await phoneLogin(phone, password);
-        const profile = result.profile || result.account;
-        socket.emit('auth:login-success', { profile });
-
-        // Initialize recommender
-        const uid = String(profile?.userId || result.account?.id || '');
-        await recommender.init(uid);
-
-        // Reset cold start for re-login without page refresh
-        scheduler.coldStartState = 'pending';
-
-        // Build initial queue from user's playlists/likes
-        // (cold start handles music startup — don't call startWithQueue here)
-        const songs = await recommender.fillQueue(20);
-        if (songs.length > 0 || !queue.isEmpty) {
-          socket.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs });
-        }
+        emitAuthenticationResult(socket, await authenticationService.loginWithPhone({ phone, password }));
       } catch (e) {
         socket.emit(EVENTS.ERROR, { code: 'AUTH_FAILED', message: e.message });
       }
@@ -273,45 +294,17 @@ export function setupSocketHandler(io) {
 
     socket.on(EVENTS.AUTH_LOGIN_QR_START, async () => {
       try {
-        const { createQrLogin, checkQrLogin } = await import('../services/netease.js');
-        const result = await createQrLogin();
-        socket.emit('auth:qr-created', {
-          key: result.unikey || result.data?.unikey,
-          qrUrl: `https://music.163.com/login?codekey=${result.unikey || result.data?.unikey}`,
-          qrimg: result.qrimg || result.data?.qrimg || null,
-        });
+        const qrResult = await authenticationService.createQrLogin();
+        emitAuthenticationResult(socket, qrResult);
+        const key = qrResult.qrCreated.key;
 
         // Poll for QR scan
         const pollInterval = setInterval(async () => {
           try {
-            const check = await checkQrLogin(result.unikey || result.data?.unikey);
-            // NetEase API codes: 800=expired, 801=waiting, 802=scanned, 803=success
-            if (check.code === 803) {
-              // Logged in successfully — cookie was saved by callApi
+            const result = await authenticationService.checkQrLogin(key);
+            emitAuthenticationResult(socket, result);
+            if (result.done) {
               clearInterval(pollInterval);
-              const { checkLoginStatus } = await import('../services/netease.js');
-              const loginStatus = await checkLoginStatus();
-              const profile = loginStatus.profile || loginStatus.account;
-              socket.emit('auth:login-success', { profile });
-              const uid = String(profile?.userId || '');
-              await recommender.init(uid);
-              // Reset cold start for re-login without page refresh
-              scheduler.coldStartState = 'pending';
-              // (cold start handles music startup — don't call startWithQueue here)
-              const songs = await recommender.fillQueue(20);
-              if (songs.length > 0 || !queue.isEmpty) {
-                socket.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs });
-              }
-            } else if (check.code === 801) {
-              // Waiting for scan
-              socket.emit('auth:qr-status', { status: 'waiting-scan' });
-            } else if (check.code === 802) {
-              // Scanned, waiting for confirm
-              socket.emit('auth:qr-status', { status: 'scanned' });
-            } else if (check.code === 800) {
-              // QR code expired
-              clearInterval(pollInterval);
-              socket.emit('auth:qr-expired');
             }
           } catch { /* keep polling */ }
         }, 2000);
@@ -324,61 +317,41 @@ export function setupSocketHandler(io) {
 
     // === Player Controls ===
     socket.on('player:skip-to-index', async ({ index }) => {
-      if (index == null || index < 0 || index >= queue.future.length) return;
-      // Remove all songs before the target index
-      if (index > 0) queue.future.splice(0, index);
-      await scheduler.skip();
-      io.emit(EVENTS.RADIO_STATE, scheduler.getState());
-      io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
+      emitPlaybackResult(io, await playbackService.skipToIndex(index));
     });
 
     socket.on(EVENTS.PLAYER_SKIP, async () => {
-      await scheduler.skip();
-      io.emit(EVENTS.RADIO_STATE, scheduler.getState());
-      io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
-      // Refill queue in background
-      if (queue.needsMore(10)) {
-        const cachedPlan = getPlan();
-        recommender.fillQueue(12, cachedPlan?.plan?.blocks || null).then(() => {
-          io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
-        });
-      }
+      const result = await playbackService.skip();
+      emitPlaybackResult(io, result);
+      result?.refill?.then(() => {
+        io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
+      });
     });
 
     socket.on(EVENTS.PLAYER_PREVIOUS, async () => {
-      await scheduler.previous();
-      io.emit(EVENTS.RADIO_STATE, scheduler.getState());
-      io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
+      emitPlaybackResult(io, await playbackService.previous());
     });
 
     socket.on(EVENTS.PLAYER_PAUSE, () => {
-      scheduler.pause();
+      const result = playbackService.pause();
       io.emit(EVENTS.PAUSE);
-      io.emit(EVENTS.CRAB_ANIMATION, { state: 'idle' });
+      emitPlaybackResult(io, result);
     });
 
     socket.on(EVENTS.PLAYER_RESUME, () => {
-      scheduler.resume();
-      io.emit(EVENTS.RESUME, { startedAt: scheduler.playhead.startedAt });
+      emitPlaybackResult(io, playbackService.resume());
     });
 
     socket.on(EVENTS.PLAYER_SET_MODE, ({ mode }) => {
-      if (['sequential', 'shuffle', 'fm'].includes(mode)) {
-        queue.setMode(mode);
-        io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode });
-      }
+      emitPlaybackResult(io, playbackService.setMode(mode));
     });
 
     socket.on(EVENTS.PLAYER_SEEK, ({ position }) => {
-      scheduler.seek(position);
-      io.emit(EVENTS.PLAYBACK_POSITION, scheduler.getPlaybackPosition());
+      emitPlaybackResult(io, playbackService.seek(position));
     });
 
     socket.on('player:ended', async () => {
-      if (scheduler.isAdvancing) return;
-      await scheduler.skip();
-      io.emit(EVENTS.RADIO_STATE, scheduler.getState());
-      io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
+      emitPlaybackResult(io, await playbackService.ended());
     });
 
     // === Chat ===
@@ -400,163 +373,39 @@ export function setupSocketHandler(io) {
 
       let toolResults = '';
 
-      if (routing.route === 'ncm' && routing.action === 'skip') {
-        await scheduler.skip();
-        io.emit(EVENTS.RADIO_STATE, scheduler.getState());
-        return;
+      const fastAction = await conversationService.handleFastAction(routing);
+      emitConversationResult(io, socket, fastAction);
+      if (fastAction.handled) return;
+      if (fastAction.snapshot) preRecommendSnapshot = fastAction.snapshot;
+      if (fastAction.toolResults) {
+        toolResults = fastAction.toolResults;
       }
-      if (routing.route === 'ncm' && routing.action === 'pause') {
-        scheduler.pause();
-        io.emit(EVENTS.PAUSE); return;
-      }
-      if (routing.route === 'ncm' && routing.action === 'resume') {
-        scheduler.resume();
-        io.emit(EVENTS.RESUME, { startedAt: scheduler.playhead.startedAt }); return;
-      }
-      if (routing.route === 'ncm' && routing.action === 'now_playing') {
-        const st = scheduler.getState();
-        socket.emit(EVENTS.RADIO_STATE, st); return;
-      }
-      if (routing.route === 'ncm' && routing.action === 'recommend') {
-        preRecommendSnapshot = {
-          future: [...queue.future],
-          current: queue.current ? { ...queue.current } : null,
-        };
-        const added = await recommender.fillQueue(10);
-        io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
-        const profile = getUserProfile();
-        const topNames = (profile.topArtists || []).slice(0, 5).map(a => a.name).join(', ');
-        toolResults = `DJ picked ${added.length} fresh tracks based on the listener's taste profile. Top artists: ${topNames || 'unknown'}. Acknowledge briefly and naturally in Chinese.`;
-      }
-      if (routing.route === 'ncm' && routing.action === 'plan_refresh') {
-        const newPlan = await generatePlan(true);
-        io.emit(EVENTS.PLAN_UPDATE, newPlan);
-        recommender.setPlanBlocks(newPlan.blocks);
-        await recommender.fillQueue(15, newPlan.blocks);
-        io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
-        toolResults = 'Generated a fresh listening plan with a different vibe. Acknowledge the style shift naturally in Chinese.';
-      }
-      if (routing.route === 'ncm' && routing.action === 'plan_select') {
-        // Extract block index from text ("切换到第二个主题" → index 1)
-        const match = text.match(/第([一二三四五]|[0-9]+)/);
-        let idx = 0;
-        if (match) {
-          const numMap = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5 };
-          const n = match[1];
-          idx = numMap[n] || (parseInt(n, 10) - 1) || 0;
-        }
-        const cachedPlan = getPlan();
-        const blocks = cachedPlan?.plan?.blocks || [];
-        if (blocks.length > 0) {
-          recommender._planProgress.autoMode = false;
-          recommender._planProgress.currentBlockIndex = idx;
-          recommender._planProgress.songsFilledInBlock = 0;
-          await recommender.fillQueue(12, blocks);
-          io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs });
-          io.emit(EVENTS.PLAN_UPDATE, { ...cachedPlan?.plan, activeBlockIndex: idx });
-        }
-        toolResults = `Switched to block #${idx + 1}. Acknowledge this briefly.`;
-      }
-      if (routing.route === 'ncm' && routing.action === 'plan_pin') {
-        const cachedPlan = getPlan();
-        const blocks = cachedPlan?.plan?.blocks || [];
-        const activeIdx = recommender._planProgress.currentBlockIndex;
-        if (blocks.length > 0) {
-          recommender._planProgress.pinned = true;
-          recommender._planProgress.autoMode = false;
-          await recommender.fillQueue(12, blocks);
-          io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs });
-          io.emit(EVENTS.PLAN_UPDATE, { ...cachedPlan?.plan, activeBlockIndex: activeIdx, pinnedBlockIndex: activeIdx });
-        }
-        toolResults = 'Pinned the current block style. Acknowledge briefly.';
-      }
-      if (routing.route === 'ncm' && routing.action === 'plan_clear') {
-        recommender._planProgress.autoMode = true;
-        recommender._planProgress.pinned = false;
-        const cachedPlan = getPlan();
-        const blocks = cachedPlan?.plan?.blocks || [];
-        await recommender.fillQueue(12, blocks);
-        io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs });
-        io.emit(EVENTS.PLAN_UPDATE, { ...cachedPlan?.plan, activeBlockIndex: null, pinnedBlockIndex: null });
-        toolResults = 'Back to auto mode. Acknowledge briefly.';
+
+      const planAction = await conversationService.handlePlanAction({ routing, text });
+      emitConversationResult(io, socket, planAction);
+      if (planAction.toolResults) {
+        toolResults = planAction.toolResults;
       }
 
       // Clear snapshot on non-rejection messages (user has moved on)
-      const rejectionActions = ['reject_recommend', 'recommend_rollback', 'recommend_retry'];
-      if (!rejectionActions.includes(routing.action) && preRecommendSnapshot) {
-        preRecommendSnapshot = null;
-      }
+      preRecommendSnapshot = conversationService.nextSnapshot(routing, preRecommendSnapshot);
 
       // === Personalized recommendation (uses full recommender pipeline) ===
       if (routing.action === 'play_personalized') {
-        // Save snapshot for possible rollback
-        preRecommendSnapshot = {
-          future: [...queue.future],
-          current: queue.current ? { ...queue.current } : null,
-        };
-        const oldFuture = [...queue.future];
-        // Clear future so new recommendations fill from the front
-        queue.future = [];
-        const preference = routing.params?.preference;
-        let added;
-        if (preference) {
-          added = await recommender.fillQueueByPreference(preference, 10);
-        } else {
-          added = await recommender.fillQueue(10);
-        }
-        // Fallback: if recommender returned nothing, try a generic search
-        if (added.length === 0) {
-          const { searchSongs } = await import('../services/netease.js');
-          const profile = getUserProfile();
-          const fallbackQuery = preference || (profile.topArtists || []).slice(0, 1).map(a => a.name).join(' ') || '热门';
-          console.log(`[Handler] play_personalized fallback: searching "${fallbackQuery}"`);
-          const res = await searchSongs(fallbackQuery, 10);
-          const songs = (res?.result?.songs || []).slice(0, 5);
-          if (songs.length > 0) {
-            for (const s of songs) queue.future.push(s);
-            added = songs;
-          }
-        }
-        // Restore old future after new recommendations
-        queue.future.push(...oldFuture);
-        console.log(`[Handler] play_personalized: preference="${preference || ''}", added=${added.length}, queue.future=${queue.future.length}`);
-        io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
-        const profile = getUserProfile();
-        const topNames = (profile.topArtists || []).slice(0, 5).map(a => a.name).join(', ');
-        toolResults = `DJ used personalized recommendation pipeline${preference ? ` for "${preference}"` : ''}. Added ${added.length} songs to queue. Listener's top artists: ${topNames || 'none yet'}. Seed pool: ${recommender.seedPool.length} songs. Queue now has ${queue.future.length} upcoming tracks. Pre-recommendation snapshot saved. Respond naturally in Chinese — mention 1-2 highlights, don't list all. If added=0, apologize briefly.`;
+        const result = await conversationService.handlePersonalizedRecommendation(routing);
+        preRecommendSnapshot = result.snapshot;
+        if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+        if (result.toolResults) toolResults = result.toolResults;
       }
 
-      // === Rejection: user doesn't like the recommendations ===
-      if (routing.action === 'reject_recommend') {
-        if (preRecommendSnapshot) {
-          toolResults = `Listener rejected the last batch of recommendations. Pre-recommendation queue snapshot is available (${preRecommendSnapshot.future.length} songs). You MUST ask the listener: "要不要回到推荐之前的歌单，还是我再换一批给你？" Keep it brief and natural in Chinese. Do NOT take any action yet — just ask the question.`;
-        } else {
-          toolResults = `Listener seems unhappy with the music but no snapshot is available to roll back. Sympathize briefly and offer to find something different. Do NOT take any action — just respond naturally in Chinese.`;
-        }
-      }
-
-      // === Rollback: restore pre-recommendation queue ===
-      if (routing.action === 'recommend_rollback') {
-        if (preRecommendSnapshot) {
-          queue.future = preRecommendSnapshot.future;
-          io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
-          const count = preRecommendSnapshot.future.length;
-          preRecommendSnapshot = null;
-          toolResults = `Restored the pre-recommendation queue (${count} songs). Acknowledge briefly in Chinese — "已经回到之前的歌单了" style.`;
-        } else {
-          toolResults = `No snapshot available to roll back to. Apologize briefly and offer to find something fresh. Respond in Chinese.`;
-        }
-      }
-
-      // === Retry: recommend again with different sources ===
-      if (routing.action === 'recommend_retry') {
-        preRecommendSnapshot = {
-          future: [...queue.future],
-          current: queue.current ? { ...queue.current } : null,
-        };
-        const added = await recommender.fillQueue(10);
-        io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
-        toolResults = `Re-recommended ${added.length} fresh tracks using different sources. Acknowledge naturally in Chinese — "这次换了一批风格，希望你喜欢" style. Do not list all songs.`;
+      if (['reject_recommend', 'recommend_rollback', 'recommend_retry'].includes(routing.action)) {
+        const result = await conversationService.handleRecommendationAction({
+          routing,
+          snapshot: preRecommendSnapshot,
+        });
+        if (result.snapshot !== undefined) preRecommendSnapshot = result.snapshot;
+        if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+        if (result.toolResults) toolResults = result.toolResults;
       }
 
       // Handle search results from router (ncm or hybrid) — queue ALL songs
@@ -579,7 +428,7 @@ export function setupSocketHandler(io) {
       }
 
       // Stream DJ response
-      const weather = await getWeather();
+      const weather = await legacyWeatherAdapter.current();
       const contextPrompt = assemblePrompt({
         userInput: text,
         toolResults,
@@ -587,54 +436,19 @@ export function setupSocketHandler(io) {
         execTrace: { lastAction: routing.action, queueLength: queue.length, mode: queue.mode },
       });
 
-      const stream = await chatWithDj(text, contextPrompt);
-      if (!stream) {
-        socket.emit(EVENTS.DJ_MESSAGE, {
-          text: "Sorry, the DJ booth is having technical difficulties. Try again later.",
-        });
-        return;
-      }
-
       const messageId = Date.now().toString();
-      let fullText = '';
-
-      try {
-        for await (const chunk of stream) {
-          const token = chunk.choices?.[0]?.delta?.content;
-          if (token) {
-            fullText += token;
-            socket.emit(EVENTS.DJ_STREAM_CHUNK, { messageId, token });
-          }
-        }
-
-        // Parse structured JSON output — extract only the "say" field for chat display
-        let displayText = fullText;
-        try {
-          const parsed = JSON.parse(fullText);
-          if (parsed.say) displayText = parsed.say;
-        } catch {
-          // Not JSON — use raw text as-is
-        }
-
-        socket.emit(EVENTS.DJ_STREAM_END, { messageId, fullText: displayText });
-        saveChatMessage('assistant', displayText);
-
-        // Chat announce TTS for song-request actions
-        const songRequestActions = ['play_search', 'play_mood', 'play_artist', 'play_song', 'recommend', 'plan_refresh'];
-        if (songRequestActions.includes(routing.action) && displayText && isTtsAvailable() !== false) {
-          // Extract first 1-2 sentences for brief TTS announcement
-          const shortText = displayText.split(/[。！？\.!\?]/).filter(Boolean).slice(0, 2).join('。') || displayText.slice(0, 100);
-          generateSpeech(shortText).then(audioUrl => {
-            if (audioUrl) {
-              io.emit(EVENTS.DJ_SPEECH_START, { audioUrl, text: shortText, type: 'chat-announce' });
-              resetLastSpeechTime();
-            }
-          }).catch(() => {});
-        }
-      } catch (e) {
-        console.error('[Socket] Stream error:', e.message);
-        socket.emit(EVENTS.DJ_STREAM_END, { messageId, fullText: fullText || text });
+      const streamingResult = await streamingConversationService.streamReply({
+        text,
+        contextPrompt,
+        routing,
+        messageId,
+        onChunk: payload => socket.emit(EVENTS.DJ_STREAM_CHUNK, payload),
+      });
+      if (streamingResult.streamError) {
+        console.error('[Socket] Stream error:', streamingResult.streamError.message);
       }
+      emitStreamingConversationResult(socket, streamingResult);
+      startChatAnnouncement(io, streamingResult);
     });
 
     socket.on(EVENTS.CRAB_CLICK, ({ interaction }) => {
@@ -730,23 +544,11 @@ export function setupSocketHandler(io) {
     });
 
     socket.on(EVENTS.SONG_REQUEST, async ({ query }) => {
-      if (!query) return;
-      const { searchSongs } = await import('../services/netease.js');
-      try {
-        const res = await searchSongs(query, 5);
-        const songs = res.result?.songs || [];
-        if (songs.length > 0) {
-          queue.insertNext(songs[0]);
-          io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs });
-          socket.emit(EVENTS.DJ_MESSAGE, { text: `Queued: ${songs[0].name}` });
-        }
-      } catch (e) {
-        socket.emit(EVENTS.ERROR, { code: 'SEARCH_FAILED', message: e.message });
-      }
+      emitSongRequestResult(io, socket, await playbackService.requestSong(query));
     });
 
     socket.on('location:update', ({ lat, lon }) => {
-      if (lat && lon) setClientLocation(lat, lon);
+      if (lat && lon) legacyWeatherAdapter.setClientLocation(lat, lon);
     });
 
     socket.on('disconnect', () => {

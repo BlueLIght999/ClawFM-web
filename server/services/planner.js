@@ -3,11 +3,10 @@
  * Falls back to time-of-day templates when LLM is unavailable.
  */
 
-import config from '../config.js';
 import { assemblePrompt, getTimeOfDayMood } from './context.js';
-import { getWeather } from './weather.js';
-import { savePlan as dbSavePlan, getPlan as dbGetPlan } from '../db/history.js';
-import { llmClient as client } from '../infrastructure/llm/llmClient.js';
+import { legacyWeatherAdapter } from '../infrastructure/environment/LegacyWeatherAdapter.js';
+import { legacyPlanRepository } from '../infrastructure/persistence/repositories/LegacyPlanRepository.js';
+import { deepSeekLlmAdapter } from '../infrastructure/llm/DeepSeekLlmAdapter.js';
 
 // In-memory cache
 let _cache = null;
@@ -53,20 +52,11 @@ function buildFallbackPlan(weather, mood) {
 }
 
 async function callPlanner(messages) {
-  if (!client) return null;
-  try {
-    const response = await client.chat.completions.create({
-      model: config.deepseekModel,
-      messages,
-      max_tokens: 800,
-      temperature: 0.7,
-      response_format: { type: 'json_object' },
-    });
-    return response.choices[0]?.message?.content || null;
-  } catch (e) {
-    console.error('[Planner] LLM call failed:', e.message);
-    return null;
-  }
+  return deepSeekLlmAdapter.complete(messages, {
+    maxTokens: 800,
+    temperature: 0.7,
+    jsonMode: true,
+  });
 }
 
 function validatePlan(raw) {
@@ -90,8 +80,8 @@ function validatePlan(raw) {
   };
 }
 
-async function _doGenerate(force) {
-  const weather = await getWeather();
+async function _doGenerate() {
+  const weather = await legacyWeatherAdapter.current();
   const mood = getTimeOfDayMood();
 
   // Try LLM
@@ -150,7 +140,11 @@ ${contextPrompt}
 
   // Cache
   _cache = { plan, mood, generatedAt: Date.now() };
-  try { dbSavePlan(JSON.stringify(plan), mood); } catch {}
+  try {
+    legacyPlanRepository.save(plan, mood);
+  } catch {
+    // Plan cache failures must not stop the radio.
+  }
 
   console.log('[Planner] Plan generated:', plan.planId, `(${plan.blocks.length} blocks)`);
   return plan;
@@ -160,7 +154,7 @@ export async function generatePlan(force = false) {
   if (!force && _cache && !isPlanStale()) return _cache.plan;
   if (_pendingPromise) return _pendingPromise;
 
-  _pendingPromise = _doGenerate(force);
+  _pendingPromise = _doGenerate();
   try {
     return await _pendingPromise;
   } finally {
@@ -171,7 +165,7 @@ export async function generatePlan(force = false) {
 export function getPlan() {
   if (_cache && !isPlanStale()) return _cache;
   // Try DB
-  const dbPlan = dbGetPlan();
+  const dbPlan = legacyPlanRepository.latest();
   if (dbPlan && dbPlan.plan) {
     _cache = { plan: dbPlan.plan, mood: dbPlan.mood, generatedAt: new Date(dbPlan.generatedAt).getTime() };
     if (!isPlanStale()) return _cache;

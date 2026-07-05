@@ -1,14 +1,16 @@
 import config from '../config.js';
-import { getChatHistory, saveChatMessage, getUserProfile } from '../db/history.js';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { artistName } from '../domain/hosting/artistName.js';
 import { fallbackTransitionScript } from '../domain/hosting/fallbackTransitionScript.js';
+import { deepSeekLlmAdapter } from '../infrastructure/llm/DeepSeekLlmAdapter.js';
 import { llmClient as client } from '../infrastructure/llm/llmClient.js';
 import { buildProactivePrompt } from '../domain/hosting/buildProactivePrompt.js';
 import { buildTransitionPrompt } from '../domain/hosting/buildTransitionPrompt.js';
+import { legacyChatHistoryRepository } from '../infrastructure/persistence/repositories/LegacyChatHistoryRepository.js';
+import { legacyListenerProfileRepository } from '../infrastructure/persistence/repositories/LegacyListenerProfileRepository.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -22,20 +24,7 @@ function loadDjPersona() {
 const DJ_PERSONA = loadDjPersona();
 
 async function callLLM(messages, { jsonMode = false, maxTokens = 250, temperature = 0.75 } = {}) {
-  if (!client) return null;
-  try {
-    const response = await client.chat.completions.create({
-      model: config.deepseekModel,
-      messages,
-      max_tokens: maxTokens,
-      temperature,
-      ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
-    });
-    return response.choices[0]?.message?.content || null;
-  } catch (e) {
-    console.error('[Claude] API error:', e.message);
-    return null;
-  }
+  return deepSeekLlmAdapter.complete(messages, { jsonMode, maxTokens, temperature });
 }
 
 /**
@@ -59,7 +48,7 @@ export async function generateDjResponse({
   }
 
   // Add chat history
-  const history = getChatHistory(6);
+  const history = legacyChatHistoryRepository.recent(6);
   for (const h of history) {
     messages.push({ role: h.role, content: h.content });
   }
@@ -90,8 +79,8 @@ export async function generateDjResponse({
 export async function chatWithDj(userMessage, contextFragments) {
   if (!client) return null;
 
-  const history = getChatHistory(10);
-  const profile = getUserProfile();
+  const history = legacyChatHistoryRepository.recent(10);
+  const profile = legacyListenerProfileRepository.get();
   const topArtists = (profile.topArtists || []).slice(0, 5).map(a => a.name).join(', ');
 
   const messages = [
@@ -114,7 +103,7 @@ export async function chatWithDj(userMessage, contextFragments) {
   }
   messages.push({ role: 'user', content: userMessage });
 
-  saveChatMessage('user', userMessage);
+  legacyChatHistoryRepository.append('user', userMessage);
 
   try {
     return await client.chat.completions.create({
@@ -134,9 +123,9 @@ export async function chatWithDj(userMessage, contextFragments) {
  * Extract structured intent from user message
  */
 export async function extractIntent(userMessage) {
-  if (!client) return { action: 'none', params: {} };
+  if (!deepSeekLlmAdapter.isConfigured()) return { action: 'none', params: {} };
 
-  const profile = getUserProfile();
+  const profile = legacyListenerProfileRepository.get();
   const topArtists = (profile.topArtists || []).slice(0, 5).map(a => a.name).join(', ');
 
   const messages = [
@@ -164,9 +153,9 @@ Rules:
  * Analyze listening habits — generates insight text
  */
 export async function analyzeHabits() {
-  if (!client) return null;
+  if (!deepSeekLlmAdapter.isConfigured()) return null;
 
-  const profile = getUserProfile();
+  const profile = legacyListenerProfileRepository.get();
   const topArtists = (profile.topArtists || []).slice(0, 10).map(a => `${a.name} (${a.count})`).join(', ');
   const analysis = profile.analysis || {};
 
@@ -205,7 +194,7 @@ export async function generateColdOpen(nextSong, weather, timeOfDay) {
         'You are going live on Qclaudio 88.7 for the first time right now.',
         weather ? `Current weather: ${weather}.` : '',
         `Time of day: ${timeOfDay || 'this moment'}.`,
-        `The first song you\'ll play is: "${nextTitle}" by ${nextArtist}.`,
+        `The first song you'll play is: "${nextTitle}" by ${nextArtist}.`,
         '',
         'Warmly introduce yourself, the station, comment on the time/weather/mood,',
         'then naturally introduce this first song. Keep it 15-30 seconds spoken.',
@@ -223,7 +212,7 @@ export async function generateColdOpen(nextSong, weather, timeOfDay) {
 
 /** Streaming cold open — emits tokens via onChunk, returns full text */
 export async function streamColdOpen(nextSong, weather, timeOfDay, onChunk) {
-  if (!client) {
+  if (!deepSeekLlmAdapter.isConfigured()) {
     const fallback = `Welcome to Qclaudio 88.7. Let's start with ${nextSong?.name || nextSong?.title || 'this track'}.`;
     onChunk?.(fallback);
     return fallback;
@@ -247,22 +236,11 @@ export async function streamColdOpen(nextSong, weather, timeOfDay, onChunk) {
   ];
 
   try {
-    const stream = await client.chat.completions.create({
-      model: config.deepseekModel,
-      messages,
-      max_tokens: 200,
-      temperature: 0.85,
-      stream: true,
-    });
-
     let fullText = '';
-    for await (const chunk of stream) {
-      const token = chunk.choices?.[0]?.delta?.content;
-      if (token) {
-        fullText += token;
-        onChunk?.(token);
-      }
-    }
+    await deepSeekLlmAdapter.stream(messages, { maxTokens: 200, temperature: 0.85 }, (token) => {
+      fullText += token;
+      onChunk?.(token);
+    });
     return fullText || `Welcome to Qclaudio 88.7. Let's start with ${nextTitle} by ${nextArtist}.`;
   } catch (e) {
     console.error('[Claude] Cold open stream error:', e.message);
@@ -310,23 +288,15 @@ export const generateTransition = async (prev, next, timeOfDay, assembledPrompt)
 
 /** Quick LLM call to decide if DJ should speak proactively. Returns { shouldSpeak, message, reason } or null. */
 export async function decideProactiveSpeech(ctx) {
-  if (!client) return null;
+  if (!deepSeekLlmAdapter.isConfigured()) return null;
 
   const prompt = buildProactivePrompt(ctx);
 
   try {
-    const res = await client.chat.completions.create({
-      model: config.deepseekModel,
-      messages: [
-        { role: 'system', content: 'You are a radio DJ decision engine. Always output pure JSON, no markdown.' },
-        { role: 'user', content: prompt },
-      ],
-      max_tokens: 200,
-      temperature: 0.7,
-      stream: false,
-    });
-
-    const raw = res.choices?.[0]?.message?.content?.trim() || '';
+    const raw = (await deepSeekLlmAdapter.complete([
+      { role: 'system', content: 'You are a radio DJ decision engine. Always output pure JSON, no markdown.' },
+      { role: 'user', content: prompt },
+    ], { maxTokens: 200, temperature: 0.7 }))?.trim() || '';
     // Strip markdown code fences if present
     const json = raw.replace(/^```json?\s*/i, '').replace(/\s*```\s*$/, '');
     try { return JSON.parse(json); } catch {
@@ -339,4 +309,4 @@ export async function decideProactiveSpeech(ctx) {
   }
 }
 
-export function isConfigured() { return !!client; }
+export function isConfigured() { return deepSeekLlmAdapter.isConfigured(); }

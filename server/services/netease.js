@@ -2,14 +2,21 @@
  * Netease Cloud Music API proxy
  * Calls NeteaseCloudMusicApi server on localhost:3000 (HTTP)
  */
-import { getStoredCookie, saveCookie } from '../utils/cookie-store.js';
+import { legacyAuthRepository } from '../infrastructure/persistence/repositories/LegacyAuthRepository.js';
 
 const API_BASE = 'http://localhost:3000';
 
 let cachedCookie = '';
 
-export function getCookie() { return cachedCookie || getStoredCookie(); }
-export function setCookie(c) { cachedCookie = c; saveCookie(c); }
+let authRepository = legacyAuthRepository;
+
+export function setAuthRepository(repository) {
+  authRepository = repository || legacyAuthRepository;
+  cachedCookie = '';
+}
+
+export function getCookie() { return cachedCookie || authRepository.currentCookie(); }
+export function setCookie(c) { cachedCookie = c; authRepository.saveSession(c); }
 
 async function callApi(endpoint, params = {}) {
   const url = new URL(`${API_BASE}${endpoint}`);
@@ -28,7 +35,7 @@ async function callApi(endpoint, params = {}) {
     // Handle cookie refresh
     if (body.cookie) {
       cachedCookie = body.cookie;
-      saveCookie(body.cookie, { userId: String(body.account?.id || body.profile?.userId || '') });
+      authRepository.saveSession(body.cookie, { userId: String(body.account?.id || body.profile?.userId || '') });
     }
 
     if (body.code === 301 || body.body?.code === 301) {
@@ -38,7 +45,7 @@ async function callApi(endpoint, params = {}) {
       const refreshBody = await refreshRes.json();
       if (refreshBody.cookie) {
         cachedCookie = refreshBody.cookie;
-        saveCookie(refreshBody.cookie);
+        authRepository.saveSession(refreshBody.cookie);
         // Retry original request
         const retryHeaders = { 'Cookie': cachedCookie };
         const retryRes = await fetch(url.toString(), { headers: retryHeaders });
@@ -59,7 +66,7 @@ export async function phoneLogin(phone, password) {
   const result = await callApi('/login/cellphone', { phone, password, countrycode: '86' });
   if (result.cookie) {
     cachedCookie = result.cookie;
-    saveCookie(result.cookie, {
+    authRepository.saveSession(result.cookie, {
       userId: String(result.account?.id || result.profile?.userId || ''),
       nickname: result.profile?.nickname || '',
       avatarUrl: result.profile?.avatarUrl || '',

@@ -1,24 +1,26 @@
-/**
- * Context Window — 6-slot prompt assembly
- * Blueprint Layer 3: 每次触发按这 6 片粘成 prompt
+﻿/**
+ * Context Window 鈥?6-slot prompt assembly
+ * Blueprint Layer 3: 姣忔瑙﹀彂鎸夎繖 6 鐗囩矘鎴?prompt
  *
  * Slots:
- *   ① 系统提示词    prompts/dj-persona.md
- *   ② 用户语料      user/*.md
- *   ③ 用户输入/工具结果  /api/chat || ncm search results
- *   ④ 已检索记忆    state.db → plays
- *   ⑤ 环境注入      weather · calendar · now
- *   ⑥ 执行轨迹      scheduler · webhook
+ *   鈶?绯荤粺鎻愮ず璇?   prompts/dj-persona.md
+ *   鈶?鐢ㄦ埛璇枡      user/*.md
+ *   鈶?鐢ㄦ埛杈撳叆/宸ュ叿缁撴灉  /api/chat || ncm search results
+ *   鈶?宸叉绱㈣蹇?   state.db 鈫?plays
+ *   鈶?鐜娉ㄥ叆      weather 路 calendar 路 now
+ *   鈶?鎵ц杞ㄨ抗      scheduler 路 webhook
  */
 
-import { getListenHistory, getUserProfile, getSeedPool } from '../db/history.js';
 import { formatUserCorpus } from '../domain/curation/formatUserCorpus.js';
 import { defaultCorpus } from '../infrastructure/storage/defaultCorpus.js';
+import { legacyListenHistoryRepository } from '../infrastructure/persistence/repositories/LegacyListenHistoryRepository.js';
+import { legacyListenerProfileRepository } from '../infrastructure/persistence/repositories/LegacyListenerProfileRepository.js';
+import { legacySeedPoolRepository } from '../infrastructure/persistence/repositories/LegacySeedPoolRepository.js';
 
 // --- Slot loaders ---
 
 /**
- * Slot ②: User taste corpus.
+ * Slot 鈶? User taste corpus.
  * @param {{readTaste,readRoutines,readMoodRules}} corpus injected CorpusPort
  */
 export function slotUserCorpus(corpus = defaultCorpus) {
@@ -29,7 +31,7 @@ export function slotUserCorpus(corpus = defaultCorpus) {
   });
 }
 
-/** Slot ③: User input and tool results */
+/** Slot 鈶? User input and tool results */
 function slotUserInput(input, toolResults) {
   const parts = [];
   if (input) parts.push(`### Recent Input\n${input}`);
@@ -37,17 +39,25 @@ function slotUserInput(input, toolResults) {
   return parts.join('\n\n');
 }
 
-/** Slot ④: Retrieved memory from state.db */
-function slotMemory() {
-  const plays = getListenHistory(20);
-  const profile = getUserProfile();
-  const seedPool = getSeedPool();
+/** Slot 鈶? Retrieved memory from state.db */
+function defaultRepositories() {
+  return {
+    listenHistory: legacyListenHistoryRepository,
+    profile: legacyListenerProfileRepository,
+    seedPool: legacySeedPoolRepository,
+  };
+}
+
+function slotMemory(repositories = defaultRepositories()) {
+  const plays = repositories.listenHistory.history(20);
+  const profile = repositories.profile.get();
+  const seedPool = repositories.seedPool.all();
 
   if (plays.length === 0 && seedPool.length === 0) return '';
 
   const recentSongs = plays
     .slice(0, 10)
-    .map(p => `- ${p.title} — ${p.artist} (${new Date(p.played_at).toLocaleTimeString()})`)
+    .map(p => `- ${p.title} 鈥?${p.artist} (${new Date(p.playedAt ?? p.played_at).toLocaleTimeString()})`)
     .join('\n');
 
   const topArtists = (profile.topArtists || []).slice(0, 5)
@@ -65,7 +75,7 @@ function slotMemory() {
   ].filter(Boolean).join('\n\n');
 }
 
-/** Slot ⑤: Environment injection */
+/** Slot 鈶? Environment injection */
 function slotEnvironment(env = {}) {
   const parts = [];
   const now = new Date();
@@ -84,7 +94,7 @@ function slotEnvironment(env = {}) {
   return parts.join('\n');
 }
 
-/** Slot ⑥: Execution trace */
+/** Slot 鈶? Execution trace */
 function slotExecutionTrace(trace = {}) {
   const parts = [];
   if (trace.lastAction) parts.push(`Last action: ${trace.lastAction}`);
@@ -99,10 +109,10 @@ function slotExecutionTrace(trace = {}) {
  * Assemble the full Context Window prompt from 6 slots.
  *
  * @param {Object} params
- * @param {string}  params.userInput     — slot ③: user chat text
- * @param {string}  params.toolResults   — slot ③: ncm search results etc.
- * @param {Object}  params.environment   — slot ⑤: {weather, calendar}
- * @param {Object}  params.execTrace     — slot ⑥: {lastAction, queueLength, mode}
+ * @param {string}  params.userInput     鈥?slot 鈶? user chat text
+ * @param {string}  params.toolResults   鈥?slot 鈶? ncm search results etc.
+ * @param {Object}  params.environment   鈥?slot 鈶? {weather, calendar}
+ * @param {Object}  params.execTrace     鈥?slot 鈶? {lastAction, queueLength, mode}
  * @returns {string} assembled prompt
  */
 export function assemblePrompt({
@@ -110,14 +120,16 @@ export function assemblePrompt({
   toolResults = '',
   environment = {},
   execTrace = {},
+  corpus = defaultCorpus,
+  repositories = defaultRepositories(),
 } = {}) {
   const slots = [
-    { label: '① system-persona',    content: '' }, // loaded separately
-    { label: '② user-corpus',       content: slotUserCorpus() },
-    { label: '③ user-input+tools',  content: slotUserInput(userInput, toolResults) },
-    { label: '④ memory',            content: slotMemory() },
-    { label: '⑤ environment',       content: slotEnvironment(environment) },
-    { label: '⑥ exec-trace',        content: slotExecutionTrace(execTrace) },
+    { label: '鈶?system-persona',    content: '' }, // loaded separately
+    { label: '鈶?user-corpus',       content: slotUserCorpus(corpus) },
+    { label: '鈶?user-input+tools',  content: slotUserInput(userInput, toolResults) },
+    { label: '鈶?memory',            content: slotMemory(repositories) },
+    { label: '鈶?environment',       content: slotEnvironment(environment) },
+    { label: '鈶?exec-trace',        content: slotExecutionTrace(execTrace) },
   ];
 
   const fragments = slots
@@ -137,3 +149,4 @@ export function getTimeOfDayMood() {
   if (hour >= 17 && hour < 22) return 'evening';
   return 'night';
 }
+

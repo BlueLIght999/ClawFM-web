@@ -6,8 +6,8 @@
 
 import { decideProactiveSpeech } from './claude.js';
 import { getTimeOfDayMood } from './context.js';
-import { getWeather } from './weather.js';
-import { generateSpeech, isTtsAvailable } from './tts.js';
+import { legacyWeatherAdapter } from '../infrastructure/environment/LegacyWeatherAdapter.js';
+import { legacySpeechSynthAdapter } from '../infrastructure/speech/LegacySpeechSynthAdapter.js';
 
 let lastSpeechTime = Date.now();
 let lastHour = -1;
@@ -16,8 +16,8 @@ let _enabled = true; // Proactive speech on/off
 export function setProactiveEnabled(v) { _enabled = !!v; }
 export function isProactiveEnabled() { return _enabled; }
 
-export function resetLastSpeechTime() {
-  lastSpeechTime = Date.now();
+export function resetLastSpeechTime(value = Date.now()) {
+  lastSpeechTime = value;
 }
 
 /** Call from handler when a user sends a chat message */
@@ -26,7 +26,16 @@ export function setLastUserChat(text) {
   _lastUserChat = text;
 }
 
-export async function maybeProactiveSpeech({ events, scheduler, queue, getPlan }) {
+export async function maybeProactiveSpeech({
+  events,
+  scheduler,
+  queue,
+  getPlan,
+  weather = legacyWeatherAdapter,
+  speech = legacySpeechSynthAdapter,
+  decideProactiveSpeech: decide = decideProactiveSpeech,
+  tokenDelayMs = null,
+}) {
   if (!_enabled) return;
   if (scheduler.coldStartState !== 'done') return;
   if (!scheduler.isPlaying) return;
@@ -51,7 +60,7 @@ export async function maybeProactiveSpeech({ events, scheduler, queue, getPlan }
   const hourChanged = lastHour >= 0 && hour !== lastHour;
   lastHour = hour;
 
-  const weather = await getWeather();
+  const weatherText = await weather.current();
 
   const chatMsg = _lastUserChat;
   _lastUserChat = null; // consume once
@@ -59,7 +68,7 @@ export async function maybeProactiveSpeech({ events, scheduler, queue, getPlan }
   const secondsAgo = Math.floor((Date.now() - lastSpeechTime) / 1000);
   const songsAgo = scheduler.songsSinceLastSpeech || 0;
 
-  const decision = await decideProactiveSpeech({
+  const decision = await decide({
     currentSong,
     timeOfDay,
     activeBlock,
@@ -68,7 +77,7 @@ export async function maybeProactiveSpeech({ events, scheduler, queue, getPlan }
     secondsSinceLastSpeech: secondsAgo,
     songsSinceLastSpeech: songsAgo,
     lastChatMessage: chatMsg || null,
-    weather,
+    weather: weatherText,
     weatherChanged: hourChanged,
     hourChanged,
   });
@@ -87,14 +96,15 @@ export async function maybeProactiveSpeech({ events, scheduler, queue, getPlan }
     for (let i = 0; i < chars.length; i += 3) {
       const token = chars.slice(i, i + 3).join('');
       events.djStreamChunk(messageId, token);
-      await new Promise(r => setTimeout(r, 30 + Math.random() * 30));
+      const delay = tokenDelayMs ?? (30 + Math.random() * 30);
+      if (delay > 0) await new Promise(r => setTimeout(r, delay));
     }
     events.djStreamEnd(messageId, decision.message);
 
     // Generate TTS audio for a random subset of proactive messages (~40% chance)
     // Not every message needs spoken delivery — keeps it feeling natural
-    if (isTtsAvailable() !== false && Math.random() < 0.4) {
-      generateSpeech(decision.message).then(audioUrl => {
+    if (speech.health().available !== false && Math.random() < 0.4) {
+      speech.synthesize(decision.message).then(audioUrl => {
         if (audioUrl) {
           events.djSpeechStart({ audioUrl, text: decision.message, type: 'proactive' });
         }
