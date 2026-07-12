@@ -94,6 +94,8 @@ module.exports = {
           '(^|/)index\\.js$',
           '(^|/)server\\.js$',
           '^application/ports/',
+          '^evaluation/runBadCaseAttribution\\.js$',
+          '^evaluation/runProductEffectEvaluation\\.js$',
           '\\.cjs$',
         ],
       },

@@ -9,7 +9,7 @@ export function loadCookie() {
       const data = JSON.parse(fs.readFileSync(config.netease.cookieFile, 'utf-8'));
       return data.cookie || '';
     }
-  } catch (e) { /* ignore */ }
+  } catch { /* ignore */ }
 
   return queryOne('SELECT cookie FROM netease_auth WHERE id = 1')?.cookie || '';
 }

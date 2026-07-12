@@ -10,7 +10,7 @@ import {
   getUserPlaylists,
   getPlaylistTracks,
   scrobbleSong,
-} from '../../services/netease.js';
+} from '../netease/neteaseApi.js';
 import { toSongDTO } from '../../domain/curation/toSongDTO.js';
 
 function songsFromSearchResult(result) {
@@ -54,8 +54,8 @@ export function createLegacyNeteaseMusicSourceAdapter(legacy = {
     },
     async lyric(songId) {
       const result = await legacy.getLyric(songId);
-      const lrc = result?.lrc?.lyric || result?.data?.lrc?.lyric || '';
-      const tlrc = result?.tlyric?.lyric || result?.data?.tlyric?.lyric || '';
+      const lrc = extractLyricField(result, 'lrc');
+      const tlrc = extractLyricField(result, 'tlyric');
       return lrc || tlrc ? { lrc, tlrc } : null;
     },
     async similar(songId) {
@@ -97,3 +97,9 @@ export function createLegacyNeteaseMusicSourceAdapter(legacy = {
 }
 
 export const legacyNeteaseMusicSourceAdapter = createLegacyNeteaseMusicSourceAdapter();
+
+function extractLyricField(result, field) {
+  const top = (result && result[field]) || {};
+  const nested = (result && result.data && result.data[field]) || {};
+  return top.lyric || nested.lyric || '';
+}

@@ -3,7 +3,7 @@ import {
   getCookie,
   setAuthRepository,
   setCookie,
-} from '../services/netease.js';
+} from '../infrastructure/netease/neteaseApi.js';
 import { legacyAuthRepository } from '../infrastructure/persistence/repositories/LegacyAuthRepository.js';
 
 describe('netease auth repository seam', () => {

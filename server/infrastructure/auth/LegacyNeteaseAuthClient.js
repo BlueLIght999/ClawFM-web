@@ -3,7 +3,7 @@ import {
   createQrLogin,
   checkQrLogin,
   checkLoginStatus,
-} from '../../services/netease.js';
+} from '../netease/neteaseApi.js';
 
 /**
  * Adapter for legacy NetEase auth functions used by AuthenticationService.

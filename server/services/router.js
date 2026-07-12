@@ -21,8 +21,6 @@ const LIVE_PATTERNS = [
 ];
 
 function isLiveVersion(song) {
-  const title = (song.name || song.title || '').toLowerCase();
-  // Check title (keep the lowercase version)
   const titleOrig = song.name || song.title || '';
   for (const pattern of LIVE_PATTERNS) {
     if (pattern.test(titleOrig)) return true;
@@ -74,7 +72,7 @@ export async function routeIntentWithDependencies(text, {
         params: { query },
         results: songs.slice(0, 3),
       };
-    } catch (e) {
+    } catch {
       // Fall through to claude
     }
   }

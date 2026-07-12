@@ -14,6 +14,7 @@ export default {
   deepseekModel: 'deepseek-chat',
   netease: {
     cookieFile: resolve(__dirname, '..', 'data', 'cookies.json'),
+    apiPort: parseInt(process.env.NETEASE_API_PORT || '3000', 10),
   },
   db: {
     path: resolve(__dirname, '..', 'data', 'radio.db'),

@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 
-vi.mock('../services/netease.js', () => ({
+vi.mock('../infrastructure/netease/neteaseApi.js', () => ({
   searchSongs: vi.fn(async () => ({ result: { songs: [] } })),
   getSongUrl: vi.fn(async () => ({ data: [{ url: null }] })),
   getLyric: vi.fn(async () => ({})),

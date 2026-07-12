@@ -67,18 +67,31 @@ async function main() {
       const timeout = setTimeout(() => {
         // Last attempt
         http.get(`${URL}/api/auth/status`, () => resolve()).on('error', () => {
-          reject(new Error('Server failed to start'));
+          reject(new Error('Server failed to start within 30s timeout'));
         });
       }, 30000);
 
       serverProc.stdout.on('data', (data) => {
-        if (data.toString().includes('ON AIR')) {
+        const line = data.toString();
+        if (line.includes('ON AIR')) {
           clearTimeout(timeout);
           resolve();
         }
       });
 
+      serverProc.stderr.on('data', (data) => {
+        const msg = data.toString().trim();
+        if (msg) console.error('[Server]', msg);
+      });
+
       serverProc.on('error', reject);
+
+      serverProc.on('exit', (code) => {
+        if (code !== 0 && code !== null) {
+          clearTimeout(timeout);
+          reject(new Error(`Server process exited with code ${code}`));
+        }
+      });
     });
     console.log('[Server] Ready');
   } else {

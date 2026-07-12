@@ -23,7 +23,7 @@ describe('SpeechTimer', () => {
   beforeEach(async () => {
     // Dynamic import — will resolve after implementation exists
     try {
-      const mod = await import('../services/speech-timer.js');
+      const mod = await import('../domain/playback/speechTimer.js');
       SpeechTimer = mod.SpeechTimer;
     } catch { /* not yet implemented — tests will fail on constructor */ }
     vi.useFakeTimers();

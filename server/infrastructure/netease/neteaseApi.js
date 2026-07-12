@@ -2,9 +2,10 @@
  * Netease Cloud Music API proxy
  * Calls NeteaseCloudMusicApi server on localhost:3000 (HTTP)
  */
-import { legacyAuthRepository } from '../infrastructure/persistence/repositories/LegacyAuthRepository.js';
+import { legacyAuthRepository } from '../persistence/repositories/LegacyAuthRepository.js';
+import config from '../../config.js';
 
-const API_BASE = 'http://localhost:3000';
+const API_BASE = `http://localhost:${config.netease.apiPort}`;
 
 let cachedCookie = '';
 
@@ -19,46 +20,75 @@ export function getCookie() { return cachedCookie || authRepository.currentCooki
 export function setCookie(c) { cachedCookie = c; authRepository.saveSession(c); }
 
 async function callApi(endpoint, params = {}) {
-  const url = new URL(`${API_BASE}${endpoint}`);
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null) url.searchParams.set(k, v);
-  }
-
-  const cookie = getCookie();
-  const headers = {};
-  if (cookie) headers['Cookie'] = cookie;
-
+  const url = buildApiUrl(endpoint, params);
+  const headers = buildAuthHeaders();
   try {
     const res = await fetch(url.toString(), { headers });
-    const body = await res.json();
-
-    // Handle cookie refresh
-    if (body.cookie) {
-      cachedCookie = body.cookie;
-      authRepository.saveSession(body.cookie, { userId: String(body.account?.id || body.profile?.userId || '') });
+    const body = await parseJsonResponse(res);
+    updateCookieFromBody(body);
+    if (isLoginExpired(body)) {
+      return await refreshAndRetry(url, headers);
     }
-
-    if (body.code === 301 || body.body?.code === 301) {
-      console.log('[Netease] Cookie expired, trying status check...');
-      // Try /login/status which triggers refresh internally
-      const refreshRes = await fetch(`${API_BASE}/login/refresh`, { headers });
-      const refreshBody = await refreshRes.json();
-      if (refreshBody.cookie) {
-        cachedCookie = refreshBody.cookie;
-        authRepository.saveSession(refreshBody.cookie);
-        // Retry original request
-        const retryHeaders = { 'Cookie': cachedCookie };
-        const retryRes = await fetch(url.toString(), { headers: retryHeaders });
-        return retryRes.json();
-      }
-      throw new Error('Login expired — please re-login');
-    }
-
     return body;
   } catch (e) {
     console.error(`[Netease] API call failed: ${endpoint} —`, e.message);
     throw e;
   }
+}
+
+function buildApiUrl(endpoint, params) {
+  const url = new URL(`${API_BASE}${endpoint}`);
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null) url.searchParams.set(k, v);
+  }
+  return url;
+}
+
+function buildAuthHeaders() {
+  const cookie = getCookie();
+  const headers = {};
+  if (cookie) headers['Cookie'] = cookie;
+  return headers;
+}
+
+function updateCookieFromBody(body) {
+  if (!body.cookie) return;
+  cachedCookie = body.cookie;
+  authRepository.saveSession(body.cookie, { userId: String(body.account?.id || body.profile?.userId || '') });
+}
+
+async function parseJsonResponse(res) {
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = await res.text();
+    throw new Error(
+      `NeteaseCloudMusicApi returned non-JSON response (${contentType}) — ` +
+      `check if port ${config.netease.apiPort} is occupied by another application. ` +
+      `Response preview: ${text.slice(0, 100)}`
+    );
+  }
+  return res.json();
+}
+
+function isLoginExpired(body) {
+  return body.code === 301 || body.body?.code === 301;
+}
+
+async function refreshAndRetry(url, headers) {
+  console.log('[Netease] Cookie expired, trying refresh...');
+  const refreshRes = await fetch(`${API_BASE}/login/refresh`, { headers });
+  const refreshBody = await refreshRes.json();
+  if (!refreshBody.cookie) {
+    throw new Error('Login expired — please re-login');
+  }
+  cachedCookie = refreshBody.cookie;
+  authRepository.saveSession(refreshBody.cookie);
+  const retryRes = await fetch(url.toString(), { headers: { 'Cookie': cachedCookie } });
+  const retryBody = await retryRes.json();
+  if (isLoginExpired(retryBody)) {
+    throw new Error('Login expired — please re-login');
+  }
+  return retryBody;
 }
 
 // === Auth ===

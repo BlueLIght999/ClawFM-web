@@ -135,3 +135,226 @@ if (!queue.hasCurrent && queue.future.length > 0) {
 | `server/socket/handler.js` | 修复 QR 状态码 800↔803 颠倒；修复冷启动队列 advance；补充 qrimg 传递 |
 | `server/utils/cookie-store.js` | `replace` 正则 → `path.dirname()`，修复 Windows cookie 持久化 |
 
+---
+
+# 第二轮：启动与登录链路 Bug 审计
+
+> 日期：2026-07-12
+> 环境：Windows 11, Node.js v24.14.1
+> 审查范围：`bin/qclaudio.js` → `server.js` 启动链路 + `AuthenticationService` → `netease.js` 登录链路
+
+---
+
+## Bug #9: NeteaseCloudMusicApi 端口冲突导致 QR 码生成挂起 [已修复]
+
+**症状:** 点击 QR LOGIN 后页面永远显示 "Generating QR code..."，二维码不出现，控制台无错误
+
+**原因:** 端口 3000 被系统上另一个 Node 应用（Next.js）占用。`server.js` 中 `startNeteaseApi()` 尝试在 3000 端口启动 NeteaseCloudMusicApi 子进程，但端口已被占用导致子进程崩溃。`waitForNeteaseApi()` 的健康检查只验证 `res.ok`（HTTP 200），没有校验返回内容是否为 NeteaseCloudMusicApi 的 JSON 响应。当端口 3000 上运行的是其他应用时，健康检查持续失败直到 15 秒超时，服务器继续运行但所有网易云 API 调用都收到非 JSON 响应（HTML），`res.json()` 抛出异常被 `callApi` 的 catch 捕获并重新抛出，但错误信息是 `"Unexpected '<' in JSON"` 而非端口冲突提示。
+
+**修复:**
+- `server/config.js`：新增 `netease.apiPort` 配置项，默认 3000，可通过环境变量 `NETEASE_API_PORT` 覆盖
+- `server/server.js`：`startNeteaseApi` 和 `waitForNeteaseApi` 使用 `config.netease.apiPort`
+- `server/services/netease.js`：`API_BASE` 使用 `config.netease.apiPort`
+- `waitForNeteaseApi` 健康检查加强：除了 HTTP 200 外，还验证返回 JSON body 包含 `code` 字段（顶层或 `data.code`），确保是 NeteaseCloudMusicApi 而非其他应用
+
+---
+
+## Bug #10: `waitForNeteaseApi` 健康检查 JSON 结构不匹配导致启动超时 [已修复]
+
+**症状:** 服务器启动时输出 `[NeteaseAPI] WARNING: Not ready after timeout, continuing anyway`，等待 15 秒才能继续
+
+**原因:** 健康检查验证 `'code' in body` 只检查顶层 `code` 字段，但 NeteaseCloudMusicApi 的 `/login/status` 响应结构是 `{ data: { code: 200, ... } }`，`code` 在 `data` 里面，顶层不存在。即使 API 已正常运行，健康检查也永远返回 false。
+
+**修复:**
+- `server/server.js`：健康检查同时检查 `body.code` 和 `body.data.code`：`'code' in body || (body.data && typeof body.data === 'object' && 'code' in body.data)`
+
+---
+
+## Bug #11: `server.js:241` 日志消息硬编码端口 3000 [已修复]
+
+**症状:** 配置使用非 3000 端口时，日志输出 `[NeteaseAPI] Ready on port 3000` 误导用户
+
+**原因:** `console.log('[NeteaseAPI] Ready on port 3000')` 硬编码字符串
+
+**修复:**
+- `server/server.js`：改为 ``console.log(`[NeteaseAPI] Ready on port ${config.netease.apiPort}`)``
+
+---
+
+## Bug #12: NeteaseCloudMusicApi 崩溃后无限重启循环 [已修复]
+
+**严重度:** 中
+**位置:** `server/server.js:203-211`
+
+**症状:** 当 NeteaseCloudMusicApi 因端口冲突或其他原因崩溃时，`startNeteaseApi` 的 `close` 事件处理器每 3 秒自动重启一次，永不停止，产生大量日志且无法退出
+
+**原因:**
+```javascript
+neteaseProc.on('close', (code) => {
+  if (code !== 0 && code !== null) {
+    setTimeout(() => { startNeteaseApi(); }, 3000);  // 无退出条件
+  }
+});
+```
+
+**修复:**
+- `server/server.js`：添加 `neteaseRestartCount` 计数器和 `NETEASE_MAX_RESTARTS = 5` 上限，使用指数退避（3s → 6s → 12s → 24s → 30s cap），超过重试上限后输出明确错误信息并停止重启
+
+---
+
+## Bug #13: `bin/qclaudio.js` 服务器启动崩溃时父进程挂起 30 秒 [已修复]
+
+**严重度:** 高
+**位置:** `bin/qclaudio.js:66-82`
+
+**症状:** 服务器在启动过程中崩溃（如 `initDb()` 失败、端口 3333 被占用、模块加载错误），`bin/qclaudio.js` 不输出任何错误信息，挂起 30 秒后输出 `Server failed to start`
+
+**原因:** 启动等待 Promise 只监听 `serverProc.stdout` 中的 "ON AIR" 字符串和 30 秒超时，没有监听 `serverProc` 的 `exit` 事件和 `stderr` 输出
+
+**修复:**
+- `bin/qclaudio.js`：添加 `serverProc.on('exit', ...)` 监听器，非零退出码立即 reject 并清除超时定时器
+
+---
+
+## Bug #14: `bin/qclaudio.js` 服务器 stderr 被静默吞掉 [已修复]
+
+**严重度:** 高
+**位置:** `bin/qclaudio.js:59-63`
+
+**症状:** 服务器启动期间的任何错误输出（堆栈跟踪、模块加载失败、EADDRINUSE 等）对用户完全不可见
+
+**原因:** `serverProc` 使用 `stdio: 'pipe'`，但只监听了 `stdout`（等待 "ON AIR"），`stderr` 从未被消费
+
+**修复:**
+- `bin/qclaudio.js`：添加 `serverProc.stderr.on('data', ...)` 将 stderr 透传到父进程 `console.error`
+
+---
+
+## Bug #15: `netease.js` `callApi` 对非 JSON 响应崩溃且错误信息不明确 [已修复]
+
+**严重度:** 中
+**位置:** `server/services/netease.js:34`
+
+**症状:** 当 NeteaseCloudMusicApi 未运行或端口被其他应用占用时，所有 API 调用报错 `Unexpected '<' in JSON at position 0`，不提示端口冲突或服务不可用
+
+**原因:**
+```javascript
+const body = await res.json();  // HTML 响应时抛 SyntaxError
+```
+
+**修复:**
+- `server/services/netease.js`：在 `res.json()` 前检查 `Content-Type` 头，非 `application/json` 时抛出明确错误：`"NeteaseCloudMusicApi returned non-JSON response (text/html) — check if port 3000 is occupied by another application"`
+
+---
+
+## Bug #16: `netease.js` cookie 刷新逻辑缺少 301 循环防护 [已修复]
+
+**严重度:** 低
+**位置:** `server/services/netease.js:42-56`
+
+**症状:** 当 cookie 过期且 `/login/refresh` 也失败时，重试请求再次返回 301，但代码不检查重试结果的 301 状态，直接返回给调用方
+
+**原因:** 第 42 行检测到 301 后调用 `/login/refresh`，第 53 行重试原始请求，但不检查重试响应是否又是 301
+
+**修复:**
+- `server/services/netease.js`：重试后检查 `retryBody.code === 301`，如果仍为 301 则抛出 `"Login expired — please re-login"`
+
+---
+
+## Bug #17: QR 轮询 interval 未在重新点击时清除 [已修复]
+
+**严重度:** 中
+**位置:** `server/socket/handler.js:249-270`
+
+**症状:** 用户多次点击 "QR LOGIN" 按钮后，多个 `setInterval` 同时运行，客户端收到重复的 `auth:qr-status` 事件
+
+**原因:**
+```javascript
+socket.on(EVENTS.AUTH_LOGIN_QR_START, async () => {
+  // ...
+  const pollInterval = setInterval(async () => { ... }, 2000);
+  socket.on('disconnect', () => clearInterval(pollInterval));
+});
+```
+每次触发 `AUTH_LOGIN_QR_START` 都创建新的 interval，但不清除前一次的 interval。`pollInterval` 是局部变量，后续调用无法引用前一次的 interval
+
+**修复:**
+- `server/socket/handler.js`：使用 `socket._qrPollInterval` 属性存储 interval ID，新调用前 `clearInterval(socket._qrPollInterval)`，完成后置 null
+
+---
+
+## Bug #18: `LoginOverlay.jsx` 存在永不触发的 `waiting-confirm` 分支 [已修复]
+
+**严重度:** 低
+**位置:** `client/src/components/LoginOverlay.jsx:30`
+
+**症状:** 扫码后状态文字不更新（缺少 "Authorizing..." 提示）
+
+**原因:** 前端监听 `data.status === 'waiting-confirm'`，但 `authSessionRules.js` 中 `qrStatusFromCode` 定义的状态只有：`expired`(800)、`waiting-scan`(801)、`scanned`(802)、`success`(803)。不存在 `waiting-confirm` 状态
+
+**修复:**
+- `client/src/components/LoginOverlay.jsx`：删除 `waiting-confirm` 死分支
+
+---
+
+## Bug #19: 手机登录 loading 状态 3 秒后无条件重置 [已修复]
+
+**严重度:** 中
+**位置:** `client/src/components/LoginOverlay.jsx:63`
+
+**症状:** 如果登录请求超过 3 秒（网络慢或 NeteaseCloudMusicApi 响应慢），登录按钮恢复可点击状态，用户可能重复提交。如果登录失败，用户看不到任何错误提示
+
+**原因:**
+```javascript
+setTimeout(() => setLoading(false), 3000);
+```
+定时器不关心请求是否已完成，也不检查是否成功
+
+**修复:**
+- `client/src/components/LoginOverlay.jsx`：移除 `setTimeout`，改为在 `auth:login-success` 和 `error` socket 事件回调中重置 loading 状态
+
+---
+
+## Bug #20: 手机登录失败时错误信息被 LoginOverlay 遮挡 [已修复]
+
+**严重度:** 中
+**位置:** `client/src/App.jsx:267` + `client/src/components/LoginOverlay.jsx`
+
+**症状:** 手机登录失败时，服务器 emit `EVENTS.ERROR` 事件，`App.jsx` 设置 `error` 状态并在 5 秒后清除。但 LoginOverlay 是全屏覆盖层（`height: 100vh`），错误提示可能被遮挡在登录框后面，用户看不到
+
+**原因:** LoginOverlay 组件没有接收 `error` prop，也没有内置的错误显示区域
+
+**修复:**
+- `client/src/App.jsx`：传递 `error` prop 给 LoginOverlay
+- `client/src/components/LoginOverlay.jsx`：接收 `error` prop，在登录表单下方显示红色错误信息；同时监听 `error` socket 事件，对 `AUTH_FAILED` / `QR_FAILED` 错误码设置本地 `loginError` 状态
+
+---
+
+## Bug #21: `disconnect` 分支直接操作 scheduler 内部状态 [已修复]
+
+**严重度:** 低（架构）
+**位置:** `server/socket/handler.js:378-390`
+
+**症状:** 客户端全部断开时，handler 直接操作 `scheduler.pause()`、`scheduler.playhead.currentSong`、`scheduler.playhead.isPlaying`、`scheduler.coldStartState`，违反 D7 规则
+
+**原因:** 这是尚未提取到 application service 的遗留逻辑
+
+**修复:**
+- 新建 `server/application/services/ClientLifecycleService.js` + `server/domain/playback/clientLifecycleRules.js`
+- `handler.js` 的 `wireLifecycleEvents` 现在委托 `clientLifecycleService.handleDisconnect(remaining)`，不再直接操作 scheduler 内部状态
+- 新增测试：`client-lifecycle-service.test.js`（6 tests）+ `client-lifecycle-rules.test.js`（3 tests）
+
+---
+
+## 本轮涉及文件清单
+
+| 文件 | Bug 编号 | 状态 |
+|------|---------|------|
+| `server/config.js` | #9 | 已修复 |
+| `server/server.js` | #9, #10, #11, #12 | 全部已修复 |
+| `server/services/netease.js` | #9, #15, #16 | 全部已修复 |
+| `bin/qclaudio.js` | #13, #14 | 全部已修复 |
+| `server/socket/handler.js` | #17, #21 | 全部已修复 |
+| `client/src/components/LoginOverlay.jsx` | #18, #19, #20 | 全部已修复 |
+| `client/src/App.jsx` | #19, #20 | 全部已修复 |
+

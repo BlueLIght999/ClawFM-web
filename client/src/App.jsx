@@ -386,7 +386,7 @@ export default function App() {
           <div style={{ fontSize: 36 }}>🦀</div>
           <h1 style={{ fontFamily: 'var(--font-pixel)', fontSize: 18, color: 'var(--accent)' }}>Qclaudio 88.7</h1>
           <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, color: 'var(--text-secondary)' }}>Connected: {String(connected)} | Auth: checking...</p>
-          <LoginOverlay onPhoneLogin={handleLoginPhone} onQrLogin={handleLoginQr} connected={connected} socket={socket} />
+          <LoginOverlay onPhoneLogin={handleLoginPhone} onQrLogin={handleLoginQr} connected={connected} socket={socket} error={error} />
         </div>
       </div>
     );

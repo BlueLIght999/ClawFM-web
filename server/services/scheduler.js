@@ -1,5 +1,5 @@
 import { queue } from './queue.js';
-import { SpeechTimer } from './speech-timer.js';
+import { SpeechTimer } from '../domain/playback/speechTimer.js';
 import { toPlayableSong } from '../domain/curation/toPlayableSong.js';
 import { buildListenHistoryRecord } from '../domain/playback/listenHistoryRecord.js';
 import {

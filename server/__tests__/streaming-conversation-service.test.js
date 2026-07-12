@@ -8,13 +8,15 @@ async function* streamChunks(tokens) {
 }
 
 async function* throwingStream() {
-  yield { choices: [{ delta: { content: '已经流出一半' } }] };
+  yield { choices: [{ delta: { content: 'partial text' } }] };
   throw new Error('stream broke');
 }
 
 function createDeps(overrides = {}) {
   const deps = {
-    chatWithDj: vi.fn(async () => streamChunks(['{"say":"今晚从这首开始","reason":"matched"}'])),
+    chat: {
+      stream: vi.fn(async () => streamChunks(['{"say":"Tonight starts here","reason":"matched"}'])),
+    },
     chatHistory: {
       append: vi.fn(),
     },
@@ -34,33 +36,35 @@ describe('StreamingConversationService', () => {
     const service = createStreamingConversationService(deps);
 
     const result = await service.streamReply({
-      text: '来点推荐',
+      text: 'play something',
       contextPrompt: 'ctx',
       routing: { action: 'recommend' },
       messageId: 'm1',
       onChunk,
     });
 
-    expect(deps.chatWithDj).toHaveBeenCalledWith('来点推荐', 'ctx');
+    expect(deps.chat.stream).toHaveBeenCalledWith('play something', 'ctx');
     expect(onChunk).toHaveBeenCalledWith({
       messageId: 'm1',
-      token: '{"say":"今晚从这首开始","reason":"matched"}',
+      token: '{"say":"Tonight starts here","reason":"matched"}',
     });
-    expect(deps.chatHistory.append).toHaveBeenCalledWith('assistant', '今晚从这首开始');
+    expect(deps.chatHistory.append).toHaveBeenCalledWith('assistant', 'Tonight starts here');
     expect(result).toEqual({
-      streamEnd: { messageId: 'm1', fullText: '今晚从这首开始' },
-      speechAnnouncement: { text: '今晚从这首开始', type: 'chat-announce' },
+      streamEnd: { messageId: 'm1', fullText: 'Tonight starts here' },
+      speechAnnouncement: { text: 'Tonight starts here', type: 'chat-announce' },
     });
   });
 
   it('streamReply_chatActionDoesNotCreateSpeechAnnouncement', async () => {
     const deps = createDeps({
-      chatWithDj: vi.fn(async () => streamChunks(['普通聊天回复'])),
+      chat: {
+        stream: vi.fn(async () => streamChunks(['plain chat reply'])),
+      },
     });
     const service = createStreamingConversationService(deps);
 
     const result = await service.streamReply({
-      text: '聊聊天',
+      text: 'chat please',
       contextPrompt: 'ctx',
       routing: { action: 'chat' },
       messageId: 'm2',
@@ -68,19 +72,21 @@ describe('StreamingConversationService', () => {
     });
 
     expect(result).toEqual({
-      streamEnd: { messageId: 'm2', fullText: '普通聊天回复' },
+      streamEnd: { messageId: 'm2', fullText: 'plain chat reply' },
       speechAnnouncement: null,
     });
   });
 
   it('streamReply_noStream_returnsUnavailableMessage', async () => {
     const deps = createDeps({
-      chatWithDj: vi.fn(async () => null),
+      chat: {
+        stream: vi.fn(async () => null),
+      },
     });
     const service = createStreamingConversationService(deps);
 
     const result = await service.streamReply({
-      text: '有人吗',
+      text: 'anyone there',
       contextPrompt: 'ctx',
       routing: { action: 'chat' },
       messageId: 'm3',
@@ -97,22 +103,24 @@ describe('StreamingConversationService', () => {
 
   it('streamReply_streamThrows_returnsFallbackEndWithoutAppendingHistory', async () => {
     const deps = createDeps({
-      chatWithDj: vi.fn(async () => throwingStream()),
+      chat: {
+        stream: vi.fn(async () => throwingStream()),
+      },
     });
     const onChunk = vi.fn();
     const service = createStreamingConversationService(deps);
 
     const result = await service.streamReply({
-      text: '用户原话',
+      text: 'original user text',
       contextPrompt: 'ctx',
       routing: { action: 'chat' },
       messageId: 'm4',
       onChunk,
     });
 
-    expect(onChunk).toHaveBeenCalledWith({ messageId: 'm4', token: '已经流出一半' });
+    expect(onChunk).toHaveBeenCalledWith({ messageId: 'm4', token: 'partial text' });
     expect(deps.chatHistory.append).not.toHaveBeenCalled();
-    expect(result.streamEnd).toEqual({ messageId: 'm4', fullText: '已经流出一半' });
+    expect(result.streamEnd).toEqual({ messageId: 'm4', fullText: 'partial text' });
     expect(result.streamError.message).toBe('stream broke');
   });
 
@@ -121,14 +129,14 @@ describe('StreamingConversationService', () => {
     const service = createStreamingConversationService(deps);
 
     const result = await service.synthesizeAnnouncement({
-      text: '播报一下',
+      text: 'announce this',
       type: 'chat-announce',
     });
 
-    expect(deps.speech.synthesize).toHaveBeenCalledWith('播报一下');
+    expect(deps.speech.synthesize).toHaveBeenCalledWith('announce this');
     expect(result).toEqual({
       audioUrl: '/audio/chat.mp3',
-      text: '播报一下',
+      text: 'announce this',
       type: 'chat-announce',
     });
   });
@@ -142,6 +150,6 @@ describe('StreamingConversationService', () => {
     const service = createStreamingConversationService(deps);
 
     await expect(service.synthesizeAnnouncement(null)).resolves.toBeNull();
-    await expect(service.synthesizeAnnouncement({ text: '播报一下', type: 'chat-announce' })).resolves.toBeNull();
+    await expect(service.synthesizeAnnouncement({ text: 'announce this', type: 'chat-announce' })).resolves.toBeNull();
   });
 });

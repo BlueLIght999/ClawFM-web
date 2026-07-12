@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import config from '../config.js';
+import config from '../../config.js';
 import { EdgeTTS } from '@travisvn/edge-tts';
-import { cleanTtsText } from '../domain/hosting/cleanTtsText.js';
+import { cleanTtsText } from '../../domain/hosting/cleanTtsText.js';
 
 const ttsCache = new Map();
 
@@ -33,42 +33,20 @@ export function getTtsStatus() {
 }
 
 export async function checkTtsHealth() {
-  const testText = 'Testing text to speech.';
-
   ttsStatus = { checked: false, available: null, provider: null, reason: '', lastChecked: Date.now() };
 
-  // Test DashScope first
-  if (config.dashscopeApiKey) {
-    try {
-      const res = await fetch(DASHSCOPE_URL, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${config.dashscopeApiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: DASH_MODEL, input: { text: testText, voice: DASH_VOICE, language_type: 'Auto' } }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (json?.output?.audio?.url) {
-          ttsStatus = { checked: true, available: true, provider: 'dashscope', reason: '', lastChecked: Date.now() };
-          console.log('[TTS] Health check PASSED — DashScope');
-          return ttsStatus;
-        }
-      }
-      const errText = await res.text().catch(() => '');
-      let code = '';
-      try { code = JSON.parse(errText).code || ''; } catch { code = errText.slice(0, 80); }
-      console.warn(`[TTS] DashScope health check FAILED: ${code}. Trying Edge TTS...`);
-    } catch (e) {
-      console.warn(`[TTS] DashScope health check FAILED (network): ${e.message.slice(0, 80)}. Trying Edge TTS...`);
-    }
-  } else {
-    console.warn('[TTS] DashScope API key not configured. Trying Edge TTS...');
+  const dashResult = await checkDashscopeHealth();
+  if (dashResult === true) {
+    ttsStatus = { checked: true, available: true, provider: 'dashscope', reason: '', lastChecked: Date.now() };
+    console.log('[TTS] Health check PASSED — DashScope');
+    return ttsStatus;
   }
 
   // Test Edge TTS
   try {
-    const edge = new EdgeTTS(testText, EDGE_VOICE, { rate: '+5%' });
+    const edge = new EdgeTTS('Testing text to speech.', EDGE_VOICE, { rate: '+5%' });
     const result = await edge.synthesize();
-    await result.audio.arrayBuffer(); // Verify we got audio data
+    await result.audio.arrayBuffer();
     ttsStatus = { checked: true, available: true, provider: 'edge', reason: '', lastChecked: Date.now() };
     console.log('[TTS] Health check PASSED — Edge TTS (fallback)');
     return ttsStatus;
@@ -76,10 +54,38 @@ export async function checkTtsHealth() {
     console.warn(`[TTS] Edge TTS health check FAILED: ${e.message.slice(0, 80)}`);
   }
 
-  // Both failed
   ttsStatus = { checked: true, available: false, provider: null, reason: 'Both DashScope and Edge TTS unavailable', lastChecked: Date.now() };
   console.warn('[TTS] Health check FAILED — all providers offline. DJ will be text-only.');
   return ttsStatus;
+}
+
+async function checkDashscopeHealth() {
+  if (!config.dashscopeApiKey) {
+    console.warn('[TTS] DashScope API key not configured. Trying Edge TTS...');
+    return null;
+  }
+  try {
+    const res = await fetch(DASHSCOPE_URL, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${config.dashscopeApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: DASH_MODEL, input: { text: 'Testing text to speech.', voice: DASH_VOICE, language_type: 'Auto' } }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json?.output?.audio?.url) return true;
+    }
+    const errText = await res.text().catch(() => '');
+    const code = parseDashscopeError(errText);
+    console.warn(`[TTS] DashScope health check FAILED: ${code}. Trying Edge TTS...`);
+    return false;
+  } catch (e) {
+    console.warn(`[TTS] DashScope health check FAILED (network): ${e.message.slice(0, 80)}. Trying Edge TTS...`);
+    return false;
+  }
+}
+
+function parseDashscopeError(errText) {
+  try { return JSON.parse(errText).code || ''; } catch { return errText.slice(0, 80); }
 }
 
 // ── Edge TTS (free fallback) ────────────────────────────────
@@ -88,7 +94,7 @@ async function edgeTts(text) {
   const cleanText = cleanTtsText(text);
   if (!cleanText) return null;
 
-  const cacheKey = 'e_' + Buffer.from(cleanText.slice(0, 80)).toString('base64').slice(0, 32);
+  const cacheKey = `e_${Buffer.from(cleanText.slice(0, 80)).toString('base64').slice(0, 32)}`;
   if (ttsCache.has(cacheKey)) return ttsCache.get(cacheKey);
 
   const outDir = config.tts.outputDir;
@@ -121,7 +127,7 @@ async function dashscopeTts(text) {
   const cleanText = cleanTtsText(text);
   if (!cleanText) return null;
 
-  const cacheKey = 'ds_' + Buffer.from(cleanText.slice(0, 80)).toString('base64').slice(0, 32);
+  const cacheKey = `ds_${Buffer.from(cleanText.slice(0, 80)).toString('base64').slice(0, 32)}`;
   if (ttsCache.has(cacheKey)) return ttsCache.get(cacheKey);
 
   const outDir = config.tts.outputDir;
@@ -137,9 +143,7 @@ async function dashscopeTts(text) {
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
-      let code = '';
-      try { code = JSON.parse(errText).code || ''; } catch { code = errText.slice(0, 80); }
-      console.error(`[TTS] DashScope API error ${response.status}: ${code}`);
+      console.error(`[TTS] DashScope API error ${response.status}: ${parseDashscopeError(errText)}`);
       return null;
     }
 
@@ -150,29 +154,32 @@ async function dashscopeTts(text) {
       return null;
     }
 
-    // Download OSS audio to local file (OSS URLs expire quickly)
-    try {
-      const audioRes = await fetch(audioUrl);
-      if (!audioRes.ok) {
-        console.error(`[TTS] Failed to download OSS audio: ${audioRes.status}`);
-        return null;
-      }
-      const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
-      const fileName = `tts_ds_${Date.now()}.mp3`;
-      const outPath = path.join(outDir, fileName);
-      fs.writeFileSync(outPath, audioBuffer);
-
-      const localUrl = `/audio/tts/${fileName}`;
-      ttsCache.set(cacheKey, localUrl);
-      if (ttsCache.size > 100) ttsCache.delete(ttsCache.keys().next().value);
-      console.log(`[TTS] DashScope done: ${(cleanText.length / 1024).toFixed(1)} KB → ${fileName}`);
-      return localUrl;
-    } catch (e) {
-      console.error('[TTS] Failed to download/save OSS audio:', e.message.slice(0, 100));
-      return null;
-    }
+    return await downloadOssAudio(audioUrl, outDir, cacheKey, cleanText);
   } catch (e) {
     console.error('[TTS] DashScope failed:', e.message.slice(0, 150));
+    return null;
+  }
+}
+
+async function downloadOssAudio(audioUrl, outDir, cacheKey, cleanText) {
+  try {
+    const audioRes = await fetch(audioUrl);
+    if (!audioRes.ok) {
+      console.error(`[TTS] Failed to download OSS audio: ${audioRes.status}`);
+      return null;
+    }
+    const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
+    const fileName = `tts_ds_${Date.now()}.mp3`;
+    const outPath = path.join(outDir, fileName);
+    fs.writeFileSync(outPath, audioBuffer);
+
+    const localUrl = `/audio/tts/${fileName}`;
+    ttsCache.set(cacheKey, localUrl);
+    if (ttsCache.size > 100) ttsCache.delete(ttsCache.keys().next().value);
+    console.log(`[TTS] DashScope done: ${(cleanText.length / 1024).toFixed(1)} KB → ${fileName}`);
+    return localUrl;
+  } catch (e) {
+    console.error('[TTS] Failed to download/save OSS audio:', e.message.slice(0, 100));
     return null;
   }
 }

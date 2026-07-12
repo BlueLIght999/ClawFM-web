@@ -4,8 +4,8 @@
  * Falls back to IP geolocation if no client location yet.
  */
 
-import config from '../config.js';
-import { formatWeather } from '../domain/environment/formatWeather.js';
+import config from '../../config.js';
+import { formatWeather } from '../../domain/environment/formatWeather.js';
 
 let weatherCache = null;
 let weatherCacheTime = 0;
@@ -44,35 +44,21 @@ async function reverseGeocode(lat, lon) {
   const res = await fetch(url, { headers: HEADERS });
   if (!res.ok) throw new Error(`nominatim: ${res.status}`);
   const data = await res.json();
-  const city = data.address?.city || data.address?.town || data.address?.county || data.address?.state || data.name || 'Unknown';
+  const city = extractCityFromAddress(data);
   geocodeCache.set(key, city);
   return city;
 }
 
+function extractCityFromAddress(data) {
+  const addr = data.address || {};
+  return addr.city || addr.town || addr.county || addr.state || data.name || 'Unknown';
+}
+
 /** IP-based geolocation — tries ipip.net (accurate in China) then ipapi.co */
 async function ipLocation() {
-  // Try ipip.net first (more accurate for Chinese IPs)
-  try {
-    const res = await fetch('https://myip.ipip.net/', { headers: { 'User-Agent': 'curl/8.0' } });
-    if (res.ok) {
-      const text = await res.text();
-      // Format: "当前 IP：x.x.x.x  来自于：中国 陕西 西安  联通"
-      const locPart = text.split('来自于：')[1]?.trim() || '';
-      const parts = locPart.split(/\s+/);
-      // parts: ["中国", "陕西", "西安", "联通"]
-      // City is the 3rd element, province is 2nd
-      const city = parts[2] || parts[parts.length - 2] || '';
-      const province = parts[1] || '';
-      if (city) {
-        const geo = await geocodeCity(city);
-        if (geo) return { city: `${province}${city}`, lat: geo.lat, lon: geo.lon };
-      }
-    }
-  } catch {
-    // Falling back to IP lookup is expected when reverse geocoding is unavailable.
-  }
+  const ipipResult = await tryIpipLocation();
+  if (ipipResult) return ipipResult;
 
-  // Fallback to ipapi.co
   const res = await fetch('https://ipapi.co/json/', { headers: HEADERS });
   if (!res.ok) throw new Error(`ipapi: ${res.status}`);
   const data = await res.json();
@@ -81,6 +67,29 @@ async function ipLocation() {
     lat: data.latitude,
     lon: data.longitude,
   };
+}
+
+async function tryIpipLocation() {
+  try {
+    const res = await fetch('https://myip.ipip.net/', { headers: { 'User-Agent': 'curl/8.0' } });
+    if (!res.ok) return null;
+    const text = await res.text();
+    const parsed = parseIpipText(text);
+    if (!parsed) return null;
+    const geo = await geocodeCity(parsed.city);
+    if (geo) return { city: `${parsed.province}${parsed.city}`, lat: geo.lat, lon: geo.lon };
+  } catch {
+    // Falling back to IP lookup is expected when reverse geocoding is unavailable.
+  }
+  return null;
+}
+
+function parseIpipText(text) {
+  const locPart = text.split('来自于：')[1]?.trim() || '';
+  const parts = locPart.split(/\s+/);
+  const city = parts[2] || parts[parts.length - 2] || '';
+  const province = parts[1] || '';
+  return city ? { city, province } : null;
 }
 
 async function resolveLocation() {

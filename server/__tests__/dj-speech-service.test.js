@@ -2,39 +2,38 @@ import { describe, it, expect, vi } from 'vitest';
 import { createDjSpeechService } from '../application/services/DjSpeechService.js';
 
 function createDeps(overrides = {}) {
+  const { scheduler: schedOver, transitionWriter: twOver, ...restOver } = overrides;
   const upcomingSongs = [
     { id: 'next-1', title: 'First refill' },
     { id: 'next-2', title: 'Second refill' },
     { id: 'next-3', title: 'Third refill' },
     { id: 'next-4', title: 'Fourth refill' },
   ];
-  const scheduler = {
-    _transitionId: 'transition-1',
-    isPlaying: false,
-    speechGenerationDone: vi.fn(),
-    speechComplete: vi.fn(),
-    ...overrides.scheduler,
-  };
-  const transitionWriter = {
-    writeTransition: vi.fn(async () => ({ say: '<warm>Hello from the booth.' })),
-    ...overrides.transitionWriter,
+  const defaults = {
+    refillWriter: { writeRefill: vi.fn(async () => ({ say: '<warm>Fresh tracks.' })) },
+    recommender: { fillQueue: vi.fn(async () => [{ id: 'fresh' }]) },
+    queueStore: { upcomingSongs, mode: 'auto', peek: vi.fn(() => ({ id: 'next-1', title: 'First refill' })) },
+    weather: { current: vi.fn(async () => 'Light rain') },
+    timeOfDay: vi.fn(() => 'evening'),
+    promptBuilder: vi.fn(() => 'weather prompt'),
+    speech: { synthesize: vi.fn(async () => '/audio/transition.mp3') },
+    ttsAvailability: vi.fn(() => true),
+    delay: vi.fn(async () => {}),
   };
   return {
-    scheduler,
-    transitionWriter,
-    refillWriter: overrides.refillWriter || { writeRefill: vi.fn(async () => ({ say: '<warm>Fresh tracks.' })) },
-    recommender: overrides.recommender || { fillQueue: vi.fn(async () => [{ id: 'fresh' }]) },
-    queueStore: overrides.queueStore || {
-      upcomingSongs,
-      mode: 'auto',
-      peek: vi.fn(() => ({ id: 'next-1', title: 'First refill' })),
+    scheduler: {
+      _transitionId: 'transition-1',
+      isPlaying: false,
+      speechGenerationDone: vi.fn(),
+      speechComplete: vi.fn(),
+      ...schedOver,
     },
-    weather: overrides.weather || { current: vi.fn(async () => 'Light rain') },
-    timeOfDay: overrides.timeOfDay || vi.fn(() => 'evening'),
-    promptBuilder: overrides.promptBuilder || vi.fn(() => 'weather prompt'),
-    speech: overrides.speech || { synthesize: vi.fn(async () => '/audio/transition.mp3') },
-    ttsAvailability: overrides.ttsAvailability || vi.fn(() => true),
-    delay: overrides.delay || vi.fn(async () => {}),
+    transitionWriter: {
+      writeTransition: vi.fn(async () => ({ say: '<warm>Hello from the booth.' })),
+      ...twOver,
+    },
+    ...defaults,
+    ...restOver,
   };
 }
 

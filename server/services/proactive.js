@@ -36,79 +36,92 @@ export async function maybeProactiveSpeech({
   decideProactiveSpeech: decide = decideProactiveSpeech,
   tokenDelayMs = null,
 }) {
-  if (!_enabled) return;
-  if (scheduler.coldStartState !== 'done') return;
-  if (!scheduler.isPlaying) return;
-  if (scheduler.isAdvancing) return;
-  if ((scheduler.songsSinceLastSpeech || 0) < 2) return;
-  if (Date.now() - lastSpeechTime < 90000) return;
+  if (!canAttemptProactiveSpeech(scheduler)) return;
 
+  const context = buildProactiveContext(scheduler, queue, getPlan);
+  const weatherText = await weather.current();
+  const chatMsg = consumeLastUserChat();
+
+  const decision = await decide({
+    ...context,
+    lastChatMessage: chatMsg,
+    weather: weatherText,
+    weatherChanged: context.hourChanged,
+  });
+
+  if (!isValidSpeechDecision(decision)) return;
+
+  lastSpeechTime = Date.now();
+  scheduler.songsSinceLastSpeech = 0;
+
+  const messageId = String(Date.now());
+  events.djMessage(decision.message);
+  await streamMessageTokens(decision.message, events, messageId, tokenDelayMs);
+  maybeSynthesizeSpeech(decision.message, speech, events);
+}
+
+function canAttemptProactiveSpeech(scheduler) {
+  if (!_enabled) return false;
+  if (scheduler.coldStartState !== 'done') return false;
+  if (!scheduler.isPlaying) return false;
+  if (scheduler.isAdvancing) return false;
+  if ((scheduler.songsSinceLastSpeech || 0) < 2) return false;
+  if (Date.now() - lastSpeechTime < 90000) return false;
+  if (!scheduler.currentSong) return false;
+  return true;
+}
+
+function buildProactiveContext(scheduler, queue, getPlan) {
   const currentSong = scheduler.currentSong;
-  if (!currentSong) return;
-
+  const upstream = queue.upcomingSongs || [];
   const hour = new Date().getHours();
   const timeOfDay = getTimeOfDayMood();
-  const upstream = queue.upcomingSongs || [];
-  const nextSong = upstream[0];
-  const secondNext = upstream[1];
+  const hourChanged = lastHour >= 0 && hour !== lastHour;
+  lastHour = hour;
 
   const plan = getPlan();
   const planData = plan?.plan || plan;
   const blocks = planData?.blocks || [];
-  const activeBlock = blocks[0] || null;
 
-  const hourChanged = lastHour >= 0 && hour !== lastHour;
-  lastHour = hour;
-
-  const weatherText = await weather.current();
-
-  const chatMsg = _lastUserChat;
-  _lastUserChat = null; // consume once
-
-  const secondsAgo = Math.floor((Date.now() - lastSpeechTime) / 1000);
-  const songsAgo = scheduler.songsSinceLastSpeech || 0;
-
-  const decision = await decide({
+  return {
     currentSong,
     timeOfDay,
-    activeBlock,
-    nextSong,
-    secondNext,
-    secondsSinceLastSpeech: secondsAgo,
-    songsSinceLastSpeech: songsAgo,
-    lastChatMessage: chatMsg || null,
-    weather: weatherText,
-    weatherChanged: hourChanged,
+    activeBlock: blocks[0] || null,
+    nextSong: upstream[0],
+    secondNext: upstream[1],
+    secondsSinceLastSpeech: Math.floor((Date.now() - lastSpeechTime) / 1000),
+    songsSinceLastSpeech: scheduler.songsSinceLastSpeech || 0,
     hourChanged,
-  });
+  };
+}
 
-  if (decision?.shouldSpeak && decision?.message) {
-    lastSpeechTime = Date.now();
-    scheduler.songsSinceLastSpeech = 0;
+function consumeLastUserChat() {
+  const chatMsg = _lastUserChat;
+  _lastUserChat = null;
+  return chatMsg;
+}
 
-    const messageId = String(Date.now());
+function isValidSpeechDecision(decision) {
+  return Boolean(decision?.shouldSpeak && decision?.message);
+}
 
-    // Emit DJ_MESSAGE so text appears in chat
-    events.djMessage(decision.message);
-
-    // Stream text tokens for visual effect
-    const chars = [...decision.message];
-    for (let i = 0; i < chars.length; i += 3) {
-      const token = chars.slice(i, i + 3).join('');
-      events.djStreamChunk(messageId, token);
-      const delay = tokenDelayMs ?? (30 + Math.random() * 30);
-      if (delay > 0) await new Promise(r => setTimeout(r, delay));
-    }
-    events.djStreamEnd(messageId, decision.message);
-
-    // Generate TTS audio for a random subset of proactive messages (~40% chance)
-    // Not every message needs spoken delivery — keeps it feeling natural
-    if (speech.health().available !== false && Math.random() < 0.4) {
-      speech.synthesize(decision.message).then(audioUrl => {
-        if (audioUrl) {
-          events.djSpeechStart({ audioUrl, text: decision.message, type: 'proactive' });
-        }
-      }).catch(() => {});
-    }
+async function streamMessageTokens(message, events, messageId, tokenDelayMs) {
+  const chars = [...message];
+  for (let i = 0; i < chars.length; i += 3) {
+    const token = chars.slice(i, i + 3).join('');
+    events.djStreamChunk(messageId, token);
+    const delay = tokenDelayMs ?? (30 + Math.random() * 30);
+    if (delay > 0) await new Promise(r => setTimeout(r, delay));
   }
+  events.djStreamEnd(messageId, message);
+}
+
+function maybeSynthesizeSpeech(message, speech, events) {
+  if (speech.health().available === false) return;
+  if (Math.random() >= 0.4) return;
+  speech.synthesize(message).then(audioUrl => {
+    if (audioUrl) {
+      events.djSpeechStart({ audioUrl, text: message, type: 'proactive' });
+    }
+  }).catch(() => {});
 }

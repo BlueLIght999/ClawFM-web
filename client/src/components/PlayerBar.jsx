@@ -99,7 +99,7 @@ export default function PlayerBar({
               <div style={{
                 fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--text-secondary)', marginTop: 1,
               }}>
-                {(song.ar || []).map(a => a.name).join(', ') || song.artist || '---'}
+                {song.artist || '---'}
               </div>
             </>
           ) : (
@@ -166,7 +166,7 @@ export default function PlayerBar({
                     {i + 1}. {s.name || s.title || '???'}
                   </span>
                   <span style={{ marginLeft: 8, flexShrink: 0 }}>
-                    {(s.ar || []).map(a => a.name).join(', ') || s.artist || ''}
+                    {s.artist || ''}
                   </span>
                 </div>
               ))}

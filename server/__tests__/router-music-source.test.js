@@ -4,7 +4,7 @@ vi.mock('../services/claude.js', () => ({
   extractIntent: vi.fn(),
 }));
 
-vi.mock('../services/netease.js', () => ({
+vi.mock('../infrastructure/netease/neteaseApi.js', () => ({
   searchSongs: vi.fn(async () => ({ result: { songs: [] } })),
   getSongUrl: vi.fn(async () => ({ data: [{ url: null }] })),
   getLyric: vi.fn(async () => ({})),

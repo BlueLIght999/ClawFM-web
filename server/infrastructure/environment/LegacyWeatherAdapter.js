@@ -1,4 +1,4 @@
-import { getWeather, setClientLocation } from '../../services/weather.js';
+import { getWeather, setClientLocation } from './weatherService.js';
 
 /**
  * Wraps the legacy weather module behind WeatherPort.

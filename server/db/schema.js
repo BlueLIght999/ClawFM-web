@@ -26,6 +26,18 @@ export async function initDb() {
   db.run('PRAGMA journal_mode = MEMORY');
   db.run('PRAGMA foreign_keys = ON');
 
+  createTables(db);
+
+  saveDb();
+
+  // Auto-save every 30 seconds
+  saveTimer = setInterval(saveDb, 30000);
+
+  console.log('[DB] Initialized (sql.js)');
+  return db;
+}
+
+function createTables(db) {
   db.run(`
     CREATE TABLE IF NOT EXISTS listen_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,14 +104,6 @@ export async function initDb() {
       generated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
-
-  saveDb();
-
-  // Auto-save every 30 seconds
-  saveTimer = setInterval(saveDb, 30000);
-
-  console.log('[DB] Initialized (sql.js)');
-  return db;
 }
 
 export function saveDb() {

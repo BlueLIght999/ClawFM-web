@@ -9,15 +9,16 @@ function lower(value) {
 }
 
 export function toSeedSongFromTrack(track, source = '') {
+  const { id, songId, song_id, name, title, al = {}, album, dt, durationMs, duration, genres, playCount, play_count } = track || {};
   return {
-    songId: String(firstValue(track?.id, track?.songId, track?.song_id)),
-    title: firstValue(track?.name, track?.title),
+    songId: String(firstValue(id, songId, song_id)),
+    title: firstValue(name, title),
     artist: artistName(track),
-    album: firstValue(track?.al?.name, track?.album),
-    durationMs: firstValue(track?.dt, track?.durationMs, track?.duration, 0),
+    album: firstValue(al.name, album),
+    durationMs: firstValue(dt, durationMs, duration, 0),
     source,
-    genreTags: Array.isArray(track?.genres) ? track.genres : [],
-    playCount: firstValue(track?.playCount, track?.play_count, 0),
+    genreTags: Array.isArray(genres) ? genres : [],
+    playCount: firstValue(playCount, play_count, 0),
   };
 }
 

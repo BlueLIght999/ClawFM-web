@@ -15,7 +15,7 @@ const DJ_UNAVAILABLE_TEXT = 'Sorry, the DJ booth is having technical difficultie
  * callback and receive event payloads to emit.
  */
 export function createStreamingConversationService({
-  chatWithDj,
+  chat,
   chatHistory,
   speech,
   ttsAvailability = () => null,
@@ -31,7 +31,7 @@ export function createStreamingConversationService({
      * Constraint: `onChunk` is transport-agnostic and must not be a socket object.
      */
     async streamReply({ text, contextPrompt, routing, messageId, onChunk = () => {} }) {
-      const stream = await chatWithDj(text, contextPrompt);
+      const stream = await chat.stream(text, contextPrompt);
       if (!stream) {
         return {
           unavailableMessage: { text: DJ_UNAVAILABLE_TEXT },

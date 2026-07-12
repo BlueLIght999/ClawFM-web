@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 
-export default function LoginOverlay({ onPhoneLogin, onQrLogin, connected, socket }) {
+export default function LoginOverlay({ onPhoneLogin, onQrLogin, connected, socket, error }) {
   const [tab, setTab] = useState('phone');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
   const [qrImage, setQrImage] = useState(null);
   const [qrStatus, setQrStatus] = useState('');
   const qrKeyRef = useRef(null);
@@ -27,7 +28,6 @@ export default function LoginOverlay({ onPhoneLogin, onQrLogin, connected, socke
     socket.on('auth:qr-status', (data) => {
       if (data.status === 'waiting-scan') setQrStatus('Waiting for scan...');
       else if (data.status === 'scanned') setQrStatus('Scanned! Confirm on your phone...');
-      else if (data.status === 'waiting-confirm') setQrStatus('Authorizing...');
     });
 
     socket.on('auth:qr-expired', () => {
@@ -38,6 +38,15 @@ export default function LoginOverlay({ onPhoneLogin, onQrLogin, connected, socke
 
     socket.on('auth:login-success', () => {
       setQrStatus('Logged in!');
+      setLoading(false);
+      setLoginError('');
+    });
+
+    socket.on('error', (err) => {
+      if (err?.code === 'AUTH_FAILED' || err?.code === 'QR_FAILED') {
+        setLoading(false);
+        setLoginError(err.message || 'Login failed');
+      }
     });
 
     return () => {
@@ -45,6 +54,7 @@ export default function LoginOverlay({ onPhoneLogin, onQrLogin, connected, socke
       socket.off('auth:qr-status');
       socket.off('auth:qr-expired');
       socket.off('auth:login-success');
+      socket.off('error');
     };
   }, [socket]);
 
@@ -59,8 +69,8 @@ export default function LoginOverlay({ onPhoneLogin, onQrLogin, connected, socke
     e.preventDefault();
     if (!phone || !password) return;
     setLoading(true);
+    setLoginError('');
     onPhoneLogin(phone, password);
-    setTimeout(() => setLoading(false), 3000);
   };
 
   return (
@@ -161,6 +171,11 @@ export default function LoginOverlay({ onPhoneLogin, onQrLogin, connected, socke
             <button type="submit" className="pixel-btn accent" style={{ width: '100%', fontSize: 13, padding: '10px' }} disabled={loading}>
               {loading ? 'CONNECTING...' : 'LOGIN TO NETEASE'}
             </button>
+            {(loginError || error) && (
+              <p className="pixel-text" style={{ fontSize: 7, color: '#ff6b6b', textAlign: 'center', marginTop: 4 }}>
+                {loginError || error}
+              </p>
+            )}
           </form>
         ) : (
           <div style={{ textAlign: 'center', color: 'var(--text-dim)', padding: 20 }}>

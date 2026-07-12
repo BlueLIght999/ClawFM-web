@@ -6,6 +6,232 @@
 
 ---
 
+## 2026-07-12 P3 Legacy Lint 清零 + handler.js 绞杀完成 + 遗留债务审计
+
+### 基线快照
+
+```
+测试：   451 passed (82 files) ✅
+架构：   0 error, 1 warn (PlaybackService orphan) / 111 modules / 126 dependencies
+Lint：   0 errors, 0 warnings ✅ (全目录 server/ --max-warnings 0 通过)
+domain/：38 纯文件 (8 子域)
+application/：11 services + 17 port 契约
+infrastructure/：19 legacy adapters
+services/：12 遗留文件 (2,482 行)
+阶段：   P0✅ P1✅ P2✅ P3✅ — 绞杀优先级队列全清
+```
+
+### P3 完成项
+
+**proactive.js 复杂度重构 (P2→P3)**
+- 16 characterization tests 覆盖 disabled state、active speech guard、queue/plan context、TTS failure fallback
+- `decideProactiveSpeech` 复杂度 31→≤10，提取 `canAttemptProactiveSpeech`、`buildProactiveContext`、`streamMessageTokens`、`maybeSynthesizeSpeech`
+
+**recommender.js 复杂度重构 (P2→P3)**
+- 43 characterization tests 覆盖 fillQueue、fillQueueByPreference、_buildSeedPool、fetch helpers、plan progress
+- `fillQueue` 复杂度 23→~4，`fillQueueByPreference` 18→~4，`_buildSeedPool` 12→~2
+- 提取 11 个聚焦函数：`_collectPlaylistSongs`、`_collectLikedSongs`、`_addSeedSong`、`_computeTopArtists`、`_resolveActiveBlockHints`、`_buildFillStrategies`、`_collectFromStrategies`、`_commitFillResult`、`_fillFromSeedPool`、`_fillFromSearch`、`_fillFromGenericFallback`
+
+**Legacy lint 全清 (P3)**
+- 20 warnings → 0 warnings，涉及文件：
+  - `recommenderRules.js` 复杂度 17→~3 (destructuring track)
+  - `LegacyNeteaseMusicSourceAdapter.js` 复杂度 17→3 (extractLyricField helper)
+  - `weather.js` 复杂度 12→~5 (extractCityFromAddress, tryIpipLocation, parseIpipText)
+  - `tts.js` 复杂度 15→~7 (checkDashscopeHealth, parseDashscopeError, downloadOssAudio)
+  - `server.js` 复杂度 11→~2 (displayTtsHealthBanner, restoreNeteaseSession)
+  - `claude.js` 复杂度 16→~6 (resolveSongTitle, buildColdOpenMessages, emitColdOpenFallback, emitStreamFallback)
+  - `handler.js` 复杂度 12→~6 (logChatRoute, emitChatTurnResults)
+  - `db/schema.js` 行数 81→<80 (createTables helper)
+  - `dj-speech-service.test.js` 复杂度 11→~2 (destructuring + spread)
+  - `router.js`、`cookie-store.js`、`proactive-characterization.test.js` 等 unused vars / prefer-template 清理
+
+**handler.js god-object 绞杀完成 (P3)**
+- `setupSocketHandler` 从 304 行 → ~20 行，仅负责组装依赖和委托
+- 提取 14+ 个聚焦函数：`wireSchedulerCallbacks`、`triggerColdStart`、`handleChatMessage`、`onNewConnection`、`wireClientReady`、`wireAuthEvents`、`wirePlayerControls`、`wireChatAndCrabEvents`、`wireSpeechAndPlanEvents`、`wireLifecycleEvents`、`startRecurringTasks`、`startChatAnnouncement`、`logChatRoute`、`emitChatTurnResults`
+- 结构测试更新：5 个 between-marker slice 测试改为全文件搜索，2 个隐脆性 marker 修复
+- `deps` 对象模式 + `getConnectedClients()`/`setConnectedClients()` 闭包管理共享状态
+
+### 遗留债务审计：未绞杀代码清单
+
+#### services/ 目录 — 12 个遗留文件 (2,482 行)
+
+| 文件 | 行数 | D1 违规 | D2 违规 | domain 提炼数 | 绞杀状态 |
+|------|------|---------|---------|:---:|----------|
+| `recommender.js` | 400 | 5 infra 直连 | 间接 fs | 4 | 🟡 编排逻辑未拆 |
+| `claude.js` | 328 | 4 infra 直连 | **fs 硬违规** | 4 | 🟡 prompt 构建+LLM 编排未拆 |
+| `scheduler.js` | 320 | 2 infra 直连 | 无 | 5 | 🟡 domain 最深但编排仍重 |
+| `tts.js` | 218 | config + SDK | **fs 硬违规** | 1 | 🔴 应整体移入 infrastructure |
+| `netease.js` | 201 | authRepo 直连 | 无 | 0 | 🔴 infrastructure 实现错放 services/ |
+| `planner.js` | 186 | 3 infra 直连 | 无 | 2 | 🟡 缓存+校验逻辑未提炼 |
+| `router.js` | 168 | musicSource 直连 | 无 | 4 | 🟡 最接近完成，`isFastRoute` 重复 |
+| `context.js` | 151 | 4 infra 直连 | 间接 fs | 1 | 🟡 6 槽组装逻辑未提炼 |
+| `weather.js` | 145 | config 直连 | 无 | 1 | 🔴 应整体移入 infrastructure |
+| `queue.js` | 138 | queueSnapshotRepo 直连 | 无 | 0 | 🔴 纯 domain 逻辑未提炼 |
+| `proactive.js` | 127 | 2 infra 直连 | 无 | 2 | 🟡 门控逻辑 `canAttemptProactiveSpeech` 应入 domain |
+| `speech-timer.js` | 101 | **无违规** | **无违规** | N/A | ✅ 最干净，可直接移入 domain |
+
+#### 反向依赖（infrastructure → services）
+
+```
+infrastructure/music/LegacyNeteaseMusicSourceAdapter.js  → services/netease.js  ⚠️
+infrastructure/environment/LegacyWeatherAdapter.js        → services/weather.js  ⚠️
+infrastructure/speech/LegacySpeechSynthAdapter.js         → services/tts.js      ⚠️
+```
+
+三个适配器是薄包装器，实际实现仍在遗留服务中。绞杀中间态：端口契约已建，实现未迁移。
+
+#### services → services 耦合链
+
+```
+planner.js    → context.js
+proactive.js  → claude.js, context.js
+recommender.js → queue.js
+router.js     → claude.js
+scheduler.js  → queue.js, speech-timer.js
+```
+
+#### 可立即移动的文件（无需重构）
+
+| 文件 | 目标位置 | 原因 |
+|------|---------|------|
+| `speech-timer.js` | `domain/playback/` | 零违规纯逻辑 |
+| `netease.js` | `infrastructure/netease/` | 本质是 infrastructure HTTP 实现 |
+| `weather.js` | `infrastructure/environment/` | 合并到 LegacyWeatherAdapter |
+| `tts.js` | `infrastructure/speech/` | 合并到 LegacySpeechSynthAdapter |
+
+#### 已基本完成绞杀
+
+| 文件 | 状态 | 遗留项 |
+|------|------|--------|
+| `handler.js` (475 行) | ✅ 接口层重构完成 | `startRecurringTasks` 仍直连遗留服务 |
+| `bootstrap.js` (141 行) | ✅ 组装根结构正确 | 待遗留服务被替代后逐步移除 import |
+| `server.js` (322 行) | 🟡 HTTP 接口层 | 7 个 REST 端点直连遗留服务 |
+
+### 微服务化可行性分析
+
+#### 已有微服务
+
+`microservices/image-generator/` — Python/FastAPI, HTTP REST, :8288
+- 独立部署、Pydantic 强类型、环境变量配置、`GET /api/health` 健康检查
+- 无 WebSocket、无 IPC、无共享状态
+
+#### 微服务化候选
+
+| 模块 | 可行性 | 优先级 | 协议 | 主要障碍 |
+|------|:---:|:---:|------|------|
+| **音乐源服务** | 高 | P1 | HTTP REST | Cookie 状态迁移；NeteaseCloudMusicApi 已是子进程 |
+| **TTS 语音合成** | 高 | P1 | HTTP REST | 音频文件服务；Port 契约仅 2 方法 |
+| **LLM 服务** | 中 | P2 | HTTP REST + SSE | 流式 token 传输需 SSE；prompt 构建逻辑归属 |
+| **天气服务** | 中 | P3 | HTTP REST | 收益有限，功能过简单 |
+| 播放调度器 | **不可行** | — | — | 实时定时器 + 内存状态 + Queue 共享 |
+| 歌曲队列 | **不可行** | — | — | 进程内单例 + 高频同步访问 |
+| 应用服务层 | **不建议** | — | — | 编排扇出 + 延迟叠加 |
+
+**核心结论**：DDD 架构（Port + Adapter）为微服务化提供理想基础。外部 API 依赖类模块（音乐/TTS/LLM）可低成本拆分，仅需将防腐层适配器从进程内调用改为 HTTP 客户端。实时状态管理类模块必须保留在主进程内。
+
+#### 微服务拆分的 Port 适配改造点
+
+拆分后 **Application Service 和 Port 契约零修改**，仅改 `infrastructure/` 下适配器实现：
+
+```javascript
+// 改造前 (LegacySpeechSynthAdapter.js)
+import { generateSpeech } from '../../services/tts.js';
+async synthesize(text) { return await legacy.generateSpeech(text); }
+
+// 改造后 (HttpSpeechSynthAdapter.js)
+async synthesize(text) {
+  const res = await fetch(`${TTS_SERVICE_URL}/api/synthesize`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ text })
+  });
+  const data = await res.json();
+  return data.audio_url || null;
+}
+```
+
+### 下一阶段优先级
+
+| 顺序 | 待办 | 紧急度 | 预期收益 | 风险 | 验收信号 |
+|------|------|--------|----------|------|----------|
+| **P4-a** | 移动 `speech-timer.js` → `domain/playback/` | 低 | 零违规文件归位 | 极低 | 测试全绿 |
+| **P4-b** | 移动 `netease.js`/`weather.js`/`tts.js` → `infrastructure/` | 中 | 消除 3 条反向依赖 | 低 | arch:check 0 warn |
+| **P4-c** | 提炼 `queue.js` 队列逻辑到 `domain/playback/` | 中 | 消除 1 条 services→infra 直连 | 中 | characterization tests |
+| **P4-d** | 提炼 `context.js` 6 槽组装 + `getTimeOfDayMood` 到 domain | 中 | prompt 组装纯化 | 中 | domain rules tests |
+| **P4-e** | 拆 `claude.js` prompt 构建到 infrastructure writer | 高 | 消除 D2 fs 硬违规 + 328 行最大遗留之一 | 高 | characterization tests |
+| **P4-f** | 微服务化 TTS（首个微服务拆分试点） | 中 | 验证 Port→HTTP 适配模式 | 中 | HTTP 适配器测试 |
+| **P4-g** | 微服务化音乐源 | 中 | 消除 NeteaseCloudMusicApi 子进程管理 | 中 | HTTP 适配器测试 |
+| **P4-h** | 前端 Song 稳定字段迁移 | 中 | 防腐层最后一段外露债 | 中 | grep 无 ar/al/dt |
+
+> 建议下一刀：先做 P4-a/P4-b（零风险归位），再按 P4-c→P4-d→P4-e 深化绞杀，最后 P4-f/P4-g 微服务化。
+
+---
+
+## 2026-07-05 Agent Turn Service Update
+
+- Completed next backend strangler node: `CHAT_MESSAGE` turn orchestration now goes through `AgentTurnService`.
+- Added pure domain rules in `server/domain/agent/agentTurnRules.js` for search tool text, tool-result selection, recommendation snapshot retention, and exec trace construction.
+- Added `IntentRouterPort` and `LegacyIntentRouterAdapter`; `socket/handler.js` no longer imports or calls `routeIntent` directly.
+- `socket/handler.js` chat branch no longer performs direct intent routing, recommendation action orchestration, search-result queue insertion, weather lookup, or context assembly. It now delegates to `agentTurnService.handleMessage(...)`, emits returned payloads, then calls `StreamingConversationService`.
+- New tests added: `agent-turn-rules.test.js`, `agent-turn-service.test.js`, `intent-router-adapter.test.js`.
+- Current verified baseline: `npm test` 316 passed / 68 files; `npm run arch:check` 0 dependency violations / 94 modules / 144 dependencies; `npm run lint` 0 errors / 38 warnings.
+- Immediate next recommended cuts: wrap legacy `chatWithDj` behind a streaming chat port; extract direct `plan:*` socket handlers into an application service; continue moving stable event emission behind `EventPublisher`.
+
+## 2026-07-05 Streaming Chat Port Update
+
+- Completed the next agent seam: `StreamingConversationService` now consumes `StreamingChatPort` via `chat.stream(text, contextPrompt)`.
+- Added `LegacyStreamingChatAdapter` around legacy `chatWithDj`; `socket/handler.js` no longer imports `chatWithDj` directly.
+- New test added: `streaming-chat-adapter.test.js`; `streaming-conversation-service.test.js` now drives the port-shaped dependency.
+- Closed the remaining handler-to-`services/claude.js` chat seam: DJ readiness now uses `deepSeekLlmAdapter.isConfigured()` and `socket/handler.js` has a static regression test preventing direct legacy Claude imports.
+
+## 2026-07-05 Direct Plan Block Service Update
+
+- Completed another socket-handler strangler node: direct `plan:select-block`, `plan:pin-block`, and `plan:clear-selection` events now delegate to `PlanBlockService`.
+- Added pure domain rules in `server/domain/curation/planBlockRules.js` for direct plan progress patches, plan-update payload shaping, and refill eligibility.
+- Added `server/application/services/PlanBlockService.js`; legacy `recommender._planProgress` mutation and `fillQueue(12, blocks)` calls are now behind an application service seam.
+- `socket/handler.js` now only emits the returned `queueUpdate` and `planUpdate` payloads for these direct plan block events.
+- New tests added: `plan-block-rules.test.js`, `plan-block-service.test.js`; `socket-handler-loads.test.js` now prevents handler regressions back to direct plan mutation/refill logic.
+- Current verified baseline after this cut: `npm test` 327 passed / 70 files; `npm run arch:check` 0 dependency violations / 96 modules / 146 dependencies; `npm run lint` 0 errors / 37 warnings.
+- Immediate next recommended cuts: keep shrinking `socket/handler.js` by moving `CRAB_CLICK` and `dj-speech-finished` into small application services, or deepen `proactive.js` with characterization tests before extracting its remaining policy flow.
+
+## 2026-07-05 Current Priority Snapshot
+
+Current progress:
+
+- Backend strangler work is now centered on the socket/application seam. `CHAT_MESSAGE`, chat streaming, direct plan block events, auth, cold start, playback controls, song request, and DJ transition/refill speech all have application-service seams.
+- `CRAB_CLICK` now delegates to `CrabInteractionService`, with pure rules in `domain/hosting/crabInteractionRules.js`.
+- Latest verified baseline: `npm test` 338 passed / 72 files; `npm run arch:check` 0 dependency violations / 98 modules / 148 dependencies; `npm run lint` 0 errors / 37 warnings.
+- `socket/handler.js` is thinner but still the largest orchestration hotspot. Remaining visible branches include `dj-speech-finished`, recurring queue refill, hourly mood refresh, and proactive polling.
+- Highest remaining risk modules by lint/complexity signal: `services/proactive.js`, `services/recommender.js`, `services/claude.js`, `services/netease.js`, and `server.js` bootstrap.
+
+Current priority order:
+
+| Priority | Target | Why now | Expected benefit | Acceptance signal |
+| --- | --- | --- | --- | --- |
+| **P0 Guardrail** | Keep test/architecture/lint baseline | Every cut must stay reversible and behavior-preserving | Prevents strangler work from turning into a rewrite | `npm test` green, `npm run arch:check` 0 violations, lint 0 errors |
+| **P1 Backend seam** | Extract `dj-speech-finished` completion flow | It mixes cold-start completion, normal speech completion, scheduler state, and queue emit payloads | Locks R1 "radio never silent" completion behavior behind application tests | TDD service tests for cold-start/chat/transition completion branches |
+| **P1 Characterization first** | Add characterization tests around `proactive.js` before deeper extraction | Complexity is high and behavior is timing/state sensitive | Makes the next proactive-policy extraction safer | Tests cover disabled state, active speech guard, queue/plan context, TTS failure fallback |
+| **P2 Product debt** | Frontend reads stable `Song` fields only | MusicSourcePort already emits stable Song, but UI still has old NetEase field compatibility | Completes anti-corruption layer toward replacing music source later | `rg "song\\.(ar|al|dt)|\\.ar\\b|\\.al\\b|\\.dt\\b" client` has no business reads |
+| **P2 Core depth** | Continue `scheduler` / `recommender` rule extraction | High value but higher behavioral risk than handler seams | More playback and recommendation rules move into domain/application | New pure-rule tests plus existing scheduler/recommender regression tests pass |
+| **P3 Cleanup** | Reduce legacy lint warnings | Useful but not architecturally blocking | Lower noise so real hotspots stand out | Warning count drops without broad formatting churn |
+
+Recommended next node:
+
+1. Extract `dj-speech-finished`, which is the next highest-value socket branch and touches playback completion behavior.
+2. Then add characterization tests around `proactive.js`, before changing its timing/state-sensitive flow.
+3. Keep frontend stable `Song` field migration as the next product-facing anti-corruption task.
+
+## 2026-07-05 Crab Interaction Service Update
+
+- Completed the next priority backend seam: `CRAB_CLICK` now delegates to `CrabInteractionService`.
+- Added pure rules in `server/domain/hosting/crabInteractionRules.js` for skip detection, immediate animation selection, and delayed idle reset timing.
+- Added `server/application/services/CrabInteractionService.js`; scheduler skip remains injected and socket/timer side effects stay in `socket/handler.js`.
+- `socket/handler.js` no longer contains the inline `switch (interaction)` branch for crab clicks.
+- New tests added: `crab-interaction-rules.test.js`, `crab-interaction-service.test.js`; `socket-handler-loads.test.js` now prevents regression back to inline crab click control flow.
+- Current verified baseline after this cut: `npm test` 338 passed / 72 files; `npm run arch:check` 0 dependency violations / 98 modules / 148 dependencies; `npm run lint` 0 errors / 37 warnings.
+- Immediate next recommended cut: extract `dj-speech-finished` into an application service with characterization tests for cold-start completion, chat/chat-announce no-op completion, and normal transition speech completion.
+
+---
+
 ## 0. 当前基线快照（核对时点）
 
 ```

@@ -5,6 +5,13 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Server module seams.
+ *
+ * After D8 fix: server.js receives wired services from bootstrap.js
+ * and no longer imports infrastructure adapters or application service
+ * factories directly.
+ */
 describe('server module seams', () => {
   it('doesNotImportLegacyHistoryDbDirectly', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../server.js'), 'utf-8');
@@ -15,17 +22,16 @@ describe('server module seams', () => {
   it('doesNotBypassAuthServiceForLoginStatus', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../server.js'), 'utf-8');
 
-    expect(source).toContain('createAuthenticationService');
     expect(source).toContain('restoreStoredSession');
-    expect(source).not.toContain("import { getCookie } from './services/netease.js'");
+    expect(source).not.toContain("import { getCookie } from './infrastructure/netease/neteaseApi.js'");
     expect(source).not.toContain('checkLoginStatus');
   });
 
   it('doesNotBypassMusicSourcePortForRestMusicEndpoints', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../server.js'), 'utf-8');
 
-    expect(source).toContain('legacyNeteaseMusicSourceAdapter');
-    expect(source).not.toContain("import('./services/netease.js')");
+    // server.js should access musicSource through bootstrap services, not import directly
+    expect(source).not.toContain("import('./infrastructure/netease/neteaseApi.js')");
     expect(source).not.toContain('getUserPlaylists');
     expect(source).not.toContain('getPlaylistTracks');
     expect(source).not.toContain('getLyric');

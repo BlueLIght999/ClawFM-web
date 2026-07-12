@@ -1,4 +1,4 @@
-import { generateSpeech, getTtsStatus } from '../../services/tts.js';
+import { generateSpeech, getTtsStatus } from './ttsService.js';
 
 /**
  * Wraps the legacy TTS module behind SpeechSynthPort.

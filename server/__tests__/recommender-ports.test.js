@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('../services/netease.js', () => ({
+vi.mock('../infrastructure/netease/neteaseApi.js', () => ({
   getUserPlaylists: vi.fn(() => { throw new Error('legacy getUserPlaylists called'); }),
   getPlaylistTracks: vi.fn(() => { throw new Error('legacy getPlaylistTracks called'); }),
   getLikedSongs: vi.fn(() => { throw new Error('legacy getLikedSongs called'); }),

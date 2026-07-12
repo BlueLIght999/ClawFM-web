@@ -8,18 +8,7 @@ import { spawn } from 'child_process';
 import config from './config.js';
 import { initDb } from './db/schema.js';
 import { setupSocketHandler } from './socket/handler.js';
-import { recommender } from './services/recommender.js';
-import { queue } from './services/queue.js';
-import { scheduler } from './services/scheduler.js';
-import { legacyListenerProfileRepository } from './infrastructure/persistence/repositories/LegacyListenerProfileRepository.js';
-import { getTimeOfDayMood } from './services/context.js';
-import { checkTtsHealth, getTtsStatus } from './services/tts.js';
-import { generatePlan as generateInitialPlan } from './services/planner.js';
-import { createAuthenticationService } from './application/services/AuthenticationService.js';
-import { legacyNeteaseAuthClient } from './infrastructure/auth/LegacyNeteaseAuthClient.js';
-import { legacyAuthRepository } from './infrastructure/persistence/repositories/LegacyAuthRepository.js';
-import { legacyNeteaseMusicSourceAdapter } from './infrastructure/music/LegacyNeteaseMusicSourceAdapter.js';
-import { SocketEventPublisher } from './socket/SocketEventPublisher.js';
+import { createServices } from './bootstrap.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,19 +21,22 @@ const io = new Server(httpServer, {
 app.use(cors());
 app.use(express.json());
 
-const authenticationService = createAuthenticationService({
-  authClient: legacyNeteaseAuthClient,
-  authRepository: legacyAuthRepository,
+const services = createServices(io);
+const {
+  authenticationService,
+  musicSource,
   recommender,
   queue,
   scheduler,
-  planner: {
-    generatePlan: generateInitialPlan,
-  },
-  eventPublisher: new SocketEventPublisher(io),
-});
-
-const musicSource = legacyNeteaseMusicSourceAdapter;
+  listenerProfileRepository,
+  getTimeOfDayMood,
+  checkTtsHealth,
+  getTtsStatus,
+  generatePlan,
+  getPlan,
+  isPlanStale,
+  getWeather,
+} = services;
 
 // Auth status endpoint
 app.get('/api/auth/status', async (req, res) => {
@@ -125,7 +117,7 @@ app.get('/api/lyric/:id', async (req, res) => {
 
 // GET /api/taste — user taste profile
 app.get('/api/taste', (req, res) => {
-  const profile = legacyListenerProfileRepository.get();
+  const profile = listenerProfileRepository.get();
   res.json({
     topArtists: (profile.topArtists || []).slice(0, 10),
     topGenres: (profile.analysis?.topGenres || []),
@@ -137,7 +129,6 @@ app.get('/api/taste', (req, res) => {
 // GET /api/weather — current weather
 app.get('/api/weather', async (req, res) => {
   try {
-    const { getWeather } = await import('./services/weather.js');
     const text = await getWeather();
     res.json({ ok: true, text });
   } catch (e) {
@@ -148,7 +139,6 @@ app.get('/api/weather', async (req, res) => {
 // GET /api/plan/today — current DJ listening plan
 app.get('/api/plan/today', async (req, res) => {
   try {
-    const { generatePlan, isPlanStale, getPlan } = await import('./services/planner.js');
     const force = req.query.force === 'true';
     const cached = getPlan();
     if (force || !cached || isPlanStale()) {
@@ -195,12 +185,14 @@ app.get('*', (req, res) => {
 });
 
 let neteaseProc = null;
+let neteaseRestartCount = 0;
+const NETEASE_MAX_RESTARTS = 5;
 
 function startNeteaseApi() {
   const neteaseApiDir = path.resolve(__dirname, 'node_modules', 'NeteaseCloudMusicApi');
   neteaseProc = spawn('node', ['app.js'], {
     cwd: neteaseApiDir,
-    env: { ...process.env, PORT: '3000' },
+    env: { ...process.env, PORT: String(config.netease.apiPort) },
     stdio: 'pipe',
   });
   neteaseProc.stdout.on('data', (d) => {
@@ -213,20 +205,34 @@ function startNeteaseApi() {
   neteaseProc.on('close', (code) => {
     console.log('[NeteaseAPI] Exited with code', code);
     if (code !== 0 && code !== null) {
-      setTimeout(() => {
-        console.log('[NeteaseAPI] Auto-restarting...');
-        startNeteaseApi();
-      }, 3000);
+      if (neteaseRestartCount >= NETEASE_MAX_RESTARTS) {
+        console.error(`[NeteaseAPI] Max restart attempts (${NETEASE_MAX_RESTARTS}) reached — giving up. Check if port ${config.netease.apiPort} is available.`);
+        return;
+      }
+      neteaseRestartCount++;
+      const delay = Math.min(3000 * Math.pow(2, neteaseRestartCount - 1), 30000);
+      console.log(`[NeteaseAPI] Auto-restarting (attempt ${neteaseRestartCount}/${NETEASE_MAX_RESTARTS}) in ${delay}ms...`);
+      setTimeout(() => startNeteaseApi(), delay);
     }
   });
 }
 
+function isNeteaseApiResponse(body) {
+  if (!body || typeof body !== 'object') return false;
+  if ('code' in body) return true;
+  return body.data && typeof body.data === 'object' && 'code' in body.data;
+}
+
 async function waitForNeteaseApi(timeoutMs = 15000) {
   const start = Date.now();
+  const healthUrl = `http://localhost:${config.netease.apiPort}/login/status`;
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch('http://localhost:3000/login/status');
-      if (res.ok) return true;
+      const res = await fetch(healthUrl);
+      if (res.ok) {
+        const body = await res.json();
+        if (isNeteaseApiResponse(body)) return true;
+      }
     } catch {
       // NetEase API may still be booting; keep polling until timeout.
     }
@@ -240,17 +246,32 @@ async function start() {
   startNeteaseApi();
   const ready = await waitForNeteaseApi();
   if (ready) {
-    console.log('[NeteaseAPI] Ready on port 3000');
+    console.log(`[NeteaseAPI] Ready on port ${config.netease.apiPort}`);
   } else {
     console.log('[NeteaseAPI] WARNING: Not ready after timeout, continuing anyway');
   }
 
   await initDb();
-  setupSocketHandler(io);
+  setupSocketHandler(io, services);
   console.log('[Server] Socket handler set up, callbacks wired');
 
-  // Check TTS health — report status with visible banner if degraded
   const ttsHealth = await checkTtsHealth();
+  displayTtsHealthBanner(ttsHealth);
+
+  await restoreNeteaseSession();
+
+  httpServer.listen(config.port, () => {
+    console.log(`
+
+╔══════════════════════════════════════╗
+║        🦀   Qclaudio is ON AIR        ║
+║       http://localhost:${config.port}          ║
+╚══════════════════════════════════════╝
+    `);
+  });
+}
+
+function displayTtsHealthBanner(ttsHealth) {
   if (!ttsHealth.available) {
     console.warn('');
     console.warn('╔══════════════════════════════════════════╗');
@@ -267,8 +288,9 @@ async function start() {
     console.warn('╚══════════════════════════════════════════╝');
     console.warn('');
   }
+}
 
-  // Restore a stored NetEase session without letting this entrypoint call legacy auth directly.
+async function restoreNeteaseSession() {
   try {
     const restoredSession = await authenticationService.restoreStoredSession();
     const preview = restoredSession.cookiePreview;
@@ -295,16 +317,6 @@ async function start() {
   } catch (e) {
     console.log('[Server] Auto-start skipped:', e.message);
   }
-
-  httpServer.listen(config.port, () => {
-    console.log(`
-
-╔══════════════════════════════════════╗
-║        🦀   Qclaudio is ON AIR        ║
-║       http://localhost:${config.port}          ║
-╚══════════════════════════════════════╝
-    `);
-  });
 }
 
 start();

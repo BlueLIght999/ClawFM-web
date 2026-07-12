@@ -12,6 +12,7 @@
  */
 
 import { formatUserCorpus } from '../domain/curation/formatUserCorpus.js';
+import { getTimeOfDayMood } from '../domain/hosting/getTimeOfDayMood.js';
 import { defaultCorpus } from '../infrastructure/storage/defaultCorpus.js';
 import { legacyListenHistoryRepository } from '../infrastructure/persistence/repositories/LegacyListenHistoryRepository.js';
 import { legacyListenerProfileRepository } from '../infrastructure/persistence/repositories/LegacyListenerProfileRepository.js';
@@ -141,12 +142,7 @@ export function assemblePrompt({
 
 /**
  * Get the time-of-day mood category (used by scheduler + recommender)
+ * Re-exported from domain for backward compatibility.
  */
-export function getTimeOfDayMood() {
-  const hour = new Date().getHours();
-  if (hour >= 6 && hour < 12) return 'morning';
-  if (hour >= 12 && hour < 17) return 'afternoon';
-  if (hour >= 17 && hour < 22) return 'evening';
-  return 'night';
-}
+export { getTimeOfDayMood };
 

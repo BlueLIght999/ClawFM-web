@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * fast-route 路径提前返回、不碰 IO，但仍走 mock 后的模块。
  */
 
-vi.mock('../services/netease.js', () => ({
+vi.mock('../infrastructure/netease/neteaseApi.js', () => ({
   searchSongs: vi.fn(),
   getSongUrl: vi.fn(async () => ({ data: [{ url: null }] })),
   getLyric: vi.fn(async () => ({})),
@@ -28,7 +28,7 @@ vi.mock('../services/claude.js', () => ({
 }));
 
 import { routeIntent } from '../services/router.js';
-import { searchSongs } from '../services/netease.js';
+import { searchSongs } from '../infrastructure/netease/neteaseApi.js';
 import { extractIntent } from '../services/claude.js';
 
 const song = (id, name) => ({ id, name, ar: [{ name: 'x' }] });
