@@ -19,6 +19,10 @@ import { useAudioController } from './hooks/useAudioController.js';
 import { useColdStart } from './contexts/ColdStartContext.jsx';
 import { useCrab } from './contexts/CrabContext.jsx';
 import { useUI } from './contexts/UIContext.jsx';
+import { useRadioSocketEvents } from './hooks/useRadioSocketEvents.js';
+import { useChatSocketEvents } from './hooks/useChatSocketEvents.js';
+import { useCrabSocketEvents } from './hooks/useCrabSocketEvents.js';
+import { useSystemSocketEvents } from './hooks/useSystemSocketEvents.js';
 
 // Lazy-loaded non-first-screen views (code splitting)
 const ProfileView = lazy(() => import('./components/ProfileView.jsx'));
@@ -62,7 +66,6 @@ export default function App({ socket, connected }) {
   const { radioState, setRadioState, updateRadioState, skip: handleSkip, previous: handlePrevious, pause: handlePause, resume: handleResume, setMode: handleSetMode, musicAudioRef, musicRetryRef, isPlayingRef } = useRadio();
   const [djSpeechUrl, setDjSpeechUrl] = useState(null);
   const djSpeechUrlRef = useRef(null);
-  const pendingSongChangeRef = useRef(null);
   const speechTypeRef = useRef('transition');
   const [audioEl, setAudioEl] = useState(null);
 
@@ -112,7 +115,13 @@ export default function App({ socket, connected }) {
     if (speech) { speech.pause(); }
   }, [connected, authSpeechAudioRef]);
 
-  // DJ speech — managed by useSpeechPlayback hook (comprehensive cleanup on URL change)
+  // Socket event listeners — split by domain
+  const { pendingSongChangeRef } = useRadioSocketEvents(socket, djSpeechUrlRef);
+  useChatSocketEvents(socket, djSpeechUrlRef, speechTypeRef, setDjSpeechUrl, pendingSpeechRef);
+  useCrabSocketEvents(socket);
+  useSystemSocketEvents(socket);
+
+  // DJ speech playback — uses pendingSongChangeRef from useRadioSocketEvents
   useSpeechPlayback({
     djSpeechUrl,
     speechAudioRef: authSpeechAudioRef,
@@ -132,86 +141,6 @@ export default function App({ socket, connected }) {
       }
     },
   });
-
-  useEffect(() => {
-    if (!socket) return;
-    socket.on(E.RADIO_STATE, (state) => updateRadioState(state));
-    socket.on(E.SONG_CHANGE, (data) => {
-      const newSongState = { currentSong: data.song, startedAt: data.startedAt, isPlaying: true, audioUrl: data.audioUrl || null };
-      // If speech is playing, defer song change until speech finishes
-      if (djSpeechUrlRef.current) {
-        pendingSongChangeRef.current = newSongState;
-        // Update song info but don't switch audio yet
-        updateRadioState({ currentSong: data.song, startedAt: data.startedAt, isPlaying: true });
-      } else {
-        updateRadioState(newSongState);
-      }
-      setCrabState('bouncing');
-      setTimeout(() => setCrabState(isPlayingRef.current ? 'listening' : 'idle'), 3000);
-      if (coldPhaseRef.current === 'loading') setColdPhase('exit');
-      else setColdPhase('done');
-    });
-    socket.on(E.DJ_MESSAGE, (data) => {
-      addDJMessage(data.text);
-      showDJMessage(data.text);
-    });
-    socket.on(E.DJ_SPEECH_START, (data) => {
-      speechTypeRef.current = data.type || 'transition';
-      if (data.type === 'cold-start') {
-        pendingSpeechRef.current = data.audioUrl;
-        setColdPhase('exit');
-      } else {
-        djSpeechUrlRef.current = data.audioUrl;
-        setDjSpeechUrl(data.audioUrl);
-        setCrabState('talking');
-      }
-    });
-    socket.on(E.DJ_SPEECH_END, () => { setDjSpeechUrl(null); djSpeechUrlRef.current = null; setCrabState(isPlayingRef.current ? 'listening' : 'idle'); });
-    socket.on(E.DJ_STREAM_CHUNK, (data) => {
-      appendDJStreamChunk(data.messageId, data.token);
-    });
-    socket.on(E.DJ_STREAM_END, () => {
-      endDJStream();
-    });
-    socket.on('cold-start:phase', (data) => {
-      if (data.phase === 'writing') { setColdPhaseText('CLAWED is writing the opening...'); setColdOpenText(''); }
-      else if (data.phase === 'speaking') { setColdPhaseText('CLAWED is about to speak...'); setColdOpenText(''); }
-      else if (data.phase === 'text-only') {
-        if (data.text) {
-          setColdOpenText(data.text);
-          setColdPhaseText('');
-        } else {
-          setColdPhaseText('Technical difficulties — starting music...');
-          setColdOpenText('');
-        }
-      }
-    });
-    socket.on('tts:status', (data) => setTtsStatus(data));
-    socket.on(E.QUEUE_UPDATE, (data) => setRadioState(prev => ({ ...prev, upcomingSongs: data.upcomingSongs, queueMode: data.mode || prev.queueMode })));
-    socket.on(E.PLAYBACK_POSITION, (pos) => updateRadioState({ elapsed: pos.elapsed, duration: pos.duration }));
-    socket.on(E.PAUSE, () => { updateRadioState({ isPlaying: false }); setCrabState('idle'); });
-    socket.on(E.RESUME, (data) => updateRadioState({ isPlaying: true, startedAt: data.startedAt }));
-    socket.on(E.LOGIN_REQUIRED, () => setLoggedIn(false));
-    socket.on(E.PLAN_UPDATE, (data) => { setPlan(data); });
-    socket.on(E.ERROR, (err) => { setError(err.message); setTimeout(() => setError(null), 5000); });
-    socket.on(E.CRAB_BUBBLES, ({ bubbles: newBubbles }) => {
-      setBubbles(newBubbles);
-      setBubblesVisible(true);
-      setCrabState('blowing');
-      setTimeout(() => {
-        setCrabState(prev => prev === 'blowing' ? (isPlayingRef.current ? 'listening' : 'idle') : prev);
-      }, 3000);
-      if (bubbleTimeoutRef.current) clearTimeout(bubbleTimeoutRef.current);
-      bubbleTimeoutRef.current = setTimeout(() => setBubblesVisible(false), 30000);
-    });
-    socket.on('auth:login-success', () => setLoggedIn(true));
-    return () => {
-      socket.off(E.RADIO_STATE);
-      socket.off(E.SONG_CHANGE);
-      socket.off(E.CRAB_BUBBLES);
-      if (bubbleTimeoutRef.current) clearTimeout(bubbleTimeoutRef.current);
-    };
-  }, [socket]);
 
   // Signal server that client is ready for cold start (logged in + connected)
   useEffect(() => {
