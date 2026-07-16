@@ -1,4 +1,4 @@
-/* === DJ Dialog — wide horizontal pill, left-to-right text reveal === */
+/* === DJ Dialog — white bg, expandable, left-to-right text reveal === */
 
 .dj-dialog-container {
   position: relative;
@@ -13,35 +13,35 @@
   100% { opacity: 1; transform: translateX(0); }
 }
 
-/* Wide rectangle: much wider than tall */
+/* Wide rectangle, expandable downward */
 .dj-dialog-bubble {
-  background: var(--bg-panel);
+  background: rgba(255, 255, 255, 0.96);
   border: 1px dashed rgba(224, 123, 86, 0.35);
-  box-shadow: 0 0 8px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
   padding: 8px 14px;
-  width: 320px;
-  min-height: 48px;
-  max-height: 68px;
-  overflow: hidden;
+  width: 340px;
+  min-height: 52px;
+  max-height: 160px;
+  overflow-y: auto;
   position: relative;
   pointer-events: auto;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
-/* Header — inline, compact */
+/* Header */
 .dj-dialog-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 
 .dj-dialog-label {
   font-family: var(--font-pixel);
   font-size: 4px;
-  color: var(--accent);
+  color: var(--accent-dark);
   letter-spacing: 1px;
   opacity: 0.7;
 }
@@ -63,30 +63,29 @@
   51%, 100% { opacity: 0.2; }
 }
 
-/* Text — single line, left-to-right reveal, no wrapping */
+/* Text — wraps, left-to-right char reveal */
 .dj-dialog-text-wrap {
   flex: 1;
   display: flex;
-  align-items: center;
-  overflow: hidden;
-  white-space: nowrap;
+  align-items: flex-start;
+  overflow: visible;
+  white-space: normal;
 }
 
 .dj-dialog-text {
   font-family: var(--font-mono);
   font-size: 14px;
-  color: var(--accent-glow);
-  line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: #3a2a1a;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .dj-dialog-cursor {
   display: inline-block;
   width: 6px;
-  height: 13px;
-  background: var(--accent-glow);
+  height: 14px;
+  background: #3a2a1a;
   margin-left: 2px;
   flex-shrink: 0;
   animation: djCursorBlink 0.5s step-end infinite;
@@ -97,11 +96,11 @@
   51%, 100% { opacity: 0; }
 }
 
-/* Reply — inline at bottom-right, tiny */
+/* Reply */
 .dj-dialog-reply-row {
   display: flex;
   justify-content: flex-end;
-  margin-top: 3px;
+  margin-top: 4px;
 }
 
 .dj-dialog-reply {
@@ -114,16 +113,16 @@
   cursor: pointer;
   font-family: var(--font-pixel);
   font-size: 4px;
-  color: var(--accent);
+  color: var(--accent-dark);
   letter-spacing: 1px;
   transition: background 0.2s, color 0.2s, border-color 0.2s;
   animation: replyAppear 0.3s ease-out;
 }
 
 .dj-dialog-reply:hover {
-  background: rgba(224, 123, 86, 0.1);
+  background: rgba(224, 123, 86, 0.12);
   border-color: var(--accent);
-  color: var(--accent-glow);
+  color: var(--accent);
 }
 
 .dj-dialog-reply-arrow { font-size: 5px; }
