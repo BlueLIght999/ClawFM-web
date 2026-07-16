@@ -1,4 +1,4 @@
-/* === DJ Dialog — white bg, expandable, left-to-right text reveal === */
+/* === DJ Dialog — warm beige bubble, left-pointing tail === */
 
 .dj-dialog-container {
   position: relative;
@@ -13,13 +13,14 @@
   100% { opacity: 1; transform: translateX(0); }
 }
 
-/* Wide rectangle, expandable downward */
+/* Speech bubble — beige, rounded, with tail */
 .dj-dialog-bubble {
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px dashed rgba(224, 123, 86, 0.35);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  background: #f5ede0;
+  border: 1.5px solid rgba(224, 123, 86, 0.3);
+  border-radius: 12px 12px 12px 4px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
   padding: 8px 14px;
-  width: 340px;
+  width: 420px;
   min-height: 52px;
   max-height: 160px;
   overflow-y: auto;
@@ -28,6 +29,20 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
+  filter: drop-shadow(-1.5px 0 0 rgba(224, 123, 86, 0.3));
+}
+
+/* Tail pointing left toward crab */
+.dj-dialog-bubble::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  bottom: 12px;
+  width: 0;
+  height: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-right: 8px solid #f5ede0;
 }
 
 /* Header */
@@ -36,6 +51,8 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 4px;
+  border-bottom: 1px dashed rgba(224, 123, 86, 0.2);
+  padding-bottom: 4px;
 }
 
 .dj-dialog-label {
@@ -109,7 +126,8 @@
   gap: 3px;
   background: transparent;
   border: 1px dashed rgba(224, 123, 86, 0.35);
-  padding: 2px 6px;
+  border-radius: 8px;
+  padding: 2px 8px;
   cursor: pointer;
   font-family: var(--font-pixel);
   font-size: 4px;
