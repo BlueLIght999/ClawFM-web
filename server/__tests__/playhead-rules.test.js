@@ -79,7 +79,49 @@ describe('playhead rules', () => {
     expect(next).toEqual({
       ...current,
       startedAt: 6000,
+      remainingAtPause: 7000,
     });
     expect(current.startedAt).toBe(1000);
+  });
+
+  it('seekPlayhead_afterPause_recalculatesRemainingAtPauseFromNewPosition', () => {
+    // Simulate: song is 180000ms, paused at 120000ms → remainingAtPause = 60000ms
+    const paused = playing({
+      songDuration: 180000,
+      isPlaying: false,
+      remainingAtPause: 60000,
+    });
+
+    // User seeks to 30000ms while paused
+    const afterSeek = seekPlayhead(paused, { positionMs: 30000, nowMs: 50000 });
+
+    // remainingAtPause must reflect the new position, not the old pause value
+    expect(afterSeek.remainingAtPause).toBe(150000);
+    expect(afterSeek.startedAt).toBe(20000);
+  });
+
+  it('seekPlayhead_clampsRemainingAtPauseToZeroWhenSeekingToEnd', () => {
+    const current = playing({ songDuration: 10000 });
+
+    const next = seekPlayhead(current, { positionMs: 12000, nowMs: 9000 });
+
+    expect(next.remainingAtPause).toBe(0);
+  });
+
+  it('resumePlayhead_afterPauseAndSeek_usesRecalculatedRemainingAtPause', () => {
+    // Full scenario: 3-minute song, paused at 2:00, seek to 0:30, then resume
+    const song = playing({ songDuration: 180000, startedAt: 1000 });
+    const paused = pausePlayhead(song, 121000); // elapsed = 120000, remaining = 60000
+    expect(paused.remainingAtPause).toBe(60000);
+
+    const afterSeek = seekPlayhead(paused, { positionMs: 30000, nowMs: 130000 });
+    expect(afterSeek.remainingAtPause).toBe(150000); // 180000 - 30000
+
+    const resumed = resumePlayhead(afterSeek, 140000);
+
+    // songDuration should be 150000 (remaining from seek position), not 60000 (old pause value)
+    expect(resumed.songDuration).toBe(150000);
+    expect(resumed.isPlaying).toBe(true);
+    expect(resumed.startedAt).toBe(140000);
   });
 });

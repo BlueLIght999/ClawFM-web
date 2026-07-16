@@ -1,13 +1,19 @@
 import { SongQueue } from '../domain/playback/SongQueue.js';
-import { legacyQueueSnapshotRepository } from '../infrastructure/persistence/repositories/LegacyQueueSnapshotRepository.js';
 
 class PersistableSongQueue extends SongQueue {
+  /** @type {import('../application/ports/persistence/QueueSnapshotRepository.js').QueueSnapshotRepository | null} */
+  _snapshotRepo = null;
+
+  /** Inject repository via bootstrap.js (D8 compliance) */
+  set snapshotRepository(repo) { this._snapshotRepo = repo; }
+
   persist() {
-    legacyQueueSnapshotRepository.save(this.toState());
+    if (this._snapshotRepo) this._snapshotRepo.save(this.toState());
   }
 
   init() {
-    const saved = legacyQueueSnapshotRepository.latest();
+    if (!this._snapshotRepo) return;
+    const saved = this._snapshotRepo.latest();
     if (saved) this.loadFromState(saved);
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createStreamingConversationService } from '../application/services/StreamingConversationService.js';
+import { createStreamingConversationService } from '../agent/application/services/StreamingConversationService.js';
 
 async function* streamChunks(tokens) {
   for (const token of tokens) {
@@ -95,7 +95,7 @@ describe('StreamingConversationService', () => {
 
     expect(result).toEqual({
       unavailableMessage: {
-        text: 'Sorry, the DJ booth is having technical difficulties. Try again later.',
+        text: 'DJ 暂时离线，请稍后再试。',
       },
     });
     expect(deps.chatHistory.append).not.toHaveBeenCalled();
@@ -122,6 +122,30 @@ describe('StreamingConversationService', () => {
     expect(deps.chatHistory.append).not.toHaveBeenCalled();
     expect(result.streamEnd).toEqual({ messageId: 'm4', fullText: 'partial text' });
     expect(result.streamError.message).toBe('stream broke');
+  });
+
+  it('streamReply_mergedStream_usesDirectTokensWithoutCallingChat', async () => {
+    const mergedStream = (async function* () {
+      yield '你好！';
+      yield '世界！';
+    })();
+
+    const deps = createDeps();
+    const onChunk = vi.fn();
+    const service = createStreamingConversationService(deps);
+
+    const result = await service.streamReply({
+      text: 'hi', contextPrompt: 'ctx',
+      routing: { action: 'chat' },
+      messageId: 'm9',
+      mergedStream,
+      onChunk,
+    });
+
+    expect(deps.chat.stream).not.toHaveBeenCalled();
+    expect(onChunk).toHaveBeenCalledWith({ messageId: 'm9', token: '你好！' });
+    expect(onChunk).toHaveBeenCalledWith({ messageId: 'm9', token: '世界！' });
+    expect(result.streamEnd.fullText).toBe('你好！世界！');
   });
 
   it('synthesizeAnnouncement_success_returnsSpeechStartPayload', async () => {
@@ -151,5 +175,86 @@ describe('StreamingConversationService', () => {
 
     await expect(service.synthesizeAnnouncement(null)).resolves.toBeNull();
     await expect(service.synthesizeAnnouncement({ text: 'announce this', type: 'chat-announce' })).resolves.toBeNull();
+  });
+
+  // --- Incremental TTS tests ---
+
+  it('streamReplyWithIncrementalTts_synthesizesEachSentence', async () => {
+    const deps = createDeps({
+      chat: {
+        stream: vi.fn(async () => streamChunks(['你好。', '世界！'])),
+      },
+      speech: { synthesize: vi.fn(async (t) => `/audio/${t}.mp3`) },
+    });
+    const onChunk = vi.fn();
+    const onSpeechSegment = vi.fn();
+    const service = createStreamingConversationService(deps);
+
+    const result = await service.streamReplyWithIncrementalTts({
+      text: 'hi', contextPrompt: 'ctx', routing: { action: 'chat' },
+      messageId: 'm5', onChunk, onSpeechSegment,
+    });
+
+    expect(deps.speech.synthesize).toHaveBeenCalledTimes(2);
+    expect(deps.speech.synthesize).toHaveBeenCalledWith('你好。');
+    expect(deps.speech.synthesize).toHaveBeenCalledWith('世界！');
+    expect(onSpeechSegment).toHaveBeenCalledTimes(2);
+    expect(result.speechSegmentCount).toBe(2);
+    expect(result.streamEnd.fullText).toBe('你好。世界！');
+  });
+
+  it('streamReplyWithIncrementalTts_flushesRemainingText', async () => {
+    const deps = createDeps({
+      chat: {
+        stream: vi.fn(async () => streamChunks(['第一句。', '没有标点的尾巴'])),
+      },
+      speech: { synthesize: vi.fn(async (t) => `/audio/${t}.mp3`) },
+    });
+    const service = createStreamingConversationService(deps);
+
+    const result = await service.streamReplyWithIncrementalTts({
+      text: 'hi', contextPrompt: 'ctx', routing: { action: 'chat' },
+      messageId: 'm6',
+    });
+
+    expect(deps.speech.synthesize).toHaveBeenCalledTimes(2);
+    expect(deps.speech.synthesize).toHaveBeenLastCalledWith('没有标点的尾巴');
+    expect(result.speechSegmentCount).toBe(2);
+  });
+
+  it('streamReplyWithIncrementalTts_mergedStream_usesDirectTokens', async () => {
+    const mergedStream = (async function* () {
+      yield '你好。';
+      yield '世界！';
+    })();
+
+    const deps = createDeps();
+    const service = createStreamingConversationService(deps);
+
+    const result = await service.streamReplyWithIncrementalTts({
+      text: 'hi', contextPrompt: 'ctx', routing: { action: 'chat' },
+      messageId: 'm7', mergedStream,
+    });
+
+    expect(deps.chat.stream).not.toHaveBeenCalled();
+    expect(result.speechSegmentCount).toBe(2);
+  });
+
+  it('streamReplyWithIncrementalTts_ttsFailure_doesNotBreakStream', async () => {
+    const deps = createDeps({
+      chat: {
+        stream: vi.fn(async () => streamChunks(['第一句。', '第二句！'])),
+      },
+      speech: { synthesize: vi.fn(async () => { throw new Error('TTS down'); }) },
+    });
+    const service = createStreamingConversationService(deps);
+
+    const result = await service.streamReplyWithIncrementalTts({
+      text: 'hi', contextPrompt: 'ctx', routing: { action: 'chat' },
+      messageId: 'm8',
+    });
+
+    expect(result.streamEnd.fullText).toBe('第一句。第二句！');
+    expect(result.speechSegmentCount).toBe(2);
   });
 });

@@ -11,7 +11,7 @@ import { isGenreQuery } from '../domain/routing/isGenreQuery.js';
 import { matchFastRoute } from '../domain/routing/matchFastRoute.js';
 import { moodToQuery } from '../domain/routing/moodToQuery.js';
 import { pickStartSong } from '../domain/routing/pickStartSong.js';
-import { legacyNeteaseMusicSourceAdapter } from '../infrastructure/music/LegacyNeteaseMusicSourceAdapter.js';
+import { createGenreSearchEngine } from '../domain/routing/GenreSearchEngine.js';
 
 // Keywords that indicate a live/concert version (case-insensitive)
 const LIVE_PATTERNS = [
@@ -42,39 +42,85 @@ function filterLive(songs) {
  */
 export async function routeIntent(text, dependencies = {}) {
   return routeIntentWithDependencies(text, {
-    music: legacyNeteaseMusicSourceAdapter,
+    music: null,
     ...dependencies,
   });
 }
 
+// eslint-disable-next-line complexity
 export async function routeIntentWithDependencies(text, {
-  music = legacyNeteaseMusicSourceAdapter,
+  music = null,
+  mergedChat = null,
 } = {}) {
   const msg = text.toLowerCase().trim();
 
   // Fast path: simple commands that don't need AI
   const fast = matchFastRoute(msg);
-  if (fast) return fast;
+  if (fast) {
+    // Mood-based fast routes: if hybrid+play_mood with mood param, search directly
+    if (fast.route === 'hybrid' && fast.action === 'play_mood' && fast.params?.mood) {
+      if (!music) return CHAT_FALLBACK;
+      try {
+        const query = moodToQuery(fast.params.mood);
+        return {
+          route: 'hybrid',
+          action: 'play_mood',
+          params: fast.params,
+          results: filterLive(await searchSongsViaMusic(music, query, 5)).slice(0, 5),
+        };
+      } catch (e) {
+        console.warn('[Router] Mood search failed (degraded to chat):', e.message);
+        return CHAT_FALLBACK;
+      }
+    }
+    return fast;
+  }
 
   // Search direct: "play <query>", "放 <query>", "来点 <query>", "我想听 <query>"
-  const searchMatch = msg.match(/^(?:play|放|搜索|搜|点播|来点|来一首|点一首|我想听|播)\s+(.+)/i);
+  const searchMatch = msg.match(/^(?:play|放|播放|搜索|搜|点播|来点|来一首|点一首|我想听|播|来些|来几首|帮我找|找一首|放一首)\s+(.+)/i);
   if (searchMatch) {
     const query = searchMatch[1].trim();
     // If query is a genre/instrument/style, route to personalized recommendation
     if (isGenreQuery(query)) {
+      // Use GenreSearchEngine for multi-source genre search when music port is available
+      if (music) {
+        try {
+          const genreEngine = createGenreSearchEngine(music);
+          const songs = await genreEngine.search(query, { limit: 15 });
+          if (songs && songs.length > 0) {
+            return {
+              route: 'ncm',
+              action: 'play_personalized',
+              params: { preference: query },
+              results: songs.slice(0, 5),
+            };
+          }
+        } catch (e) {
+          console.warn('[Router] GenreSearchEngine failed, falling back to plain search:', e.message);
+        }
+      }
       return { route: 'ncm', action: 'play_personalized', params: { preference: query } };
     }
-    try {
-      const songs = filterLive(await searchSongsViaMusic(music, query, 5));
-      return {
-        route: 'ncm',
-        action: 'play_search',
-        params: { query },
-        results: songs.slice(0, 3),
-      };
-    } catch {
-      // Fall through to claude
+    if (music) {
+      try {
+        const songs = filterLive(await searchSongsViaMusic(music, query, 5));
+        return {
+          route: 'ncm',
+          action: 'play_search',
+          params: { query },
+          results: songs.slice(0, 3),
+        };
+      } catch (e) {
+        // Fall through to claude (degraded search)
+        console.warn('[Router] Search failed, falling through to LLM:', e.message);
+      }
     }
+  }
+
+  // Merged path: if mergedChat adapter is available, return merged route
+  // instead of calling extractIntent separately.
+  if (mergedChat) {
+    return { route: 'merged', action: 'pending', params: {}, mergedChat, text };
   }
 
   // Default: use AI for intent extraction, then dispatch to a handler.
@@ -89,7 +135,8 @@ function handleChat(intent) {
   return { route: 'claude', action: 'chat', params: intent?.params || {} };
 }
 
-async function handlePlayMood(intent, _text, { music = legacyNeteaseMusicSourceAdapter } = {}) {
+async function handlePlayMood(intent, _text, { music = null } = {}) {
+  if (!music) return CHAT_FALLBACK;
   const query = moodToQuery(intent.params?.mood);
   try {
     return {
@@ -98,12 +145,14 @@ async function handlePlayMood(intent, _text, { music = legacyNeteaseMusicSourceA
       params: intent.params,
       results: filterLive(await searchSongsViaMusic(music, query, 5)).slice(0, 5),
     };
-  } catch {
+  } catch (e) {
+    console.warn('[Router] Mood search failed (degraded to chat):', e.message);
     return CHAT_FALLBACK;
   }
 }
 
-async function handlePlayArtist(intent, _text, { music = legacyNeteaseMusicSourceAdapter } = {}) {
+async function handlePlayArtist(intent, _text, { music = null } = {}) {
+  if (!music) return CHAT_FALLBACK;
   try {
     const artistName = intent.params?.artist || '';
     const startSong = intent.params?.song || '';
@@ -112,13 +161,15 @@ async function handlePlayArtist(intent, _text, { music = legacyNeteaseMusicSourc
       songs = await orderByStartSong(songs, artistName, startSong, music);
     }
     return { route: 'hybrid', action: 'play_artist', params: intent.params, results: songs };
-  } catch {
+  } catch (e) {
+    console.warn('[Router] Artist search failed (degraded to chat):', e.message);
     return CHAT_FALLBACK;
   }
 }
 
 /** Put the requested start song first; fall back to a combined search if not in list. */
-async function orderByStartSong(songs, artistName, startSong, music = legacyNeteaseMusicSourceAdapter) {
+async function orderByStartSong(songs, artistName, startSong, music = null) {
+  if (!music) return songs;
   const needle = startSong.toLowerCase();
   const inList = songs.some(s => (s.name || s.title || '').toLowerCase().includes(needle));
   if (inList) return pickStartSong(songs, startSong);
@@ -131,7 +182,8 @@ async function orderByStartSong(songs, artistName, startSong, music = legacyNete
   return [bestMatch, ...songs.filter(s => s.id !== bestMatch.id)];
 }
 
-async function handlePlaySong(intent, _text, { music = legacyNeteaseMusicSourceAdapter } = {}) {
+async function handlePlaySong(intent, _text, { music = null } = {}) {
+  if (!music) return CHAT_FALLBACK;
   try {
     return {
       route: 'hybrid',
@@ -139,7 +191,8 @@ async function handlePlaySong(intent, _text, { music = legacyNeteaseMusicSourceA
       params: intent.params,
       results: filterLive(await searchSongsViaMusic(music, intent.params?.song || '', 5)).slice(0, 3),
     };
-  } catch {
+  } catch (e) {
+    console.warn('[Router] Song search failed (degraded to chat):', e.message);
     return CHAT_FALLBACK;
   }
 }

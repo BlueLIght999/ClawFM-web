@@ -1,9 +1,9 @@
 import { routeIntent } from '../../services/router.js';
 
-export function createLegacyIntentRouterAdapter(route = routeIntent) {
+export function createLegacyIntentRouterAdapter(route = routeIntent, deps = {}) {
   return {
     route(text) {
-      return route(text);
+      return route(text, deps);
     },
   };
 }

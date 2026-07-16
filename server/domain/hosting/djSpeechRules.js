@@ -1,4 +1,5 @@
-const SPEECH_CHARS_PER_SECOND = 15;
+const SPEECH_CHARS_PER_SECOND = 12;
+const MIN_SPEECH_DURATION_SECONDS = 3;
 const TRANSITION_NO_TTS_DELAY_MS = 3000;
 const REFILL_NO_TTS_DELAY_MS = 2500;
 
@@ -8,10 +9,11 @@ const REFILL_NO_TTS_DELAY_MS = 2500;
  * @param {string} text Clean speech text.
  * @returns {number} Duration in seconds.
  * @throws Does not throw.
- * Constraint: keeps the legacy scheduler estimate of roughly 15 chars/second.
+ * Constraint: conservative estimate (~12 chars/second) with 3s minimum to avoid
+ * premature playback timeouts that cause songs to switch while TTS is still playing.
  */
 export function estimatedSpeechDurationSeconds(text) {
-  return String(text || '').length / SPEECH_CHARS_PER_SECOND;
+  return Math.max(String(text || '').length / SPEECH_CHARS_PER_SECOND, MIN_SPEECH_DURATION_SECONDS);
 }
 
 /**

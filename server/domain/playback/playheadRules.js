@@ -58,11 +58,15 @@ export function resumePlayhead(playhead, nowMs) {
  * @param {{positionMs: number, nowMs: number}} input Seek target and timestamp.
  * @returns {object} New playhead with startedAt adjusted so elapsed equals the target position.
  * @throws Does not throw.
- * Constraint: preserves legacy seek semantics by only shifting startedAt.
+ * Constraint: recalculates remainingAtPause so resumePlayhead uses the correct remaining
+ *   duration after a seek (fixes stale remainingAtPause bug where pause→seek→resume
+ *   caused premature song-ending transitions).
  */
 export function seekPlayhead(playhead, { positionMs, nowMs }) {
+  const songDuration = playhead?.songDuration || DEFAULT_DURATION_MS;
   return {
     ...playhead,
     startedAt: nowMs - positionMs,
+    remainingAtPause: Math.max(songDuration - positionMs, 0),
   };
 }

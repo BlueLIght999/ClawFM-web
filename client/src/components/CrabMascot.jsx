@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './crab.css';
+import BubbleSystem from './BubbleSystem.jsx';
 
 const STATE_MAP = {
   idle: 'default',
@@ -7,9 +8,10 @@ const STATE_MAP = {
   talking: 'play',
   loading: 'loading',
   listening: 'listening',
+  blowing: 'play',
 };
 
-export default function CrabMascot({ state, onInteract }) {
+export default function CrabMascot({ state, onInteract, bubbles, onBubbleClick, bubblesVisible }) {
   const specState = STATE_MAP[state] || 'default';
   const prevState = useRef(state);
   const [animPhase, setAnimPhase] = useState('idle');
@@ -51,9 +53,11 @@ export default function CrabMascot({ state, onInteract }) {
     : animPhase === 'active' ? 'crab-anim-active'
     : '';
 
+  const blowingClass = state === 'blowing' ? 'blowing' : '';
+
   return (
     <div
-      className={`crab-state-${specState} crab-mascot ${animClass}`}
+      className={`crab-state-${specState} crab-mascot ${animClass} ${blowingClass}`}
       onClick={handleCrabClick}
       style={{
         width: 120,
@@ -185,6 +189,13 @@ export default function CrabMascot({ state, onInteract }) {
           </g>
         </g>
       </svg>
+
+      {/* Bubble system */}
+      <BubbleSystem
+        bubbles={bubbles}
+        onBubbleClick={onBubbleClick}
+        visible={bubblesVisible}
+      />
 
       {/* Label */}
       <div style={{

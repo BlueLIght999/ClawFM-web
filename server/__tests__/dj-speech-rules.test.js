@@ -7,9 +7,20 @@ import {
 } from '../domain/hosting/djSpeechRules.js';
 
 describe('DJ speech rules', () => {
-  it('estimatedSpeechDurationSeconds_usesFifteenCharsPerSecond', () => {
-    expect(estimatedSpeechDurationSeconds('123456789012345')).toBe(1);
-    expect(estimatedSpeechDurationSeconds('')).toBe(0);
+  it('estimatedSpeechDurationSeconds_usesTwelveCharsPerSecond', () => {
+    // 48 chars / 12 = 4s (above minimum)
+    expect(estimatedSpeechDurationSeconds('a'.repeat(48))).toBe(4);
+    // 60 chars / 12 = 5s
+    expect(estimatedSpeechDurationSeconds('a'.repeat(60))).toBe(5);
+  });
+
+  it('estimatedSpeechDurationSeconds_enforcesMinimumDuration', () => {
+    expect(estimatedSpeechDurationSeconds('')).toBe(3);
+    expect(estimatedSpeechDurationSeconds('hi')).toBe(3);
+    // 12 chars = 1s raw, but minimum is 3s
+    expect(estimatedSpeechDurationSeconds('a'.repeat(12))).toBe(3);
+    // 35 chars = ~2.9s raw, still below minimum
+    expect(estimatedSpeechDurationSeconds('a'.repeat(35))).toBe(3);
   });
 
   it('shouldDropStaleSpeech_whenTransitionChangedOrMusicStarted_returnsTrue', () => {

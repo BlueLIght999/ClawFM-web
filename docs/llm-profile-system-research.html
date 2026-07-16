@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM 画像体系研究报告 — Qclaudio 88.7</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --border: #30363d;
+  --text: #c9d1d9; --text-dim: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --yellow: #d29922; --red: #f85149; --purple: #bc8cff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, 'Noto Sans CJK SC', 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; max-width: 1100px; margin: 0 auto; padding: 24px; }
+h1 { font-size: 1.8em; border-bottom: 2px solid var(--accent); padding-bottom: 12px; margin-bottom: 24px; color: #fff; }
+h2 { font-size: 1.4em; margin-top: 36px; margin-bottom: 12px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+h3 { font-size: 1.15em; margin-top: 24px; margin-bottom: 8px; color: var(--purple); }
+h4 { font-size: 1em; margin-top: 16px; margin-bottom: 6px; color: var(--green); }
+p { margin-bottom: 12px; }
+ul, ol { margin-bottom: 12px; padding-left: 24px; }
+li { margin-bottom: 4px; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.9em; }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+th { background: var(--surface); color: var(--accent); font-weight: 600; }
+tr:nth-child(even) { background: var(--surface); }
+code { background: var(--surface); padding: 2px 6px; border-radius: 4px; font-size: 0.88em; color: var(--yellow); font-family: 'Cascadia Code', 'Fira Code', monospace; }
+pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; overflow-x: auto; margin: 12px 0; }
+pre code { background: none; padding: 0; color: var(--text); }
+blockquote { border-left: 3px solid var(--accent); padding-left: 16px; margin: 12px 0; color: var(--text-dim); }
+.callout { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 16px 0; }
+.callout-warn { border-color: var(--yellow); }
+.callout-critical { border-color: var(--red); }
+.callout-ok { border-color: var(--green); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; font-weight: 600; margin-right: 4px; }
+.tag-high { background: rgba(248,81,73,0.2); color: var(--red); }
+.tag-medium { background: rgba(210,153,34,0.2); color: var(--yellow); }
+.tag-low { background: rgba(63,185,80,0.2); color: var(--green); }
+sup a { color: var(--accent); text-decoration: none; font-size: 0.75em; }
+.sources { margin-top: 48px; border-top: 2px solid var(--border); padding-top: 16px; }
+.sources h2 { border: none; }
+.sources p { font-size: 0.85em; color: var(--text-dim); margin-bottom: 6px; word-break: break-all; }
+.toc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 24px; margin-bottom: 32px; }
+.toc h3 { margin-top: 0; color: var(--accent); }
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { padding: 2px 0; }
+.toc a { color: var(--text); text-decoration: none; }
+.toc a:hover { color: var(--accent); }
+.arch-box { display: inline-block; border: 2px solid var(--accent); border-radius: 8px; padding: 8px 16px; margin: 4px; text-align: center; font-weight: 600; }
+.arch-arrow { display: inline-block; color: var(--green); font-size: 1.2em; margin: 0 4px; }
+</style>
+</head>
+<body>
+
+<h1>LLM 画像体系研究报告 — Qclaudio 88.7</h1>
+
+<div class="toc">
+<h3>目录</h3>
+<ul>
+<li><a href="#summary">一、核心结论</a></li>
+<li><a href="#status">二、现状诊断</a></li>
+<li><a href="#feat1">三、功能1：个性推荐</a></li>
+<li><a href="#feat2">四、功能2：用户聚类划分</a></li>
+<li><a href="#feat3">五、功能3：Agent 画像感知决策</a></li>
+<li><a href="#arch">六、系统架构设计</a></li>
+<li><a href="#impl">七、实施计划</a></li>
+<li><a href="#cost">八、成本与风险分析</a></li>
+</ul>
+</div>
+
+<h2 id="summary">一、核心结论</h2>
+
+<div class="callout callout-ok">
+<p><strong>结论：</strong>直接用 LLM 构建"数据采集 → 画像生成 → 分析决策"体系，三大功能（个性推荐、用户聚类、Agent 画像感知）均可通过 DeepSeek API + 现有架构实现，无需引入新基础设施。</p>
+</div>
+
+<table>
+<tr><th>功能</th><th>技术路径</th><th>关键参考</th><th>实现复杂度</th></tr>
+<tr><td>个性推荐</td><td>LLM 从播放历史+聊天记录生成结构化画像 JSON，补齐 topGenres/analysis 空缺，增强 recommender 排序</td><td>PURE 框架<sup><a href="#cite-1">[1]</a></sup> + RecGPT 淘宝猜你喜欢<sup><a href="#cite-4">[4]</a></sup></td><td><span class="tag tag-medium">中等</span></td></tr>
+<tr><td>用户聚类</td><td>LLM 零样本分类生成语义标签（"深夜情绪听众"），可选用 LLM embedding + K-means 做粗粒度分桶</td><td>ClusterLLM<sup><a href="#cite-12">[12]</a></sup> + Clustering-with-LLM<sup><a href="#cite-13">[13]</a></sup></td><td><span class="tag tag-low">低</span></td></tr>
+<tr><td>Agent 画像感知</td><td>混合模式：核心画像全量注入 system prompt（Profile-as-Context）+ 新增画像工具按需检索（Profile-as-Tool）</td><td>LangGraph LongTermMemoryAgent<sup><a href="#cite-17">[17]</a></sup> + Self-RAG 自适应检索<sup><a href="#cite-22">[22]</a></sup></td><td><span class="tag tag-medium">中等</span></td></tr>
+</table>
+
+<h2 id="status">二、现状诊断</h2>
+
+<h3>2.1 画像数据现状</h3>
+<table>
+<tr><th>存储位置</th><th>字段</th><th>状态</th></tr>
+<tr><td><code>user_profile</code> KV 表</td><td><code>topArtists</code></td><td>唯一有真实数据（30 个艺人）</td></tr>
+<tr><td><code>user_profile</code> KV 表</td><td><code>topGenres</code></td><td><span class="tag tag-high">空缺</span> 代码读但无人写</td></tr>
+<tr><td><code>user_profile</code> KV 表</td><td><code>analysis</code></td><td><span class="tag tag-high">空缺</span> analyzeHabits() 存在但结果从未写入</td></tr>
+<tr><td><code>user/*.md</code> 语料</td><td>taste/routines/mood-rules</td><td>recommender 自动填充或手动编辑</td></tr>
+<tr><td><code>listen_history</code> 表</td><td>播放历史</td><td>有数据但缺 <code>chosen_by_user</code>、<code>play_ratio</code></td></tr>
+</table>
+
+<h3>2.2 画像消费点（6 处）</h3>
+<table>
+<tr><th>消费方</th><th>读取内容</th><th>注入方式</th></tr>
+<tr><td><code>context.js</code> slotMemory</td><td>topArtists(5) + history(20)</td><td>全量拼入 prompt 槽位④</td></tr>
+<tr><td><code>djPromptBuilders.js</code></td><td>topArtists + analysis</td><td>system message 注入</td></tr>
+<tr><td><code>mergedIntentPromptBuilder.js</code></td><td>topArtists(5)</td><td>system message: [听众画像：...]</td></tr>
+<tr><td><code>claude.js</code> chatWithDj/extractIntent</td><td>topArtists</td><td>直接读取注入 prompt</td></tr>
+<tr><td><code>claude.js</code> analyzeHabits</td><td>topArtists + analysis</td><td><strong>半成品</strong>—结果从未写入</td></tr>
+<tr><td><code>recommender.js</code></td><td>topArtists/topGenres</td><td>排序+搜索+写 taste.md</td></tr>
+</table>
+
+<h3>2.3 现有基础设施</h3>
+<table>
+<tr><th>能力</th><th>现状</th><th>可复用性</th></tr>
+<tr><td>DeepSeek API 调用</td><td>DeepSeekLlmAdapter (complete/stream) + FunctionCallingAdapter</td><td><span class="tag tag-low">高</span> 直接复用</td></tr>
+<tr><td>6 槽位 prompt 组装</td><td>context.js: persona/corpus/input/memory/environment/trace</td><td><span class="tag tag-low">高</span> 扩展 slotMemory</td></tr>
+<tr><td>ReAct Agent 循环</td><td>AgentLoopService (maxIterations=5, 并行工具调用)</td><td><span class="tag tag-low">高</span> 注入画像 context</td></tr>
+<tr><td>周期性任务</td><td>startRecurringTasks (5s/30s/60s intervals)</td><td><span class="tag tag-low">高</span> 新增画像刷新 interval</td></tr>
+<tr><td>Repository 端口</td><td>ListenerProfileRepository (get/set)</td><td><span class="tag tag-low">高</span> 天然接缝点</td></tr>
+<tr><td>JSON 结构化输出</td><td>DeepSeek 支持 response_format: json_object</td><td><span class="tag tag-low">高</span> 画像 JSON 输出</td></tr>
+</table>
+
+<h2 id="feat1">三、功能1：个性推荐</h2>
+
+<h3>3.1 架构设计</h3>
+<p>借鉴 PURE 框架<sup><a href="#cite-1">[1]</a></sup>三组件流水线 + RecGPT 离线画像生成模式<sup><a href="#cite-4">[4]</a></sup>：</p>
+
+<pre><code>┌─────────────────────────────────────────────────────────┐
+│               数据采集（已有基础设施）                     │
+│  listen_history + chat_history + seed_pool + user/*.md  │
+└────────────────────────┬────────────────────────────────┘
+                         │ 定期触发（每小时 / 每 20 首歌）
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│          LLM 画像生成器（新建 profileAnalyzer.js）        │
+│                                                         │
+│  Step 1: 聚合数据                                        │
+│    - 近期播放历史（含 skip 率、时段分布）                  │
+│    - 聊天记录中的偏好表达                                 │
+│    - 种子池元数据                                        │
+│                                                         │
+│  Step 2: 行为压缩（参考 RecGPT 分层压缩）                 │
+│    - 按时段聚合 → 按艺人反向聚合 → 精简文本               │
+│                                                         │
+│  Step 3: 调用 DeepSeek (JSON mode)                      │
+│    - 输入：压缩后的行为摘要 + 现有画像                    │
+│    - 输出：结构化 JSON 画像                              │
+│                                                         │
+│  Step 4: 写入 user_profile KV 表                        │
+│    - topArtists（增强版，含 weight）                     │
+│    - topGenres（补齐空缺）                               │
+│    - analysis（自然语言品味分析）                        │
+│    - listeningHabits（时段偏好）                         │
+│    - moodPreferences（心情→音乐映射）                    │
+│    - skipPatterns（跳过模式）                            │
+│    - llmSummary（给 Agent 的画像摘要）                   │
+│    - listenerCategory（聚类标签）                        │
+│    - lastProfileUpdate（时间戳）                         │
+└────────────────────────┬────────────────────────────────┘
+                         │
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+   ┌──────────┐  ┌──────────┐  ┌──────────────┐
+   │recommender│  │context.js│  │AgentLoopService│
+   │ 排序增强  │  │ 注入画像  │  │  画像感知决策  │
+   └──────────┘  └──────────┘  └──────────────┘
+</code></pre>
+
+<h3>3.2 画像 JSON Schema</h3>
+<p>参考 RecGPT 的三元组标签结构<sup><a href="#cite-4">[4]</a></sup>和 DeepSeek JSON Output 规范<sup><a href="#cite-11">[11]</a></sup>：</p>
+
+<pre><code>{
+  "topArtists": [
+    { "name": "陈奕迅", "count": 45, "weight": 0.92, "reason": "高频完整收听" }
+  ],
+  "topGenres": ["华语流行", "民谣", "独立摇滚"],
+  "listenerCategory": "深夜情绪听众",
+  "categoryConfidence": 0.88,
+  "categoryReason": "夜间播放占 70%，民谣 45%，完整率 78%",
+  "analysis": "用户音乐品味集中在华语流行与民谣，偏好深夜时段收听...",
+  "listeningHabits": {
+    "peakHours": ["22:00-02:00"],
+    "avgSessionDuration": "45min",
+    "skipRate": 0.23,
+    "completionRate": 0.78
+  },
+  "moodPreferences": {
+    "morning": "轻快流行",
+    "afternoon": "独立摇滚",
+    "night": "民谣/慢歌"
+  },
+  "skipPatterns": "常跳过电子舞曲和重型摇滚",
+  "djSuggestions": "适合在深夜时段推荐陈绮贞、宋冬野等民谣歌手",
+  "negativePreferences": ["电子舞曲", "重型摇滚"]
+}
+</code></pre>
+
+<h3>3.3 权重融合策略</h3>
+<p>参考 Spotify 多模型融合<sup><a href="#cite-5">[5]</a></sup>和 Last.fm chosenByUser 区分<sup><a href="#cite-6">[6]</a></sup>：</p>
+<table>
+<tr><th>行为类型</th><th>权重</th><th>信号强度</th></tr>
+<tr><td>主动搜索并完整收听</td><td>×3</td><td>最强偏好信号</td></tr>
+<tr><td>DJ 推荐未跳过</td><td>×1</td><td>表示可接受</td></tr>
+<tr><td>跳过行为</td><td>×-1</td><td>明确不喜欢</td></tr>
+<tr><td>聊天显式表达（"我想听 xx"）</td><td>×5（需衰减）</td><td>极强但有时效性</td></tr>
+<tr><td>收藏/加歌单</td><td>×4</td><td>强偏好信号</td></tr>
+</table>
+
+<h3>3.4 离线批处理 + 缓存</h3>
+<p>遵循 RecGPT 的核心原则<sup><a href="#cite-4">[4]</a></sup>：<strong>LLM 做重的离线理解，传统算法做快的在线检索</strong>。</p>
+<ul>
+<li>画像生成：离线运行（每小时或每 20 首歌触发一次），结果缓存到 <code>user_profile</code> 表</li>
+<li>推荐检索：实时用传统算法（recommender 的 rankSongsByTopArtists），读取缓存的画像</li>
+<li>推荐解释：需要时实时调用 LLM 生成（可缓存常用解释）</li>
+</ul>
+
+<h2 id="feat2">四、功能2：用户聚类划分</h2>
+
+<h3>4.1 范式选择</h3>
+<p>ClusterLLM 证明了 LLM 可以通过自然语言指令指定聚类视角<sup><a href="#cite-12">[12]</a></sup>。对于本项目，采用<strong>范式 C（LLM 直接零样本分类）</strong>最务实——因为项目是单用户电台，聚类目标是为 DJ 话术和推荐策略提供上下文标签，而非大规模用户分桶。</p>
+
+<table>
+<tr><th>范式</th><th>方法</th><th>适用场景</th><th>本项目适用性</th></tr>
+<tr><td>A: LLM 指南</td><td>三重任务指导嵌入器聚类</td><td>3K-50K 规模文本聚类</td><td><span class="tag tag-medium">过重</span></td></tr>
+<tr><td>B: LLM 嵌入 + K-means</td><td>LLM 生成 embedding → K-means</td><td>混合特征用户分群</td><td><span class="tag tag-low">未来可选</span></td></tr>
+<tr><td>C: LLM 直接分类</td><td>自然语言定义类别 → LLM 归类</td><td>小规模、需可解释标签</td><td><span class="tag tag-low">首选</span></td></tr>
+</table>
+
+<h3>4.2 分群类别定义（自然语言）</h3>
+<p>LLM 能理解语义化标签<sup><a href="#cite-12">[12]</a></sup><sup><a href="#cite-14">[14]</a></sup>，而非 K-means 的无意义编号：</p>
+
+<pre><code>类别定义（Few-shot Prompt 注入）：
+
+- 深夜情绪听众：常在 22:00-02:00 收听，偏好民谣/独立/慢歌，
+  完整听完率高，skip 率低
+- 流行音乐爱好者：偏好热门榜单，流派以流行为主，白天收听为主，
+  主动搜索比例高
+- 通勤节奏听众：工作日 07:00-09:00/17:00-19:00 集中收听，
+  偏好节奏感强的曲风，session 短
+- 探索型乐迷：流派分散，主动搜索比例高，skip 率适中，
+  常试听新歌手
+- 怀旧金曲派：偏好 80-00 年代歌曲，重复收听率高，
+  新歌接受度低</code></pre>
+
+<h3>4.3 动态分群机制</h3>
+<p>参考 PURE 的增量画像更新<sup><a href="#cite-1">[1]</a></sup>和 2026 年 Agent Memory 综述的画像漂移处理<sup><a href="#cite-22">[22]</a></sup>：</p>
+<ul>
+<li><strong>定期重分类</strong>：每次画像刷新时重新评估 listenerCategory</li>
+<li><strong>漂移检测</strong>：比对新旧 category，变化时记录到 chat_history 供 DJ 参考</li>
+<li><strong>衰减因子</strong>：旧行为权重随时间衰减（参考 Ebbinghaus 遗忘曲线<sup><a href="#cite-22">[22]</a></sup>）</li>
+<li><strong>置信度阈值</strong>：低置信度（&lt;0.5）标记为"过渡期"，DJ 话术更保守</li>
+</ul>
+
+<h3>4.4 聚类结果消费</h3>
+<table>
+<tr><th>消费方</th><th>使用方式</th></tr>
+<tr><td>DJ 话术生成</td><td>根据 listenerCategory 调整语气和选曲策略（深夜情绪听众 → 更温柔的话术）</td></tr>
+<tr><td>推荐策略</td><td>不同类别用不同的填充策略权重（探索型 → 更多新歌，怀旧派 → 更多经典）</td></tr>
+<tr><td>主动播报</td><td>根据类别决定播报频率和内容（通勤听众 → 少打断，探索型 → 多介绍新歌）</td></tr>
+<tr><td>Agent 工具决策</td><td>用户说"放点好听的"时，根据类别推断具体偏好</td></tr>
+</table>
+
+<h2 id="feat3">五、功能3：Agent 画像感知决策</h2>
+
+<h3>5.1 混合架构模式</h3>
+<p>参考 LangGraph LongTermMemoryAgent<sup><a href="#cite-17">[17]</a></sup>和 MemGPT 分层记忆<sup><a href="#cite-22">[22]</a></sup>，采用<strong>Core + Archival 混合模式</strong>：</p>
+
+<pre><code>┌─────────────────────────────────────────────┐
+│ Main Context (RAM) — Profile-as-Context      │
+│ - System Instructions (DJ persona)           │
+│ - Core Memory:                               │
+│   topArtists(5) + listenerCategory +         │
+│   analysis摘要 + moodPreferences +           │
+│   listeningHabits.peakHours                  │
+│ - Conversation (当前对话)                     │
+│ - Environment (天气/时段)                     │
+├─────────────────────────────────────────────┤
+│ Archival Storage — Profile-as-Tool           │
+│ - 完整 listen_history                         │
+│ - 详细 mood-rules                             │
+│ - skipPatterns 详细记录                       │
+│ - 历史画像快照（时间旅行）                     │
+│ → 通过 get_profile_detail 工具按需检索         │
+└─────────────────────────────────────────────┘
+</code></pre>
+
+<h3>5.2 Profile-as-Context 增强</h3>
+<p>现有 <code>context.js</code> slotMemory 仅注入 topArtists(5)。扩展为完整核心画像：</p>
+
+<pre><code>// context.js slotMemory 扩展
+function slotMemory(repositories) {
+  const profile = repositories.profile.get();
+
+  // 核心画像（全量注入，<500 tokens）
+  const coreProfile = [
+    profile.topArtists?.slice(0, 5).map(a => `- ${a.name}`).join('\n'),
+    profile.listenerCategory
+      ? `### 听众类型\n${profile.listenerCategory} (置信度: ${profile.categoryConfidence})`
+      : '',
+    profile.analysis
+      ? `### AI 画像分析\n${profile.analysis}`
+      : '',
+    profile.moodPreferences
+      ? `### 时段偏好\n${JSON.stringify(profile.moodPreferences)}`
+      : '',
+    profile.skipPatterns
+      ? `### 跳过模式\n${profile.skipPatterns}`
+      : '',
+  ].filter(Boolean).join('\n\n');
+
+  return coreProfile;
+}</code></pre>
+
+<h3>5.3 Profile-as-Tool 新增工具</h3>
+<p>新增 2 个 agent 工具，注册到 ToolRegistry<sup><a href="#cite-17">[17]</a></sup>：</p>
+
+<table>
+<tr><th>工具名</th><th>描述</th><th>参数</th><th>返回</th></tr>
+<tr><td><code>get_profile_detail</code></td><td>获取用户详细画像信息（按需检索）</td><td><code>{ section: "history" | "mood_rules" | "skip_patterns" | "all" }</code></td><td>对应画像 section 的详细文本</td></tr>
+<tr><td><code>update_preference</code></td><td>用户明确表达偏好时更新画像</td><td><code>{ type: "like" | "dislike", artist?: string, genre?: string, note?: string }</code></td><td><code>{ updated: true }</code></td></tr>
+</table>
+
+<h3>5.4 画像感知的意图消歧</h3>
+<p>当前 <code>mergedIntentPromptBuilder.js</code> 仅注入 topArtists<sup><a href="#cite-15">[15]</a></sup>。扩展为多维度画像，实现<strong>多粒度意图解析</strong><sup><a href="#cite-15">[15]</a></sup>：</p>
+
+<table>
+<tr><th>用户输入</th><th>无画像时</th><th>有画像时</th></tr>
+<tr><td>"放点好听的"</td><td>search_music("热门")</td><td>recommend() — 基于深夜情绪听众类别推断偏好轻柔民谣</td></tr>
+<tr><td>"换一首"</td><td>skip()</td><td>skip() + 记录跳过模式到画像</td></tr>
+<tr><td>"今天心情不好"</td><td>search_music("伤感")</td><td>recommend({preference:"舒缓"}) — 基于 moodPreferences.night</td></tr>
+<tr><td>"这个歌手不行"</td><td>skip()</td><td>skip() + update_preference({type:"dislike", artist}) + 调整推荐权重</td></tr>
+</table>
+
+<h3>5.5 画像漂移处理</h3>
+<p>参考 2026 Agent Memory 综述<sup><a href="#cite-22">[22]</a></sup>的 Write-Manage-Read 闭环：</p>
+
+<table>
+<tr><th>阶段</th><th>机制</th><th>实现方式</th></tr>
+<tr><td>Write</td><td>事件驱动写入</td><td>跳过/收藏/聊天 → 实时更新画像权重</td></tr>
+<tr><td>Manage</td><td>定期摘要+衰减+矛盾消解</td><td>每小时 LLM 重新生成画像，旧偏好应用衰减因子</td></tr>
+<tr><td>Read</td><td>Core 全量 + Archival 按需</td><td>system prompt 注入核心画像 + 工具检索详细画像</td></tr>
+</table>
+
+<div class="callout callout-warn">
+<p><strong>画像漂移风险</strong>：Agent Memory 综述指出"Manage 是工程上最难的环节"<sup><a href="#cite-22">[22]</a></sup>。Self-RAG 的自适应检索模式可减少不必要的 token 消耗——Agent 自己决定何时需要检索详细画像<sup><a href="#cite-22">[22]</a></sup>。反思式更新需 reflection grounding（每条反思必须引用具体证据），避免自我强化错误<sup><a href="#cite-22">[22]</a></sup>。</p>
+</div>
+
+<h2 id="arch">六、系统架构设计</h2>
+
+<h3>6.1 文件结构</h3>
+<pre><code>server/
+├── services/
+│   ├── profileAnalyzer.js          # 新建：LLM 画像生成器
+│   └── context.js                  # 修改：slotMemory 扩展
+├── domain/
+│   └── profiling/
+│       ├── profileSchema.js        # 新建：画像 JSON Schema 定义
+│       ├── profileCompression.js   # 新建：行为数据压缩（纯函数）
+│       └── profileWeighting.js     # 新建：权重融合计算（纯函数）
+├── agent/
+│   ├── application/services/
+│   │   └── ToolFactory.js          # 修改：新增 2 个画像工具
+│   └── infrastructure/
+│       └── DeepSeekFunctionCallingAdapter.js  # 不修改
+├── infrastructure/
+│   ├── llm/
+│   │   ├── DeepSeekLlmAdapter.js   # 不修改
+│   │   └── djPersonaLoader.js      # 参考：缓存模式
+│   └── persistence/repositories/
+│       └── LegacyListenerProfileRepository.js  # 不修改
+├── socket/
+│   └── handler.js                  # 修改：startRecurringTasks 新增画像刷新
+├── bootstrap.js                    # 修改：注入 profileAnalyzer
+└── __tests__/
+    ├── profile-analyzer.test.js    # 新建
+    ├── profile-compression.test.js # 新建
+    └── profile-weighting.test.js   # 新建</code></pre>
+
+<h3>6.2 数据流</h3>
+<pre><code>用户交互                        定期触发(1h/20首歌)
+    │                                  │
+    ▼                                  ▼
+listen_history ──────────────┐  profileAnalyzer.refresh()
+chat_history ────────────────┤         │
+seed_pool ───────────────────┤         ├─ 1. 聚合数据
+user/*.md ───────────────────┘         ├─ 2. 行为压缩 (profileCompression)
+                                       ├─ 3. 权重计算 (profileWeighting)
+                                       ├─ 4. DeepSeek JSON mode 生成画像
+                                       └─ 5. 写入 user_profile KV 表
+                                              │
+                    ┌─────────────────────────┼─────────────────────┐
+                    ▼                         ▼                     ▼
+             context.js               AgentLoopService         recommender.js
+          slotMemory 扩展           画像注入 system prompt    排序权重增强
+                    │                         │                     │
+                    ▼                         ▼                     ▼
+              DJ 话术生成              ReAct 工具决策            队列填充
+          (category 驱动语气)      (画像感知意图消歧)       (topGenres 补齐)
+</code></pre>
+
+<h3>6.3 Prompt 模板</h3>
+
+<h4>画像生成 Prompt</h4>
+<pre><code>你是网易云音乐听众画像分析专家。根据用户的听歌行为摘要，
+生成结构化用户画像。
+
+## 用户行为摘要
+{compressedBehaviorText}
+
+## 现有画像
+{currentProfile}
+
+## 输出要求
+请以 JSON 格式输出用户画像，包含以下字段：
+- topArtists: 数组，每个元素含 {name, count, weight(0-1), reason}
+- topGenres: 字符串数组，推断的流派偏好
+- listenerCategory: 以下之一 ["深夜情绪听众", "流行音乐爱好者",
+  "通勤节奏听众", "探索型乐迷", "怀旧金曲派", "混合型"]
+- categoryConfidence: 0-1 浮点数
+- categoryReason: 分类理由（一句话）
+- analysis: 自然语言品味分析（2-3句话）
+- listeningHabits: {peakHours, avgSessionDuration, skipRate, completionRate}
+- moodPreferences: {morning, afternoon, night}
+- skipPatterns: 跳过模式描述
+- djSuggestions: 给 DJ 的话术建议
+- negativePreferences: 不喜欢的流派/艺人数组
+
+仅基于提供的数据分析，不要编造不存在的行为。</code></pre>
+
+<h4>Agent 画像感知 Prompt（system message 扩展）</h4>
+<pre><code>[听众画像]
+类型：深夜情绪听众 (置信度: 0.88)
+Top 歌手：陈奕迅, 宋冬野, 陈绮贞
+流派偏好：华语流行, 民谣, 独立摇滚
+时段偏好：夜间 22:00-02:00
+跳过模式：常跳过电子舞曲
+AI 分析：用户音乐品味集中在华语流行与民谣，偏好深夜时段收听，
+        完整听完率高，对慢节奏歌曲接受度好。
+DJ 建议：适合在深夜时段推荐民谣和慢歌，避免电子舞曲。</code></pre>
+
+<h2 id="impl">七、实施计划</h2>
+
+<h3>7.1 TDD 实施步骤</h3>
+<table>
+<tr><th>步骤</th><th>内容</th><th>测试数（预估）</th></tr>
+<tr><td>1</td><td>创建 <code>profileSchema.js</code> — 画像 JSON Schema + 验证函数</td><td>5</td></tr>
+<tr><td>2</td><td>创建 <code>profileCompression.js</code> — 行为数据压缩纯函数</td><td>6</td></tr>
+<tr><td>3</td><td>创建 <code>profileWeighting.js</code> — 权重融合计算纯函数</td><td>5</td></tr>
+<tr><td>4</td><td>创建 <code>profileAnalyzer.js</code> — LLM 画像生成器（聚合+调用+写入）</td><td>8</td></tr>
+<tr><td>5</td><td>修改 <code>context.js</code> — slotMemory 扩展核心画像注入</td><td>4</td></tr>
+<tr><td>6</td><td>修改 <code>ToolFactory.js</code> — 新增 get_profile_detail + update_preference 工具</td><td>6</td></tr>
+<tr><td>7</td><td>修改 <code>handler.js</code> — startRecurringTasks 新增画像刷新</td><td>3</td></tr>
+<tr><td>8</td><td>修改 <code>bootstrap.js</code> — 注入 profileAnalyzer 依赖</td><td>2</td></tr>
+<tr><td>9</td><td>修改 <code>mergedIntentPromptBuilder.js</code> — 扩展画像注入</td><td>3</td></tr>
+<tr><td>10</td><td>完整测试 + ESLint + 构建</td><td>—</td></tr>
+</table>
+
+<h3>7.2 架构约束遵守</h3>
+<table>
+<tr><th>约束</th><th>遵守方式</th></tr>
+<tr><td>D8: 仅 bootstrap.js 可跨层 import</td><td>profileAnalyzer 在 bootstrap.js 注入，handler.js 通过 services 参数接收</td></tr>
+<tr><td>D5: 依赖只能向内</td><td>profileCompression/weighting 是纯领域函数，无 IO 副作用</td></tr>
+<tr><td>DeepSeek function calling</td><td>画像工具注册到 ToolRegistry，通过 FunctionCallingAdapter 调用</td></tr>
+<tr><td>并行工具调用</td><td>get_profile_detail 与其他工具可并行执行</td></tr>
+<tr><td>content 字段含中文回复</td><td>画像工具返回后，LLM content 字段仍含中文</td></tr>
+</table>
+
+<h2 id="cost">八、成本与风险分析</h2>
+
+<h3>8.1 API 成本</h3>
+<p>DeepSeek V4 Flash 定价<sup><a href="#cite-11">[11]</a></sup>：</p>
+<table>
+<tr><th>项目</th><th>消耗</th><th>单次成本</th><th>月成本（每日 1 次）</th></tr>
+<tr><td>画像生成（input）</td><td>~5K tokens</td><td>$0.0007</td><td>$0.021</td></tr>
+<tr><td>画像生成（output）</td><td>~2K tokens</td><td>$0.00056</td><td>$0.017</td></tr>
+<tr><td>合计</td><td>~7K tokens</td><td>~$0.001</td><td>~$0.04（约 0.3 元）</td></tr>
+</table>
+
+<h3>8.2 延迟分析</h3>
+<table>
+<tr><th>操作</th><th>延迟</th><th>是否阻塞用户</th></tr>
+<tr><td>画像生成（离线）</td><td>1-3s</td><td><span class="tag tag-low">否</span> 后台执行</td></tr>
+<tr><td>画像注入 prompt（Core）</td><td>&lt;1ms</td><td><span class="tag tag-low">否</span> 字符串拼接</td></tr>
+<tr><td>画像工具检索（Archival）</td><td>&lt;1ms</td><td>是（但仅在 Agent 主动调用时）</td></tr>
+<tr><td>推荐排序（读取缓存画像）</td><td>&lt;1ms</td><td><span class="tag tag-low">否</span> 内存读取</td></tr>
+</table>
+
+<h3>8.3 风险与缓解</h3>
+<table>
+<tr><th>风险</th><th>严重度</th><th>缓解方案</th></tr>
+<tr><td>LLM 幻觉：推断不存在的行为</td><td><span class="tag tag-medium">中</span></td><td>prompt 约束"仅基于提供的数据分析" + JSON Schema 验证</td></tr>
+<tr><td>画像漂移：偏好变化未被及时捕获</td><td><span class="tag tag-medium">中</span></td><td>事件驱动更新（跳过/收藏实时触发）+ 每小时定期刷新</td></tr>
+<tr><td>画像过时：旧偏好权重过高</td><td><span class="tag tag-low">低</span></td><td>衰减因子（Ebbinghaus 遗忘曲线）+ 矛盾消解</td></tr>
+<tr><td>Token 膨胀：画像注入增加 prompt 长度</td><td><span class="tag tag-low">低</span></td><td>Core 画像控制在 500 tokens 以内，详细画像走 Archival 工具</td></tr>
+<tr><td>DeepSeek API 不稳定</td><td><span class="tag tag-medium">中</span></td><td>画像刷新失败时保留旧画像，不影响实时功能</td></tr>
+</table>
+
+<div class="sources">
+<h2>Sources</h2>
+
+<a id="cite-1"></a>
+<p>[1] [二级资料] PURE: LLM-based User Profile Management for Recommender System — 从用户评论提取偏好并增量更新画像<br>
+https://blog.csdn.net/weixin_40240616/article/details/145827487</p>
+
+<a id="cite-4"></a>
+<p>[4] [行业报道] RecGPT 淘宝猜你喜欢：LLM 离线画像生成 + 分层行为压缩 + 三阶段训练<br>
+https://blog.csdn.net/lifallen/article/details/151454790</p>
+
+<a id="cite-5"></a>
+<p>[5] [二级资料] Spotify Discover Weekly: 协同过滤 + NLP + 音频分析三模型融合<br>
+https://cloud.tencent.cn/developer/article/1009657</p>
+
+<a id="cite-6"></a>
+<p>[6] [官方] Last.fm Scrobbling 2.0: chosenByUser 区分主动 vs 被动收听<br>
+https://www.last.fm/api/scrobbling</p>
+
+<a id="cite-11"></a>
+<p>[11] [官方] DeepSeek API Models & Pricing: V4 Flash $0.14/M input, JSON mode 支持<br>
+https://api-docs.deepseek.com/quick_start/pricing</p>
+
+<a id="cite-12"></a>
+<p>[12] [二级资料] ClusterLLM: LLM 作为聚类指南，自然语言指定视角，熵采样控制成本<br>
+https://blog.csdn.net/m0_59235245/article/details/140558668</p>
+
+<a id="cite-13"></a>
+<p>[13] [P2] Clustering-with-LLM: LLM 生成 embedding + K-means 混合聚类<br>
+https://github.com/damiangilgonzalez1995/Clustering-with-LLM</p>
+
+<a id="cite-14"></a>
+<p>[14] [P2] LLM 零样本和 Few-Shot 学习：3-5 个示例优于 15 个<br>
+https://architect.pub/llm-zero-shot-and-few-shot-learning-llms</p>
+
+<a id="cite-15"></a>
+<p>[15] [P2] AI 交互个性化：画像参数化 + 多粒度意图解析 + 画像条件化提示<br>
+https://blog.csdn.net/2501_91930600/article/details/150922039</p>
+
+<a id="cite-17"></a>
+<p>[17] [二级资料] LangGraph LongTermMemoryAgent: save_recall_memory + search_recall_memories 工具<br>
+https://blog.csdn.net/rengang66/article/details/154532974</p>
+
+<a id="cite-22"></a>
+<p>[22] [二级资料] LLM Agent 记忆系统权威综述 (arXiv 2026): Write-Manage-Read 闭环 + 衰减因子 + 反思 grounding<br>
+https://blog.csdn.net/qcx23/article/details/161904173</p>
+
+</div>
+
+</body>
+</html>

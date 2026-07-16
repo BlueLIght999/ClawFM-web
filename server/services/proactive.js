@@ -6,8 +6,6 @@
 
 import { decideProactiveSpeech } from './claude.js';
 import { getTimeOfDayMood } from './context.js';
-import { legacyWeatherAdapter } from '../infrastructure/environment/LegacyWeatherAdapter.js';
-import { legacySpeechSynthAdapter } from '../infrastructure/speech/LegacySpeechSynthAdapter.js';
 
 let lastSpeechTime = Date.now();
 let lastHour = -1;
@@ -31,15 +29,15 @@ export async function maybeProactiveSpeech({
   scheduler,
   queue,
   getPlan,
-  weather = legacyWeatherAdapter,
-  speech = legacySpeechSynthAdapter,
+  weather = null,
+  speech = null,
   decideProactiveSpeech: decide = decideProactiveSpeech,
   tokenDelayMs = null,
 }) {
   if (!canAttemptProactiveSpeech(scheduler)) return;
 
   const context = buildProactiveContext(scheduler, queue, getPlan);
-  const weatherText = await weather.current();
+  const weatherText = weather ? await weather.current() : '';
   const chatMsg = consumeLastUserChat();
 
   const decision = await decide({
@@ -57,7 +55,7 @@ export async function maybeProactiveSpeech({
   const messageId = String(Date.now());
   events.djMessage(decision.message);
   await streamMessageTokens(decision.message, events, messageId, tokenDelayMs);
-  maybeSynthesizeSpeech(decision.message, speech, events);
+  maybeSynthesizeSpeech(decision.message, speech, events, scheduler);
 }
 
 function canAttemptProactiveSpeech(scheduler) {
@@ -116,12 +114,16 @@ async function streamMessageTokens(message, events, messageId, tokenDelayMs) {
   events.djStreamEnd(messageId, message);
 }
 
-function maybeSynthesizeSpeech(message, speech, events) {
-  if (speech.health().available === false) return;
+function maybeSynthesizeSpeech(message, speech, events, scheduler) {
+  if (!speech || speech.health().available === false) return;
   if (Math.random() >= 0.4) return;
   speech.synthesize(message).then(audioUrl => {
-    if (audioUrl) {
-      events.djSpeechStart({ audioUrl, text: message, type: 'proactive' });
+    if (!audioUrl) return;
+    // Re-check: song transition may have started during TTS generation
+    if (scheduler && scheduler.isAdvancing) {
+      console.log('[Proactive] Skipping speech — song transition in progress');
+      return;
     }
-  }).catch(() => {});
+    events.djSpeechStart({ audioUrl, text: message, type: 'proactive' });
+  }).catch(e => console.warn('[Proactive] Speech synthesis failed (degraded):', e.message));
 }

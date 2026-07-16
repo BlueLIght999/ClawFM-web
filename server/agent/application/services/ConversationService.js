@@ -1,6 +1,6 @@
-import { firstTopArtistQuery, topArtistNames } from '../../domain/hosting/listenerProfileSummary.js';
-import { createRecommendationSnapshot } from '../../domain/curation/recommendationSnapshot.js';
-import { planSelectionIndex } from '../../domain/routing/planSelectionIndex.js';
+import { firstTopArtistQuery, topArtistNames } from '../../../domain/hosting/listenerProfileSummary.js';
+import { createRecommendationSnapshot } from '../../../domain/curation/recommendationSnapshot.js';
+import { planSelectionIndex } from '../../../domain/routing/planSelectionIndex.js';
 
 function queueUpdate(queue) {
   return {
@@ -192,7 +192,7 @@ async function handleRecommendationAction({ routing, snapshot, queue, recommende
       return {
         handled: false,
         snapshot,
-        toolResults: `Listener rejected the last batch of recommendations. Pre-recommendation queue snapshot is available (${snapshot.future.length} songs). You MUST ask the listener: "瑕佷笉瑕佸洖鍒版帹鑽愪箣鍓嶇殑姝層崟锛岃繕鏄垜鍐嶆崲涓€鎵圭粰浣狅紵" Keep it brief and natural in Chinese. Do NOT take any action yet 鈥?just ask the question.`,
+        toolResults: `Listener rejected the last batch of recommendations. Pre-recommendation queue snapshot is available (${snapshot.future.length} songs). You MUST ask the listener: "瑕佷笉瑕佸洖鍒版帹鑽愪箣鍓嶇殑姝屽崟锛岃繕鏄垜鍐嶆崲涓€鎵圭粰浣狅紵" Keep it brief and natural in Chinese. Do NOT take any action yet 鈥?just ask the question.`,
       };
     }
     return {
@@ -226,7 +226,7 @@ async function handleRecommendationAction({ routing, snapshot, queue, recommende
       handled: false,
       snapshot: next,
       queueUpdate: queueUpdate(queue),
-      toolResults: `Re-recommended ${added.length} fresh tracks using different sources. Acknowledge naturally in Chinese 鈥?"杩欐鎹簡涓€鎵归鏍硷紝甯屾湜浣犲枩娆? style. Do not list all songs.`,
+      toolResults: `Re-recommended ${added.length} fresh tracks using different sources. Acknowledge naturally in Chinese 鈥?"杩欐鎹簡涓€鎵归鏍硷紝甯屾湜浣犲枩娆? style. Do not list all songs.`,
     };
   }
 

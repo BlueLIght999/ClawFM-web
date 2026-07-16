@@ -221,6 +221,36 @@ body {
   animation: chatSlideUp 0.35s ease-out;
 }
 
+/* === Queue Insert Animations === */
+
+/* 新歌曲从右端滑入 */
+@keyframes queueSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 队列波浪式抖动 — 插入完成后逐项传播 */
+@keyframes queueWave {
+  0% {
+    transform: translateX(0);
+  }
+  30% {
+    transform: translateX(-3px);
+  }
+  60% {
+    transform: translateX(2px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
 /* === Layout === */
 .app-container {
   display: flex;

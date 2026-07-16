@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createLegacyIntentRouterAdapter } from '../infrastructure/agent/LegacyIntentRouterAdapter.js';
+import { createLegacyIntentRouterAdapter } from '../agent/infrastructure/LegacyIntentRouterAdapter.js';
 
 describe('LegacyIntentRouterAdapter', () => {
   it('route_delegatesToLegacyRouterAndReturnsRoutingResult', async () => {
@@ -15,6 +15,6 @@ describe('LegacyIntentRouterAdapter', () => {
       action: 'play_search',
       params: { query: 'Song Name' },
     });
-    expect(routeIntent).toHaveBeenCalledWith('Song Name');
+    expect(routeIntent).toHaveBeenCalledWith('Song Name', {});
   });
 });

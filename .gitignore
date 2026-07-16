@@ -4,3 +4,6 @@ data/
 .env
 *.log
 .DS_Store
+.trae/
+.trae-html-share-packages/
+arch-audit-report/

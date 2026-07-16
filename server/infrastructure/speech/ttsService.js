@@ -11,7 +11,8 @@ const ttsCache = new Map();
 const DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
 const DASH_VOICE = 'Ethan';
 const DASH_MODEL = 'qwen3-tts-flash';
-const EDGE_VOICE = 'en-US-EricNeural'; // Male, deep/professional — close to Ethan
+const DASH_LANGUAGE = 'Chinese';
+const EDGE_VOICE = 'zh-CN-YunxiNeural'; // Male, warm — Chinese radio DJ voice
 
 // ── Module-level health state ──────────────────────────────
 
@@ -68,7 +69,7 @@ async function checkDashscopeHealth() {
     const res = await fetch(DASHSCOPE_URL, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${config.dashscopeApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: DASH_MODEL, input: { text: 'Testing text to speech.', voice: DASH_VOICE, language_type: 'Auto' } }),
+      body: JSON.stringify({ model: DASH_MODEL, input: { text: 'Testing text to speech.', voice: DASH_VOICE, language_type: DASH_LANGUAGE } }),
     });
     if (res.ok) {
       const json = await res.json();
@@ -138,7 +139,7 @@ async function dashscopeTts(text) {
     const response = await fetch(DASHSCOPE_URL, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${config.dashscopeApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: DASH_MODEL, input: { text: cleanText, voice: DASH_VOICE, language_type: 'Auto' } }),
+      body: JSON.stringify({ model: DASH_MODEL, input: { text: cleanText, voice: DASH_VOICE, language_type: DASH_LANGUAGE } }),
     });
 
     if (!response.ok) {

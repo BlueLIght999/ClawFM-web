@@ -38,4 +38,74 @@ describe('matchFastRoute', () => {
     expect(matchFastRoute('周杰伦的晴天')).toBeNull();
     expect(matchFastRoute('')).toBeNull();
   });
+
+  // --- New regex patterns ---
+
+  it('replay_matchesRepeatAndReplay', () => {
+    expect(matchFastRoute('重复').action).toBe('replay');
+    expect(matchFastRoute('再放一遍').action).toBe('replay');
+    expect(matchFastRoute('repeat').action).toBe('replay');
+  });
+
+  it('greeting_matchesCommonGreetings', () => {
+    expect(matchFastRoute('你好')).toEqual({ route: 'claude', action: 'chat', params: { subtype: 'greeting' } });
+    expect(matchFastRoute('早上好').params.subtype).toBe('greeting');
+    expect(matchFastRoute('hi').params.subtype).toBe('greeting');
+    expect(matchFastRoute('晚安').params.subtype).toBe('greeting');
+  });
+
+  it('greeting_doesNotMatchWithSuffix', () => {
+    expect(matchFastRoute('你好啊')).toBeNull();
+    expect(matchFastRoute('早安呀')).toBeNull();
+  });
+
+  it('thanks_matchesCommonThanks', () => {
+    expect(matchFastRoute('谢谢')).toEqual({ route: 'claude', action: 'chat', params: { subtype: 'thanks' } });
+    expect(matchFastRoute('好听').params.subtype).toBe('thanks');
+    expect(matchFastRoute('thanks').params.subtype).toBe('thanks');
+  });
+
+  it('identity_matchesIdentityQuestions', () => {
+    expect(matchFastRoute('你是谁')).toEqual({ route: 'claude', action: 'chat', params: { subtype: 'identity' } });
+    expect(matchFastRoute('你能做什么').params.subtype).toBe('identity');
+  });
+
+  it('mood_happy_matchesHappyKeywords', () => {
+    expect(matchFastRoute('我开心')).toEqual({ route: 'hybrid', action: 'play_mood', params: { mood: 'happy' } });
+    expect(matchFastRoute('来点欢快的').params.mood).toBe('happy');
+  });
+
+  it('mood_sad_matchesSadKeywords', () => {
+    expect(matchFastRoute('心情不好').params.mood).toBe('sad');
+    expect(matchFastRoute('emo').params.mood).toBe('sad');
+  });
+
+  it('mood_chill_matchesChillKeywords', () => {
+    expect(matchFastRoute('放松一下').params.mood).toBe('chill');
+    expect(matchFastRoute('chill').params.mood).toBe('chill');
+  });
+
+  it('mood_energetic_matchesEnergeticKeywords', () => {
+    expect(matchFastRoute('来点嗨的').params.mood).toBe('energetic');
+    expect(matchFastRoute('燃').params.mood).toBe('energetic');
+  });
+
+  it('mood_focus_matchesFocusKeywords', () => {
+    expect(matchFastRoute('来点适合学习的').params.mood).toBe('focus');
+    expect(matchFastRoute('写代码').params.mood).toBe('focus');
+  });
+
+  it('mood_romantic_matchesRomanticKeywords', () => {
+    expect(matchFastRoute('来点浪漫的').params.mood).toBe('romantic');
+  });
+
+  it('mood_nostalgic_matchesNostalgicKeywords', () => {
+    expect(matchFastRoute('来点老歌').params.mood).toBe('nostalgic');
+    expect(matchFastRoute('怀旧').params.mood).toBe('nostalgic');
+  });
+
+  it('rejectPriority_stillWorks', () => {
+    // "换一批" should still match reject_recommend, not recommend_retry
+    expect(matchFastRoute('换一批').action).toBe('reject_recommend');
+  });
 });

@@ -7,8 +7,11 @@ export default function PlayerBar({
   const barRef = useRef(null);
   const seekingRef = useRef(false);
   const seekTimerRef = useRef(null);
+  const prevSongIdsRef = useRef(new Set());
+  const waveTimerRef = useRef(null);
   const [seekElapsed, setSeekElapsed] = useState(null);
   const [showQueue, setShowQueue] = useState(false);
+  const [waveActive, setWaveActive] = useState(false);
 
   const modeEmoji = { sequential: '>>', shuffle: '><', fm: '~' };
 
@@ -55,6 +58,11 @@ export default function PlayerBar({
       document.removeEventListener('mouseup', onUp);
     };
   }, [doSeek]);
+
+  // Cleanup wave timer on unmount
+  useEffect(() => {
+    return () => { if (waveTimerRef.current) clearTimeout(waveTimerRef.current); };
+  }, []);
 
   return (
     <div className="pixel-border" style={{
@@ -104,7 +112,7 @@ export default function PlayerBar({
             </>
           ) : (
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--text-dim)' }}>
-              Waiting for signal...
+              {'Waiting for signal...'}
             </span>
           )}
         </div>
@@ -149,27 +157,59 @@ export default function PlayerBar({
               maxHeight: 340, overflowY: 'auto', fontFamily: 'var(--font-mono)',
               fontSize: 15, color: 'var(--text-dim)', padding: '0 4px',
             }}>
-              {upcomingSongs.map((s, i) => (
-                <div key={s.id || i}
-                  onClick={() => { if (socket) socket.emit('player:skip-to-index', { index: i }); }}
-                  title="Click to skip to this song"
-                  style={{
-                    display: 'flex', justifyContent: 'space-between', padding: '2px 4px',
-                    borderBottom: '1px dotted var(--border-dim)',
-                    cursor: 'pointer', borderRadius: 2,
-                    transition: 'background 0.1s',
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-primary)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                  <span style={{ color: i === 0 ? 'var(--accent)' : 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {i + 1}. {s.name || s.title || '???'}
-                  </span>
-                  <span style={{ marginLeft: 8, flexShrink: 0 }}>
-                    {s.artist || ''}
-                  </span>
-                </div>
-              ))}
+              {(() => {
+                const currentIds = new Set(upcomingSongs.map(s => s.id));
+                const newIds = new Set(
+                  [...currentIds].filter(id => !prevSongIdsRef.current.has(id))
+                );
+                prevSongIdsRef.current = currentIds;
+
+                // Trigger wave after all slide-in animations complete
+                if (newIds.size > 0) {
+                  const maxStagger = Math.min((upcomingSongs.length - 1) * 60, 300);
+                  const slideCompleteDelay = 400 + maxStagger;
+                  if (waveTimerRef.current) clearTimeout(waveTimerRef.current);
+                  waveTimerRef.current = setTimeout(() => {
+                    setWaveActive(true);
+                    setTimeout(() => setWaveActive(false), 600);
+                  }, slideCompleteDelay);
+                }
+
+                return upcomingSongs.map((s, i) => {
+                  const isNew = newIds.has(s.id);
+                  const slideDelay = isNew ? Math.min(i * 60, 300) : 0;
+                  const waveDelay = i * 40;
+                  const animations = [];
+                  if (isNew) {
+                    animations.push(`queueSlideIn 0.4s ease-out ${slideDelay}ms both`);
+                  }
+                  if (waveActive) {
+                    animations.push(`queueWave 0.5s ease-in-out ${waveDelay}ms`);
+                  }
+                  return (
+                    <div key={s.id || i}
+                      onClick={() => { if (socket) socket.emit('player:skip-to-index', { index: i }); }}
+                      title={'Click to skip to this song'}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', padding: '2px 4px',
+                        borderBottom: '1px dotted var(--border-dim)',
+                        cursor: 'pointer', borderRadius: 2,
+                        transition: 'background 0.1s',
+                        animation: animations.length > 0 ? animations.join(', ') : 'none',
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-primary)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <span style={{ color: i === 0 ? 'var(--accent)' : 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {i + 1}. {s.name || s.title || '???'}
+                      </span>
+                      <span style={{ marginLeft: 8, flexShrink: 0 }}>
+                        {s.artist || ''}
+                      </span>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           )}
         </div>

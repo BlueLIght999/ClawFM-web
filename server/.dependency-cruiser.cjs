@@ -53,8 +53,8 @@ module.exports = {
     {
       name: 'target-domain-no-node-builtins',
       severity: 'error',
-      comment: 'D2: domain 禁止 import node 内置模块。',
-      from: { path: '^domain/' },
+      comment: 'D2: domain 禁止 import node 内置模块。例外: profile/events/ 需要 EventEmitter。',
+      from: { path: '^domain/', pathNot: ['^domain/profile/events/'] },
       to: { dependencyTypes: ['core'] },
     },
     {
@@ -69,6 +69,38 @@ module.exports = {
       severity: 'error',
       comment: 'D6: infrastructure 禁止依赖 interface/socket 边界。',
       from: { path: '^infrastructure/' },
+      to: { path: '^(interface|socket)/' },
+    },
+
+    // ───────────────────────────────────────────────────────────
+    // Agent 模块隔离守卫（server/agent/ 内部四层）
+    // ───────────────────────────────────────────────────────────
+    {
+      name: 'agent-domain-is-pure',
+      severity: 'error',
+      comment: 'D1: agent/domain 禁止依赖 application/infrastructure/interface。',
+      from: { path: '^agent/domain/' },
+      to: { path: '^(agent/application|agent/infrastructure|application|infrastructure|interface|services|db|socket)/' },
+    },
+    {
+      name: 'agent-domain-no-node-builtins',
+      severity: 'error',
+      comment: 'D2: agent/domain 禁止 import node 内置模块。',
+      from: { path: '^agent/domain/' },
+      to: { dependencyTypes: ['core'] },
+    },
+    {
+      name: 'agent-application-no-outer-layer',
+      severity: 'error',
+      comment: 'D3/D4: agent/application 禁止依赖 infrastructure/interface/services/db/socket。',
+      from: { path: '^agent/application/' },
+      to: { path: '^(agent/infrastructure|infrastructure|interface|services|db|socket)/' },
+    },
+    {
+      name: 'agent-infrastructure-no-interface',
+      severity: 'error',
+      comment: 'D6: agent/infrastructure 禁止依赖 interface/socket 边界。',
+      from: { path: '^agent/infrastructure/' },
       to: { path: '^(interface|socket)/' },
     },
 
@@ -94,6 +126,8 @@ module.exports = {
           '(^|/)index\\.js$',
           '(^|/)server\\.js$',
           '^application/ports/',
+          '^agent/application/ports/',
+          '^agent/index\\.js$',
           '^evaluation/runBadCaseAttribution\\.js$',
           '^evaluation/runProductEffectEvaluation\\.js$',
           '\\.cjs$',

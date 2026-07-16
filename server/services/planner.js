@@ -1,12 +1,25 @@
 /**
  * AI Playlist Planner — generates themed listening plans using DeepSeek LLM.
  * Falls back to time-of-day templates when LLM is unavailable.
+ * D8-compliant: dependencies injected via configurePlanner() from bootstrap.js.
  */
 
 import { assemblePrompt, getTimeOfDayMood } from './context.js';
-import { legacyWeatherAdapter } from '../infrastructure/environment/LegacyWeatherAdapter.js';
-import { legacyPlanRepository } from '../infrastructure/persistence/repositories/LegacyPlanRepository.js';
-import { deepSeekLlmAdapter } from '../infrastructure/llm/DeepSeekLlmAdapter.js';
+
+// --- Injected dependencies (set by bootstrap.js via configurePlanner) ---
+let _deps = {
+  llm: null,          // DeepSeekLlmAdapter (LlmPort)
+  weather: null,      // WeatherPort
+  planRepository: null, // PlanRepository
+};
+
+/**
+ * Inject dependencies from bootstrap.js (D8 compliance).
+ * @param {{llm, weather, planRepository}} deps
+ */
+export function configurePlanner(deps) {
+  _deps = { ..._deps, ...deps };
+}
 
 // In-memory cache
 let _cache = null;
@@ -52,7 +65,8 @@ function buildFallbackPlan(weather, mood) {
 }
 
 async function callPlanner(messages) {
-  return deepSeekLlmAdapter.complete(messages, {
+  if (!_deps.llm) return null;
+  return _deps.llm.complete(messages, {
     maxTokens: 800,
     temperature: 0.7,
     jsonMode: true,
@@ -81,7 +95,7 @@ function validatePlan(raw) {
 }
 
 async function _doGenerate() {
-  const weather = await legacyWeatherAdapter.current();
+  const weather = _deps.weather ? await _deps.weather.current() : '';
   const mood = getTimeOfDayMood();
 
   // Try LLM
@@ -140,10 +154,12 @@ ${contextPrompt}
 
   // Cache
   _cache = { plan, mood, generatedAt: Date.now() };
-  try {
-    legacyPlanRepository.save(plan, mood);
-  } catch {
-    // Plan cache failures must not stop the radio.
+  if (_deps.planRepository) {
+    try {
+      _deps.planRepository.save(plan, mood);
+    } catch (e) {
+      console.warn('[Planner] Plan cache save failed:', e.message);
+    }
   }
 
   console.log('[Planner] Plan generated:', plan.planId, `(${plan.blocks.length} blocks)`);
@@ -165,10 +181,12 @@ export async function generatePlan(force = false) {
 export function getPlan() {
   if (_cache && !isPlanStale()) return _cache;
   // Try DB
-  const dbPlan = legacyPlanRepository.latest();
-  if (dbPlan && dbPlan.plan) {
-    _cache = { plan: dbPlan.plan, mood: dbPlan.mood, generatedAt: new Date(dbPlan.generatedAt).getTime() };
-    if (!isPlanStale()) return _cache;
+  if (_deps.planRepository) {
+    const dbPlan = _deps.planRepository.latest();
+    if (dbPlan && dbPlan.plan) {
+      _cache = { plan: dbPlan.plan, mood: dbPlan.mood, generatedAt: new Date(dbPlan.generatedAt).getTime() };
+      if (!isPlanStale()) return _cache;
+    }
   }
   return null;
 }

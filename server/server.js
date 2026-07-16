@@ -7,8 +7,11 @@ import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import config from './config.js';
 import { initDb } from './db/schema.js';
+import { initProfileDb } from './db/profileDb.js';
 import { setupSocketHandler } from './socket/handler.js';
 import { createServices } from './bootstrap.js';
+import { httpLogger } from './infrastructure/logging/httpLogger.js';
+import { setupSocketLogger } from './infrastructure/logging/socketLogger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,9 +19,15 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: ['http://localhost:5173', 'http://localhost:3333'], methods: ['GET', 'POST'] },
+  // Fast disconnect detection: default 25s+20s means up to 45s delay.
+  // With 5s+3s, clients detect a dead server within ~8s even if TCP
+  // doesn't close cleanly.
+  pingInterval: 5000,
+  pingTimeout: 3000,
 });
 
 app.use(cors());
+app.use(httpLogger());
 app.use(express.json());
 
 const services = createServices(io);
@@ -36,7 +45,93 @@ const {
   getPlan,
   isPlanStale,
   getWeather,
+  logger,
+  logStream,
+  metricsCollector,
+  metricsPusher,
+  healthChecker,
 } = services;
+
+// ─── Observability endpoints ──────────────────────────────
+
+// Socket logger middleware
+setupSocketLogger(io);
+
+// Dashboard namespace
+const dashboardNsp = io.of('/dashboard');
+dashboardNsp.on('connection', async (socket) => {
+  logger.info({ socketId: socket.id }, 'dashboard client connected');
+  logStream.subscribe(socket);
+
+  // Send initial full state so the dashboard has data immediately on connect
+  try {
+    const [healthResult, metricsSnapshot] = await Promise.all([
+      healthChecker.check(),
+      metricsCollector.metricsJSON(),
+    ]);
+    socket.emit('dashboard:full', {
+      logs: logStream.getBuffer(),
+      metrics: metricsSnapshot,
+      health: healthResult,
+      events: [],
+      currentSong: scheduler.getState()?.currentSong || null,
+    });
+    socket.emit('dashboard:health', healthResult);
+  } catch (e) {
+    logger.warn({ component: 'dashboard', err: e }, 'failed to send initial state');
+  }
+
+  // Periodically push health updates to this client
+  const healthTimer = setInterval(async () => {
+    try {
+      socket.emit('dashboard:health', await healthChecker.check());
+    } catch { /* client may have disconnected */ }
+  }, 15000);
+
+  socket.on('subscribe', (filter) => {
+    logStream.unsubscribe(socket);
+    logStream.subscribe(socket, filter);
+  });
+
+  socket.on('disconnect', () => {
+    logStream.unsubscribe(socket);
+    clearInterval(healthTimer);
+    logger.info({ socketId: socket.id }, 'dashboard client disconnected');
+  });
+});
+
+// Start metrics pusher
+if (config.metrics.enabled) {
+  metricsPusher.start();
+}
+
+// Health check endpoint
+app.get('/health', async (req, res) => {
+  const result = await healthChecker.check();
+  const statusCode = result.status === 'ok' ? 200 : result.status === 'degraded' ? 200 : 503;
+  res.status(statusCode).json(result);
+});
+
+// Prometheus metrics endpoint
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', metricsCollector.registry.contentType);
+  res.end(await metricsCollector.metricsText());
+});
+
+// JSON metrics snapshot for dashboard
+app.get('/api/metrics/json', async (req, res) => {
+  res.json(await metricsCollector.metricsJSON());
+});
+
+// Dashboard page
+app.get('/dashboard', (req, res) => {
+  res.sendFile(path.resolve(__dirname, 'dashboard', 'index.html'));
+});
+
+// Profile panel page
+app.get('/dashboard/profile', (req, res) => {
+  res.sendFile(path.resolve(__dirname, 'dashboard', 'profile-panel.html'));
+});
 
 // Auth status endpoint
 app.get('/api/auth/status', async (req, res) => {
@@ -126,6 +221,26 @@ app.get('/api/taste', (req, res) => {
   });
 });
 
+// GET /api/profile — full profile system data for dashboard panel
+app.get('/api/profile', async (req, res) => {
+  try {
+    if (!services.profileSystem) {
+      return res.json({ ok: false, error: 'Profile system not initialized', profile: null });
+    }
+    const port = services.profileSystem;
+    const orchestrator = port.orchestrator;
+    if (!orchestrator) {
+      return res.json({ ok: false, error: 'Orchestrator not available', profile: null });
+    }
+    const snapshots = orchestrator.getSnapshots ? orchestrator.getSnapshots(1) : [];
+    const cluster = orchestrator.getCurrentCluster ? orchestrator.getCurrentCluster() : null;
+    const profile = snapshots[0] || null;
+    res.json({ ok: true, profile, cluster, snapshotCount: snapshots.length });
+  } catch (e) {
+    res.json({ ok: false, error: e.message, profile: null });
+  }
+});
+
 // GET /api/weather — current weather
 app.get('/api/weather', async (req, res) => {
   try {
@@ -197,21 +312,21 @@ function startNeteaseApi() {
   });
   neteaseProc.stdout.on('data', (d) => {
     const msg = d.toString().trim();
-    if (msg) console.log('[NeteaseAPI]', msg);
+    if (msg) logger.info({ component: 'netease' }, msg);
   });
   neteaseProc.stderr.on('data', (d) => {
-    console.error('[NeteaseAPI]', d.toString().trim());
+    logger.error({ component: 'netease' }, d.toString().trim());
   });
   neteaseProc.on('close', (code) => {
-    console.log('[NeteaseAPI] Exited with code', code);
+    logger.info({ component: 'netease', code }, 'process exited');
     if (code !== 0 && code !== null) {
       if (neteaseRestartCount >= NETEASE_MAX_RESTARTS) {
-        console.error(`[NeteaseAPI] Max restart attempts (${NETEASE_MAX_RESTARTS}) reached — giving up. Check if port ${config.netease.apiPort} is available.`);
+        logger.error({ component: 'netease', port: config.netease.apiPort, attempts: NETEASE_MAX_RESTARTS }, 'max restart attempts reached — giving up');
         return;
       }
       neteaseRestartCount++;
       const delay = Math.min(3000 * Math.pow(2, neteaseRestartCount - 1), 30000);
-      console.log(`[NeteaseAPI] Auto-restarting (attempt ${neteaseRestartCount}/${NETEASE_MAX_RESTARTS}) in ${delay}ms...`);
+      logger.warn({ component: 'netease', attempt: neteaseRestartCount, max: NETEASE_MAX_RESTARTS, delayMs: delay }, 'auto-restarting');
       setTimeout(() => startNeteaseApi(), delay);
     }
   });
@@ -233,8 +348,9 @@ async function waitForNeteaseApi(timeoutMs = 15000) {
         const body = await res.json();
         if (isNeteaseApiResponse(body)) return true;
       }
-    } catch {
+    } catch (e) {
       // NetEase API may still be booting; keep polling until timeout.
+      console.debug('[Server] Netease health check retry:', e.message);
     }
     await new Promise(r => setTimeout(r, 500));
   }
@@ -246,47 +362,38 @@ async function start() {
   startNeteaseApi();
   const ready = await waitForNeteaseApi();
   if (ready) {
-    console.log(`[NeteaseAPI] Ready on port ${config.netease.apiPort}`);
+    logger.info({ component: 'netease', port: config.netease.apiPort }, 'ready');
   } else {
-    console.log('[NeteaseAPI] WARNING: Not ready after timeout, continuing anyway');
+    logger.warn({ component: 'netease' }, 'not ready after timeout, continuing anyway');
   }
 
   await initDb();
+  initProfileDb();
   setupSocketHandler(io, services);
-  console.log('[Server] Socket handler set up, callbacks wired');
+  logger.info({ component: 'server' }, 'socket handler set up, callbacks wired');
 
   const ttsHealth = await checkTtsHealth();
   displayTtsHealthBanner(ttsHealth);
 
-  await restoreNeteaseSession();
-
+  // Start listening FIRST so the client can connect immediately.
+  // Session restoration runs in the background — if a stored cookie
+  // exists, the queue will be ready by the time the user interacts.
   httpServer.listen(config.port, () => {
-    console.log(`
+    logger.info({ component: 'server', port: config.port }, 'Qclaudio is ON AIR');
+    console.log(`\n  \u{1F980}  Qclaudio 88.7 — http://localhost:${config.port}  |  Dashboard: http://localhost:${config.port}/dashboard\n`);
+  });
 
-╔══════════════════════════════════════╗
-║        🦀   Qclaudio is ON AIR        ║
-║       http://localhost:${config.port}          ║
-╚══════════════════════════════════════╝
-    `);
+  // Restore stored NetEase session in the background (non-blocking)
+  restoreNeteaseSession().catch(e => {
+    logger.error({ component: 'server', err: e }, 'restoreNeteaseSession failed');
   });
 }
 
 function displayTtsHealthBanner(ttsHealth) {
   if (!ttsHealth.available) {
-    console.warn('');
-    console.warn('╔══════════════════════════════════════════╗');
-    console.warn('║  WARNING: TTS Service Unavailable        ║');
-    console.warn(`║  ${ttsHealth.reason.padEnd(40)}║`);
-    console.warn('║  DJ speech will be text-only             ║');
-    console.warn('╚══════════════════════════════════════════╝');
-    console.warn('');
+    logger.warn({ component: 'tts', reason: ttsHealth.reason }, 'TTS service unavailable — DJ speech will be text-only');
   } else if (ttsHealth.provider === 'edge') {
-    console.warn('');
-    console.warn('╔══════════════════════════════════════════╗');
-    console.warn('║  NOTICE: Using Edge TTS (fallback)       ║');
-    console.warn('║  DashScope unavailable                    ║');
-    console.warn('╚══════════════════════════════════════════╝');
-    console.warn('');
+    logger.warn({ component: 'tts', provider: 'edge' }, 'using Edge TTS fallback — DashScope unavailable');
   }
 }
 
@@ -294,29 +401,75 @@ async function restoreNeteaseSession() {
   try {
     const restoredSession = await authenticationService.restoreStoredSession();
     const preview = restoredSession.cookiePreview;
-    console.log('[Server] Cookie loaded:', preview ? `YES (${preview.slice(0, 40)}...)` : 'NO');
+    logger.info({ component: 'server', cookieFound: !!preview }, `cookie loaded: ${preview ? 'YES' : 'NO'}`);
 
     if (!restoredSession.cookieFound) {
-      console.log('[Server] No NetEase cookie found — login required');
+      logger.info({ component: 'server' }, 'no NetEase cookie found — login required');
     } else if (!restoredSession.restored) {
-      console.log('[Server] Auto-start skipped: no authenticated NetEase profile');
+      logger.info({ component: 'server' }, 'auto-start skipped: no authenticated NetEase profile');
     } else {
-      console.log('[Server] NetEase cookie loaded');
+      logger.info({ component: 'server' }, 'NetEase cookie loaded');
       if (restoredSession.planGenerated) {
-        console.log('[Server] Initial listening plan generated');
+        logger.info({ component: 'server' }, 'initial listening plan generated');
       } else if (restoredSession.planError) {
-        console.log('[Server] Initial plan skipped:', restoredSession.planError);
+        logger.info({ component: 'server', error: restoredSession.planError }, 'initial plan skipped');
       }
-      console.log('[Server] Queue filled:', restoredSession.queueLength, 'songs');
+      logger.info({ component: 'server', queueLength: restoredSession.queueLength }, 'queue filled');
       if (restoredSession.queuePrepared) {
-        console.log('[Server] Queue prepared, awaiting first client for cold start. Current:', restoredSession.currentSongTitle);
+        logger.info({ component: 'server', song: restoredSession.currentSongTitle }, 'queue prepared, awaiting first client');
       } else {
-        console.log('[Server] Queue still empty after fillQueue');
+        logger.info({ component: 'server' }, 'queue still empty after fillQueue');
       }
     }
   } catch (e) {
-    console.log('[Server] Auto-start skipped:', e.message);
+    logger.error({ component: 'server', err: e }, 'auto-start skipped');
   }
 }
+
+// ─── Graceful shutdown ───────────────────────────────────────────
+// Bug L8: Clean up subprocesses and close HTTP server on signal
+
+let shuttingDown = false;
+
+function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info({ component: 'server', signal }, 'graceful shutdown started');
+
+  // Kill NeteaseAPI subprocess
+  if (neteaseProc && !neteaseProc.killed) {
+    neteaseProc.kill('SIGTERM');
+    logger.info({ component: 'netease' }, 'subprocess terminated');
+  }
+
+  // Stop metrics pusher
+  if (metricsPusher) metricsPusher.stop();
+
+  // Close Socket.IO first — forcefully disconnects all clients immediately.
+  // This triggers 'disconnect' on the client side so it can pause audio
+  // without waiting for TCP timeout (default 25s+20s ping interval).
+  io.close(() => {
+    logger.info({ component: 'server' }, 'Socket.IO closed');
+  });
+
+  // Close HTTP server
+  httpServer.close((err) => {
+    if (err) {
+      logger.error({ component: 'server', err }, 'error closing HTTP server');
+    } else {
+      logger.info({ component: 'server' }, 'HTTP server closed');
+    }
+    process.exit(0);
+  });
+
+  // Force exit after 5s if httpServer.close hangs
+  setTimeout(() => {
+    logger.warn({ component: 'server' }, 'graceful shutdown timeout — forcing exit');
+    process.exit(1);
+  }, 5000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 start();

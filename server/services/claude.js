@@ -1,9 +1,8 @@
+/**
+ * CLAUDE.JS — DJ speech generation via DeepSeek LLM.
+ * D8-compliant: dependencies injected via configureClaude() from bootstrap.js.
+ */
 import config from '../config.js';
-import { loadDjPersona } from '../infrastructure/llm/djPersonaLoader.js';
-import { deepSeekLlmAdapter } from '../infrastructure/llm/DeepSeekLlmAdapter.js';
-import { llmClient as client } from '../infrastructure/llm/llmClient.js';
-import { legacyChatHistoryRepository } from '../infrastructure/persistence/repositories/LegacyChatHistoryRepository.js';
-import { legacyListenerProfileRepository } from '../infrastructure/persistence/repositories/LegacyListenerProfileRepository.js';
 import { artistName } from '../domain/hosting/artistName.js';
 import { fallbackTransitionScript } from '../domain/hosting/fallbackTransitionScript.js';
 import { buildProactivePrompt } from '../domain/hosting/buildProactivePrompt.js';
@@ -21,10 +20,30 @@ import {
   refillSpeechFallback,
 } from '../domain/hosting/djPromptBuilders.js';
 
-const DJ_PERSONA = loadDjPersona();
+// --- Injected dependencies (set by bootstrap.js via configureClaude) ---
+let _deps = {
+  persona: null,      // DJ persona loaded from djPersonaLoader
+  llm: null,          // DeepSeekLlmAdapter (LlmPort)
+  llmClient: null,    // Raw OpenAI-compatible client for streaming
+  chatHistory: null,  // ChatHistoryRepository
+  profile: null,      // ListenerProfileRepository
+};
+
+/**
+ * Inject dependencies from bootstrap.js (D8 compliance).
+ * @param {{persona, llm, llmClient, chatHistory, profile}} deps
+ */
+export function configureClaude(deps) {
+  _deps = { ..._deps, ...deps };
+}
+
+function getPersona() {
+  return _deps.persona;
+}
 
 async function callLLM(messages, { jsonMode = false, maxTokens = 250, temperature = 0.75 } = {}) {
-  return deepSeekLlmAdapter.complete(messages, { jsonMode, maxTokens, temperature });
+  if (!_deps.llm) return null;
+  return _deps.llm.complete(messages, { jsonMode, maxTokens, temperature });
 }
 
 /**
@@ -39,8 +58,8 @@ export async function generateDjResponse({
   timeOfDay,
   jsonMode = true,
 }) {
-  const history = legacyChatHistoryRepository.recent(6);
-  const messages = buildDjResponseMessages(DJ_PERSONA, assembledPrompt, history, userInput, prevSong, nextSong, timeOfDay);
+  const history = _deps.chatHistory ? _deps.chatHistory.recent(6) : [];
+  const messages = buildDjResponseMessages(getPersona(), assembledPrompt, history, userInput, prevSong, nextSong, timeOfDay);
 
   const result = await callLLM(messages, { jsonMode, maxTokens: 200 });
   if (!result) return fallbackTransitionScript(prevSong, nextSong);
@@ -56,16 +75,16 @@ export async function generateDjResponse({
  * Chat with DJ — streaming
  */
 export async function chatWithDj(userMessage, contextFragments) {
-  if (!client) return null;
+  if (!_deps.llmClient) return null;
 
-  const history = legacyChatHistoryRepository.recent(10);
-  const profile = legacyListenerProfileRepository.get();
-  const messages = buildChatMessages(DJ_PERSONA, userMessage, contextFragments, history, profile.topArtists);
+  const history = _deps.chatHistory ? _deps.chatHistory.recent(10) : [];
+  const profile = _deps.profile ? _deps.profile.get() : { topArtists: [] };
+  const messages = buildChatMessages(getPersona(), userMessage, contextFragments, history, profile.topArtists);
 
-  legacyChatHistoryRepository.append('user', userMessage);
+  if (_deps.chatHistory) _deps.chatHistory.append('user', userMessage);
 
   try {
-    return await client.chat.completions.create({
+    return await _deps.llmClient.chat.completions.create({
       model: config.deepseekModel,
       messages,
       max_tokens: 250,
@@ -82,9 +101,9 @@ export async function chatWithDj(userMessage, contextFragments) {
  * Extract structured intent from user message
  */
 export async function extractIntent(userMessage) {
-  if (!deepSeekLlmAdapter.isConfigured()) return { action: 'none', params: {} };
+  if (!_deps.llm || !_deps.llm.isConfigured()) return { action: 'none', params: {} };
 
-  const profile = legacyListenerProfileRepository.get();
+  const profile = _deps.profile ? _deps.profile.get() : { topArtists: [] };
   const messages = buildIntentMessages(userMessage, profile.topArtists);
 
   const result = await callLLM(messages, { jsonMode: true, maxTokens: 120 });
@@ -98,16 +117,16 @@ export async function extractIntent(userMessage) {
  * Analyze listening habits — generates insight text
  */
 export async function analyzeHabits() {
-  if (!deepSeekLlmAdapter.isConfigured()) return null;
+  if (!_deps.llm || !_deps.llm.isConfigured()) return null;
 
-  const profile = legacyListenerProfileRepository.get();
-  const messages = buildHabitsMessages(DJ_PERSONA, profile.topArtists, profile.analysis);
+  const profile = _deps.profile ? _deps.profile.get() : { topArtists: [], analysis: null };
+  const messages = buildHabitsMessages(getPersona(), profile.topArtists, profile.analysis);
 
   return callLLM(messages, { maxTokens: 120, jsonMode: false });
 }
 
 export async function generateColdOpen(nextSong, weather, timeOfDay) {
-  const messages = buildColdOpenMessages(DJ_PERSONA, nextSong, weather, timeOfDay);
+  const messages = buildColdOpenMessages(getPersona(), nextSong, weather, timeOfDay);
 
   const result = await callLLM(messages, { jsonMode: true, maxTokens: 200 });
   if (!result) {
@@ -118,7 +137,7 @@ export async function generateColdOpen(nextSong, weather, timeOfDay) {
 
 /** Streaming cold open — emits tokens via onChunk, returns full text */
 export async function streamColdOpen(nextSong, weather, timeOfDay, onChunk) {
-  if (!deepSeekLlmAdapter.isConfigured()) {
+  if (!_deps.llm || !_deps.llm.isConfigured()) {
     const fallback = coldOpenFallback(nextSong);
     onChunk?.(fallback);
     return fallback;
@@ -129,8 +148,8 @@ export async function streamColdOpen(nextSong, weather, timeOfDay, onChunk) {
 
   try {
     let fullText = '';
-    const messages = buildColdOpenStreamMessages(DJ_PERSONA, nextTitle, nextArtist, weather, timeOfDay);
-    await deepSeekLlmAdapter.stream(messages, { maxTokens: 200, temperature: 0.85 }, (token) => {
+    const messages = buildColdOpenStreamMessages(getPersona(), nextTitle, nextArtist, weather, timeOfDay);
+    await _deps.llm.stream(messages, { maxTokens: 200, temperature: 0.85 }, (token) => {
       fullText += token;
       onChunk?.(token);
     });
@@ -147,7 +166,7 @@ export async function streamColdOpen(nextSong, weather, timeOfDay, onChunk) {
 }
 
 export async function generateRefillSpeech(upcomingSongs, weather, timeOfDay) {
-  const messages = buildRefillSpeechMessages(DJ_PERSONA, upcomingSongs, weather, timeOfDay);
+  const messages = buildRefillSpeechMessages(getPersona(), upcomingSongs, weather, timeOfDay);
 
   const result = await callLLM(messages, { jsonMode: true, maxTokens: 150 });
   if (!result) {
@@ -163,12 +182,12 @@ export const generateTransition = async (prev, next, timeOfDay, assembledPrompt)
 
 /** Quick LLM call to decide if DJ should speak proactively. Returns { shouldSpeak, message, reason } or null. */
 export async function decideProactiveSpeech(ctx) {
-  if (!deepSeekLlmAdapter.isConfigured()) return null;
+  if (!_deps.llm || !_deps.llm.isConfigured()) return null;
 
   const prompt = buildProactivePrompt(ctx);
 
   try {
-    const raw = (await deepSeekLlmAdapter.complete([
+    const raw = (await _deps.llm.complete([
       { role: 'system', content: 'You are a radio DJ decision engine. Always output pure JSON, no markdown.' },
       { role: 'user', content: prompt },
     ], { maxTokens: 200, temperature: 0.7 }))?.trim() || '';
@@ -184,4 +203,4 @@ export async function decideProactiveSpeech(ctx) {
   }
 }
 
-export function isConfigured() { return deepSeekLlmAdapter.isConfigured(); }
+export function isConfigured() { return _deps.llm ? _deps.llm.isConfigured() : false; }

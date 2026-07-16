@@ -16,6 +16,22 @@ vi.mock('../infrastructure/netease/neteaseApi.js', () => ({
   getUserPlaylists: vi.fn(async () => ({ playlist: [] })),
   getPlaylistTracks: vi.fn(async () => ({ songs: [] })),
   scrobbleSong: vi.fn(async () => {}),
+  getArtistDetail: vi.fn(),
+  getArtistDesc: vi.fn(),
+  getArtistSongs: vi.fn(),
+  getStyleList: vi.fn(),
+  getStyleSongs: vi.fn(),
+  getStyleArtists: vi.fn(),
+  getSongWikiSummary: vi.fn(),
+  getSongCreators: vi.fn(),
+  getSimilarArtists: vi.fn(),
+  getPlaymodeIntelligenceList: vi.fn(),
+  getRecommendResource: vi.fn(),
+  getPersonalized: vi.fn(),
+  getSearchSuggest: vi.fn(),
+  getSearchHotDetail: vi.fn(),
+  getPlaylistCatlist: vi.fn(),
+  getPlaylistHot: vi.fn(),
 }));
 
 const { routeIntent } = await import('../services/router.js');

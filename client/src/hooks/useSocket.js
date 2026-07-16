@@ -1,25 +1,33 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { WS_URL } from '../config.js';
 
 export function useSocket() {
-  const socketRef = useRef(null);
+  const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    const socket = io(WS_URL, {
+    const s = io(WS_URL, {
       transports: ['websocket', 'polling'],
       autoConnect: true,
+      // Match server's fast ping settings for quick disconnect detection
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
     });
-    socketRef.current = socket;
+    setSocket(s);
 
-    socket.on('connect', () => setConnected(true));
-    socket.on('disconnect', () => setConnected(false));
+    s.on('connect', () => setConnected(true));
+    s.on('disconnect', () => setConnected(false));
+    // Also set false on connection errors (server dead / unreachable)
+    s.on('connect_error', () => setConnected(false));
+    s.io.on('reconnect_error', () => setConnected(false));
+    s.io.on('reconnect_failed', () => setConnected(false));
 
     return () => {
-      socket.disconnect();
+      s.disconnect();
+      s.removeAllListeners();
     };
   }, []);
 
-  return { socket: socketRef.current, connected };
+  return { socket, connected };
 }

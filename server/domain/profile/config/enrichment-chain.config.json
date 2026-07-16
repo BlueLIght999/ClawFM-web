@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "songChain": [
+    { "provider": "NeteaseTagSearcher", "enabled": true, "timeout": 3000 },
+    { "provider": "MusicBrainzSearcher", "enabled": true, "timeout": 5000 },
+    { "provider": "WikiSearcher", "enabled": true, "timeout": 5000 }
+  ],
+  "fallback": "mark_unknown"
+}

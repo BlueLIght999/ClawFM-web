@@ -87,12 +87,21 @@ export function createAuthenticationService({
 
     await recommender.init(uid);
     scheduler.coldStartState = 'pending';
-    const songs = await recommender.fillQueue(20);
-    const queueUpdate = queueUpdateIfNeeded(queue, songs);
+
+    // Emit loginSuccess immediately so the frontend can transition
+    // off the loading screen without waiting for queue fill.
+    // Queue is filled in the background; the returned callback lets
+    // the handler layer emit queueUpdate via socket when ready.
+    const fillQueuePromise = recommender.fillQueue(20)
+      .then(songs => queueUpdateIfNeeded(queue, songs))
+      .catch(e => {
+        console.error('[Auth] Background fillQueue failed:', e.message);
+        return null;
+      });
 
     return {
       loginSuccess: { profile },
-      ...(queueUpdate ? { queueUpdate } : {}),
+      fillQueuePromise,
     };
   }
 
@@ -154,6 +163,14 @@ export function createAuthenticationService({
      */
     async loginWithPhone({ phone, password }) {
       const loginResult = await authClient.phoneLogin(phone, password);
+      const status = authLoginStatusFromResult(loginResult);
+      if (!status.loggedIn) {
+        const msg = loginResult?.msg || loginResult?.message ||
+          (loginResult?.code ? `Login failed (code ${loginResult.code})` : 'Login failed — check your credentials');
+        const err = new Error(msg);
+        err.isAuthError = true;
+        throw err;
+      }
       return initializeAuthenticatedSession(loginResult);
     },
 

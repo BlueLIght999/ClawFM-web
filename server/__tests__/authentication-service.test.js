@@ -61,10 +61,60 @@ describe('AuthenticationService', () => {
     expect(deps.recommender.init).toHaveBeenCalledWith('42');
     expect(deps.recommender.fillQueue).toHaveBeenCalledWith(20);
     expect(deps.scheduler.coldStartState).toBe('pending');
-    expect(result).toEqual({
-      loginSuccess: { profile: { userId: 42, nickname: 'Listener' } },
-      queueUpdate: { upcomingSongs: [{ id: 'queued' }] },
+    // loginSuccess is returned immediately; queueUpdate arrives via fillQueuePromise
+    expect(result.loginSuccess).toEqual({ profile: { userId: 42, nickname: 'Listener' } });
+    expect(result.fillQueuePromise).toBeDefined();
+    // Verify fillQueuePromise resolves to queueUpdate
+    const queueUpdate = await result.fillQueuePromise;
+    expect(queueUpdate).toEqual({ upcomingSongs: [{ id: 'queued' }] });
+  });
+
+  it('loginWithPhone_wrongPassword_throwsAuthError', async () => {
+    const deps = createDeps({
+      authClient: {
+        phoneLogin: vi.fn(async () => ({ code: 400, msg: '密码错误' })),
+      },
     });
+    const service = createAuthenticationService(deps);
+
+    await expect(service.loginWithPhone({ phone: '138', password: 'wrong' }))
+      .rejects.toThrow('密码错误');
+
+    expect(deps.recommender.init).not.toHaveBeenCalled();
+  });
+
+  it('loginWithPhone_noProfile_throwsAuthErrorWithIsAuthErrorFlag', async () => {
+    const deps = createDeps({
+      authClient: {
+        phoneLogin: vi.fn(async () => ({ code: 501, msg: 'captcha required' })),
+      },
+    });
+    const service = createAuthenticationService(deps);
+
+    try {
+      await service.loginWithPhone({ phone: '138', password: 'x' });
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e.isAuthError).toBe(true);
+      expect(e.message).toBe('captcha required');
+    }
+  });
+
+  it('loginWithPhone_connectionError_doesNotSetIsAuthError', async () => {
+    const deps = createDeps({
+      authClient: {
+        phoneLogin: vi.fn(async () => { throw new Error('ECONNREFUSED'); }),
+      },
+    });
+    const service = createAuthenticationService(deps);
+
+    try {
+      await service.loginWithPhone({ phone: '138', password: 'x' });
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(e.isAuthError).toBeUndefined();
+      expect(e.message).toBe('ECONNREFUSED');
+    }
   });
 
   it('createQrLogin_returnsQrCreatedPayload', async () => {
@@ -108,11 +158,12 @@ describe('AuthenticationService', () => {
 
     expect(deps.authClient.checkLoginStatus).toHaveBeenCalledOnce();
     expect(deps.recommender.init).toHaveBeenCalledWith('42');
-    expect(result).toEqual({
-      done: true,
-      loginSuccess: { profile: { userId: 42, nickname: 'Listener' } },
-      queueUpdate: { upcomingSongs: [{ id: 'queued' }] },
-    });
+    // loginSuccess returned immediately; queueUpdate via fillQueuePromise
+    expect(result.done).toBe(true);
+    expect(result.loginSuccess).toEqual({ profile: { userId: 42, nickname: 'Listener' } });
+    expect(result.fillQueuePromise).toBeDefined();
+    const queueUpdate = await result.fillQueuePromise;
+    expect(queueUpdate).toEqual({ upcomingSongs: [{ id: 'queued' }] });
   });
 
   it('currentStatus_nestedAnonymousAccount_reportsLoggedOutWithoutThrowing', async () => {

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "dimensions": {
+    "genre": {
+      "description": "音乐流派标签",
+      "tags": ["pop", "rock", "folk", "electronic", "hiphop", "jazz", "classical", "rnb", "metal", "indie"]
+    },
+    "mood": {
+      "description": "情绪标签",
+      "tags": ["happy", "sad", "energetic", "calm", "nostalgic", "romantic", "angry", "dreamy"]
+    },
+    "region": {
+      "description": "地区/语言标签",
+      "tags": ["chinese", "english", "japanese", "korean", "cantonese", "instrumental"]
+    },
+    "behavior": {
+      "description": "行为模式标签（由系统推断，不由元数据提供）",
+      "tags": ["skip_prone", "replay_lover", "night_owl", "morning_person", "explorer", "loyalist"]
+    },
+    "chat": {
+      "description": "聊天风格标签（由 ChatStyleAnalyzer 推断）",
+      "tags": ["concise", "detailed", "casual", "formal"]
+    }
+  },
+  "confidence": {
+    "netease_api": 0.92,
+    "web_search": 0.75,
+    "llm": 0.65,
+    "unknown": 0.0
+  }
+}

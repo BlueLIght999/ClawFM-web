@@ -52,24 +52,24 @@ export default function PlaylistList({ onPlay, socket }) {
         padding: '5px 10px', background: 'none', border: 'none', cursor: 'pointer',
         color: 'var(--text-primary)', fontFamily: 'var(--font-pixel)', fontSize: 10, letterSpacing: '1px',
       }}>
-        <span style={{ color: 'var(--neon-cyan)' }}>{expanded ? '[-]' : '[+]'} PLAYLISTS</span>
-        <span style={{ color: 'var(--text-dim)', fontSize: 9 }}>{playlists.length} LISTS</span>
+        <span style={{ color: 'var(--neon-cyan)' }}>{expanded ? '[-]' : '[+]'} {'PLAYLISTS'}</span>
+        <span style={{ color: 'var(--text-dim)', fontSize: 9 }}>{playlists.length} {'LISTS'}</span>
       </button>
 
       {expanded && (
         <div style={{ maxHeight: 160, overflowY: 'auto', borderTop: '1px solid var(--border-dim)' }}>
           {loading && (
-            <div style={{ padding: 10, textAlign: 'center', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: 16 }}>Loading...</div>
+            <div style={{ padding: 10, textAlign: 'center', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: 16 }}>{'Loading...'}</div>
           )}
           {error && (
             <div style={{ padding: 10, textAlign: 'center', color: 'var(--neon-pink)', fontFamily: 'var(--font-mono)', fontSize: 15 }}>{error}</div>
           )}
           {!loading && !error && playlists.length === 0 && (
-            <div style={{ padding: 10, textAlign: 'center', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: 16 }}>No playlists found.</div>
+            <div style={{ padding: 10, textAlign: 'center', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: 16 }}>{'No playlists found.'}</div>
           )}
           {!loading && playlists.map((p) => (
             <button key={p.id} onClick={() => handlePlay(p)}
-              title={`${p.name} — ${p.trackCount} tracks`}
+              title={`${p.name} — ${p.trackCount} ${'tracks'}`}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', gap: 8,
                 padding: '4px 10px', background: 'none', border: 'none',
@@ -88,9 +88,9 @@ export default function PlaylistList({ onPlay, socket }) {
               }}>{'>'}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 9, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 1 }}>{p.trackCount} tracks</div>
+                <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 1 }}>{p.trackCount} {'tracks'}</div>
               </div>
-              <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'var(--accent)', flexShrink: 0 }}>PLAY</span>
+              <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'var(--accent)', flexShrink: 0 }}>{'PLAY'}</span>
             </button>
           ))}
         </div>

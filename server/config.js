@@ -14,7 +14,7 @@ export default {
   deepseekModel: 'deepseek-chat',
   netease: {
     cookieFile: resolve(__dirname, '..', 'data', 'cookies.json'),
-    apiPort: parseInt(process.env.NETEASE_API_PORT || '3000', 10),
+    apiPort: parseInt(process.env.NETEASE_API_PORT || '4001', 10),
   },
   db: {
     path: resolve(__dirname, '..', 'data', 'radio.db'),
@@ -31,5 +31,16 @@ export default {
     city: process.env.WEATHER_CITY || '',
     lat: parseFloat(process.env.WEATHER_LAT) || 0,
     lon: parseFloat(process.env.WEATHER_LON) || 0,
+  },
+  // Observability
+  logging: {
+    level: process.env.LOG_LEVEL || 'info',
+    style: process.env.LOG_STYLE || (process.env.NODE_ENV === 'production' ? 'json' : 'pretty'),
+  },
+  metrics: {
+    enabled: process.env.METRICS_ENABLED !== 'false',
+  },
+  dashboard: {
+    enabled: process.env.DASHBOARD_ENABLED !== 'false',
   },
 };

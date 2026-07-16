@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock infrastructure dependencies
 vi.mock('../infrastructure/llm/djPersonaLoader.js', () => ({
-  loadDjPersona: () => 'You are Dan, the AI DJ of Qclaudio 88.7.',
+  loadDjPersona: () => '你是 Dan，Qclaudio 88.7 电台的 AI DJ。请用中文进行所有播报。',
 }));
 
 vi.mock('../infrastructure/llm/DeepSeekLlmAdapter.js', () => ({
@@ -35,6 +35,8 @@ vi.mock('../infrastructure/persistence/repositories/LegacyListenerProfileReposit
 const { deepSeekLlmAdapter } = await import('../infrastructure/llm/DeepSeekLlmAdapter.js');
 const { legacyChatHistoryRepository } = await import('../infrastructure/persistence/repositories/LegacyChatHistoryRepository.js');
 const { legacyListenerProfileRepository } = await import('../infrastructure/persistence/repositories/LegacyListenerProfileRepository.js');
+const { loadDjPersona } = await import('../infrastructure/llm/djPersonaLoader.js');
+const { llmClient } = await import('../infrastructure/llm/llmClient.js');
 
 // Import after mocks are set up
 const {
@@ -46,7 +48,17 @@ const {
   generateTransition,
   decideProactiveSpeech,
   isConfigured,
+  configureClaude,
 } = await import('../services/claude.js');
+
+// Inject mocked dependencies (D8 compliance — claude.js no longer imports infrastructure directly)
+configureClaude({
+  persona: loadDjPersona(),
+  llm: deepSeekLlmAdapter,
+  llmClient,
+  chatHistory: legacyChatHistoryRepository,
+  profile: legacyListenerProfileRepository,
+});
 
 describe('claude.js characterization', () => {
   beforeEach(() => {
@@ -162,7 +174,7 @@ describe('claude.js characterization', () => {
     it('returns fallback when LLM returns null', async () => {
       deepSeekLlmAdapter.complete.mockResolvedValue(null);
       const result = await generateColdOpen({ name: 'Song1' }, null, null);
-      expect(result.say).toContain('Welcome to Qclaudio');
+      expect(result.say).toContain('欢迎收听 Qclaudio');
       expect(result.say).toContain('Song1');
     });
 
@@ -183,7 +195,7 @@ describe('claude.js characterization', () => {
     it('returns fallback when LLM returns null', async () => {
       deepSeekLlmAdapter.complete.mockResolvedValue(null);
       const result = await generateRefillSpeech([], null, null);
-      expect(result.say).toContain('Fresh tracks');
+      expect(result.say).toContain('新的歌曲已经排好了');
     });
   });
 

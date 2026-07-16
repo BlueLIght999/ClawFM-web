@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "collectors": {
+    "ListenHistoryCollector": { "enabled": true, "limit": 500 },
+    "ChatHistoryCollector": { "enabled": true, "limit": 100 },
+    "SkipBehaviorCollector": { "enabled": true, "limit": 500 },
+    "TimePatternCollector": { "enabled": true, "limit": 500 },
+    "SearchQueryCollector": { "enabled": true, "limit": 100 },
+    "PlanSelectionCollector": { "enabled": true }
+  }
+}

@@ -14,13 +14,12 @@ import {
   transitionSpeechPlan,
 } from '../domain/playback/transitionLifecycle.js';
 import { normalizePlaybackDurationMs, nextTransitionDelayMs } from '../domain/playback/transitionTiming.js';
-import { legacyListenHistoryRepository } from '../infrastructure/persistence/repositories/LegacyListenHistoryRepository.js';
-import { legacyNeteaseMusicSourceAdapter } from '../infrastructure/music/LegacyNeteaseMusicSourceAdapter.js';
+import { songId } from '../domain/curation/songId.js';
 
 export class RadioScheduler {
   constructor({
-    music = legacyNeteaseMusicSourceAdapter,
-    listenHistory = legacyListenHistoryRepository,
+    music = null,
+    listenHistory = null,
   } = {}) {
     this.music = music;
     this.listenHistory = listenHistory;
@@ -38,6 +37,12 @@ export class RadioScheduler {
     this.coldStartState = 'pending'; // 'pending' | 'in-progress' | 'done'
     this._transitionId = 0;
     this.songsSinceLastSpeech = 0;
+  }
+
+  /** Inject dependencies via bootstrap.js (D8 compliance) */
+  configure({ music, listenHistory }) {
+    if (music) this.music = music;
+    if (listenHistory) this.listenHistory = listenHistory;
   }
 
   get isPlaying() { return this.playhead.isPlaying; }
@@ -110,12 +115,17 @@ export class RadioScheduler {
       this._speechTimer.dispose();
       this._speechTimer = null;
     }
-    const transitionDelay = nextTransitionDelayMs({
-      durationMs: this.playhead.songDuration,
-      elapsedMs: positionMs,
-    });
-    if (transitionDelay !== null) {
-      this.playhead.transitionTimer = setTimeout(() => this._onSongEnding(), transitionDelay);
+    // Only set transition timer when actively playing — paused songs should not
+    // trigger song-ending transitions while the user is away (fixes bug where
+    // seek-while-paused caused timer to fire during pause, starting transitions).
+    if (this.playhead.isPlaying) {
+      const transitionDelay = nextTransitionDelayMs({
+        durationMs: this.playhead.songDuration,
+        elapsedMs: positionMs,
+      });
+      if (transitionDelay !== null) {
+        this.playhead.transitionTimer = setTimeout(() => this._onSongEnding(), transitionDelay);
+      }
     }
     this._notifyState();
   }
@@ -158,8 +168,8 @@ export class RadioScheduler {
     this.playhead.isPlaying = true;
 
     // Scrobble to NetEase (for FM recommendations)
-    const sid = song.id || song.song_id;
-    this.music.scrobble(String(sid)).catch(() => {});
+    const sid = songId(song);
+    if (this.music) this.music.scrobble(sid).catch(e => console.warn('[Scheduler] Scrobble failed (degraded):', e.message));
 
     // Await so audioUrl is cached before any getState() call reads it
     if (this.onSongChange) await this.onSongChange(song);
@@ -268,12 +278,12 @@ export class RadioScheduler {
   }
 
   async getAudioUrl(song) {
-    const sid = song.id || song.song_id;
+    const sid = songId(song);
     const cached = this.audioUrlCache.get(String(sid));
     if (cached && cached.expires > Date.now()) return cached.url;
 
     try {
-      const url = await this.music.songUrl(String(sid));
+      const url = await this.music.songUrl(sid);
       if (url) {
         this.audioUrlCache.set(String(sid), { url, expires: Date.now() + 15 * 60 * 1000 });
         return url;
@@ -294,7 +304,7 @@ export class RadioScheduler {
 
   getState() {
     const song = this.playhead.currentSong;
-    const sid = song ? (song.id || song.song_id) : null;
+    const sid = song ? songId(song) : null;
     return {
       currentSong: toPlayableSong(song),
       startedAt: this.playhead.startedAt,

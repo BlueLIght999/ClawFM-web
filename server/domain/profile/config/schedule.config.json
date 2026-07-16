@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "analysisIntervalHours": 100,
+  "firstRunMode": "full",
+  "conditionalTriggers": {
+    "chatStyleRerun": { "newMessagesThreshold": 10 },
+    "analysisRerun": { "tagChangeRatioThreshold": 0.20 }
+  },
+  "snapshotRetention": 30
+}

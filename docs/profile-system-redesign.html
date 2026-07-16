@@ -1,0 +1,2215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用户画像系统重设计方案 — 三层架构 — Qclaudio 88.7</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --surface2: #1c2330; --border: #30363d;
+  --text: #c9d1d9; --text-dim: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --yellow: #d29922; --red: #f85149; --purple: #bc8cff;
+  --cyan: #39d0d8; --orange: #e8873a;
+  --layer1: #58a6ff; --layer2: #3fb950; --layer3: #bc8cff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, 'Noto Sans CJK SC', 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; max-width: 1200px; margin: 0 auto; padding: 24px; }
+h1 { font-size: 1.8em; border-bottom: 2px solid var(--accent); padding-bottom: 12px; margin-bottom: 24px; color: #fff; }
+h2 { font-size: 1.4em; margin-top: 40px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+h2.layer-1 { color: var(--layer1); }
+h2.layer-2 { color: var(--layer2); }
+h2.layer-3 { color: var(--layer3); }
+h2.cross { color: var(--orange); }
+h3 { font-size: 1.15em; margin-top: 24px; margin-bottom: 8px; color: var(--purple); }
+h4 { font-size: 1em; margin-top: 16px; margin-bottom: 6px; color: var(--green); }
+p { margin-bottom: 12px; }
+ul, ol { margin-bottom: 12px; padding-left: 24px; }
+li { margin-bottom: 4px; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.9em; }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+th { background: var(--surface); color: var(--accent); font-weight: 600; }
+tr:nth-child(even) { background: var(--surface); }
+code { background: var(--surface); padding: 2px 6px; border-radius: 4px; font-size: 0.88em; color: var(--yellow); font-family: 'Cascadia Code', 'Fira Code', monospace; }
+pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; overflow-x: auto; margin: 12px 0; }
+pre code { background: none; padding: 0; color: var(--text); }
+blockquote { border-left: 3px solid var(--accent); padding-left: 16px; margin: 12px 0; color: var(--text-dim); }
+.callout { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 16px 0; }
+.callout-warn { border-color: var(--yellow); }
+.callout-critical { border-color: var(--red); }
+.callout-ok { border-color: var(--green); }
+.callout-info { border-color: var(--accent); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; font-weight: 600; margin-right: 4px; }
+.tag-high { background: rgba(248,81,73,0.2); color: var(--red); }
+.tag-medium { background: rgba(210,153,34,0.2); color: var(--yellow); }
+.tag-low { background: rgba(63,185,80,0.2); color: var(--green); }
+.tag-l1 { background: rgba(88,166,255,0.2); color: var(--layer1); }
+.tag-l2 { background: rgba(63,185,80,0.2); color: var(--layer2); }
+.tag-l3 { background: rgba(188,140,255,0.2); color: var(--layer3); }
+.toc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 24px; margin-bottom: 32px; }
+.toc h3 { margin-top: 0; color: var(--accent); }
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { padding: 3px 0; }
+.toc a { color: var(--text); text-decoration: none; }
+.toc a:hover { color: var(--accent); }
+.toc .sub { padding-left: 20px; font-size: 0.92em; }
+
+/* Architecture diagram */
+.arch-diagram { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 20px 0; text-align: center; }
+.arch-layer { display: inline-block; vertical-align: middle; }
+.arch-box { display: inline-block; border: 2px solid; border-radius: 8px; padding: 10px 16px; margin: 4px; text-align: center; font-weight: 600; font-size: 0.88em; min-width: 140px; }
+.arch-box-l1 { border-color: var(--layer1); color: var(--layer1); }
+.arch-box-l2 { border-color: var(--layer2); color: var(--layer2); }
+.arch-box-l3 { border-color: var(--layer3); color: var(--layer3); }
+.arch-box-cross { border-color: var(--orange); color: var(--orange); }
+.arch-arrow { display: inline-block; color: var(--text-dim); font-size: 1.4em; margin: 0 6px; vertical-align: middle; }
+.arch-layer-label { font-size: 0.8em; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+
+/* Tag tree */
+.tag-tree { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.88em; line-height: 1.8; }
+.tag-tree .root { color: var(--accent); font-weight: bold; }
+.tag-tree .branch { color: var(--purple); }
+.tag-tree .leaf { color: var(--green); }
+.tag-tree .dim { color: var(--text-dim); }
+
+/* File tree */
+.file-tree { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.85em; line-height: 1.8; color: var(--text); }
+.file-tree .dir { color: var(--accent); font-weight: bold; }
+.file-tree .file { color: var(--text); }
+.file-tree .comment { color: var(--text-dim); font-style: italic; }
+
+/* Badge */
+.badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 0.78em; font-weight: 600; }
+.badge-new { background: rgba(63,185,80,0.2); color: var(--green); border: 1px solid var(--green); }
+.badge-exist { background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid var(--accent); }
+.badge-modify { background: rgba(210,153,34,0.2); color: var(--yellow); border: 1px solid var(--yellow); }
+
+/* Timeline */
+.timeline-item { border-left: 2px solid var(--border); padding-left: 20px; margin-bottom: 20px; position: relative; }
+.timeline-item::before { content: ''; position: absolute; left: -6px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+.timeline-item.l1::before { background: var(--layer1); }
+.timeline-item.l2::before { background: var(--layer2); }
+.timeline-item.l3::before { background: var(--layer3); }
+</style>
+</head>
+<body>
+
+<h1>用户画像系统重设计方案 — 三层架构</h1>
+
+<div class="callout callout-info">
+<p><strong>设计目标：</strong>建立<strong>数据采集 → 画像构建 → 多维分析</strong>三层分明、边界清晰的用户画像体系。采集层覆盖歌曲标签/风格/歌手地区/歌手风格/聊天记录风格等全量数据源；构建层实现充分标签化，含权重/置信度/衰减机制；分析层多功能并行，完成用户情绪、风格爱好、日常习惯等画像建立。系统保证<strong>可扩展性</strong>与<strong>可修改性</strong>，并接入现有业务可视化系统。</p>
+</div>
+
+<div class="toc">
+<h3>目录</h3>
+<ul>
+<li><a href="#overview">一、架构总览</a></li>
+<li><a href="#layer1">二、数据采集层</a>
+  <ul class="sub">
+  <li><a href="#l1-sources">2.1 数据源清单</a></li>
+  <li><a href="#l1-raw">2.2 原始数据采集器</a></li>
+  <li><a href="#l1-enrich">2.3 元数据增强器：网易云 API 优先 → 网络搜索 → LLM 兜底</a></li>
+  <li><a href="#l1-chat">2.4 聊天风格 + 用户聚类采集器（合并）</a></li>
+  <li><a href="#l1-schedule">2.5 推荐与搜索接口集成（画像驱动）</a></li>
+  <li><a href="#l1-schedule2">2.6 采集调度策略</a></li>
+  <li><a href="#l1-interface">2.7 采集器插件接口</a></li>
+  </ul>
+</li>
+<li><a href="#layer2">三、画像构建层</a>
+  <ul class="sub">
+  <li><a href="#l2-taxonomy">3.1 标签分类体系</a></li>
+  <li><a href="#l2-structure">3.2 标签数据结构</a></li>
+  <li><a href="#l2-pipeline">3.3 画像构建流水线</a></li>
+  <li><a href="#l2-weight">3.4 权重计算与衰减机制</a></li>
+  <li><a href="#l2-store">3.5 画像存储与版本管理</a></li>
+  </ul>
+</li>
+<li><a href="#layer3">四、分析层</a>
+  <ul class="sub">
+  <li><a href="#l3-emotion">4.1 情绪分析模块</a></li>
+  <li><a href="#l3-style">4.2 风格爱好分析模块</a></li>
+  <li><a href="#l3-habit">4.3 日常习惯分析模块</a></li>
+  <li><a href="#l3-cluster">4.4 用户聚类分析模块（无监督学习 + 社交预留）</a></li>
+  <li><a href="#l3-recommend">4.5 推荐增强模块</a></li>
+  <li><a href="#l3-agent">4.6 Agent 上下文提供模块</a></li>
+  <li><a href="#l3-schedule">4.7 分析调度策略</a></li>
+  </ul>
+</li>
+<li><a href="#viz">五、可视化系统集成</a></li>
+<li><a href="#ext">六、扩展性架构</a></li>
+<li><a href="#impl">七、实施计划（TDD）</a></li>
+<li><a href="#risk">八、成本与风险分析</a></li>
+</ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<h2 id="overview">一、架构总览</h2>
+
+<div class="arch-diagram">
+<div class="arch-layer-label">第三层 · 分析层</div>
+<br>
+<div class="arch-box arch-box-l3">情绪分析</div>
+<div class="arch-box arch-box-l3">风格爱好分析</div>
+<div class="arch-box arch-box-l3">日常习惯分析</div>
+<div class="arch-box arch-box-l3">用户聚类(无监督)</div>
+<div class="arch-box arch-box-l3">推荐增强</div>
+<div class="arch-box arch-box-l3">Agent上下文</div>
+<br><br>
+<div class="arch-arrow">&#9650;</div>
+<div class="arch-layer-label">读取画像</div>
+<br><br>
+<div class="arch-layer-label">第二层 · 画像构建层</div>
+<br>
+<div class="arch-box arch-box-l2">标签分类体系</div>
+<div class="arch-box arch-box-l2">权重计算器</div>
+<div class="arch-box arch-box-l2">画像构建器</div>
+<div class="arch-box arch-box-l2">画像存储(版本化)</div>
+<div class="arch-box arch-box-l2">快照管理器</div>
+<br><br>
+<div class="arch-arrow">&#9650;</div>
+<div class="arch-layer-label">供给原始数据</div>
+<br><br>
+<div class="arch-layer-label">第一层 · 数据采集层</div>
+<br>
+<div class="arch-box arch-box-l1">播放历史采集</div>
+<div class="arch-box arch-box-l1">聊天记录采集</div>
+<div class="arch-box arch-box-l1">歌曲元数据增强</div>
+<div class="arch-box arch-box-l1">歌手元数据增强</div>
+<div class="arch-box arch-box-l1">聊天风格+聚类</div>
+<div class="arch-box arch-box-l1">环境上下文采集</div>
+<div class="arch-box arch-box-l1">推荐搜索集成</div>
+<br><br>
+<div class="arch-arrow">&#9650;</div>
+<div class="arch-layer-label">数据源</div>
+<br><br>
+<div class="arch-box arch-box-cross">listen_history</div>
+<div class="arch-box arch-box-cross">chat_history</div>
+<div class="arch-box arch-box-cross">seed_pool</div>
+<div class="arch-box arch-box-cross">weather</div>
+<div class="arch-box arch-box-cross">metrics</div>
+<div class="arch-box arch-box-cross">网易云API</div>
+<div class="arch-box arch-box-cross">网络搜索</div>
+<div class="arch-box arch-box-cross">LLM兜底</div>
+</div>
+
+<div class="callout callout-warn">
+<p><strong>核心挑战：</strong>项目当前仅提取了 NeteaseCloudMusicApi 返回的 6 个基本字段（id, title, artist, album, durationMs, coverUrl），但 API 实际提供了大量未使用的接口：<code>artist/detail</code>（歌手详情）、<code>artist/desc</code>（歌手简介）、<code>style/list</code>（曲风标签体系）、<code>song/wiki/summary</code>（歌曲百科）、<code>simi/song</code>（相似歌曲）、<code>simi/artist</code>（相似歌手）、<code>playmode/intelligence/list</code>（智能播放推荐）等。</p>
+<p><strong>解决方案（四级降级策略）：</strong>采集层采用 <strong>网易云 API 优先 → 网络搜索 → LLM 兜底 → 标记未知</strong> 的四级策略获取歌曲/歌手元数据。第一级直接调用网易云已有的 10+ 个未使用接口获取结构化数据（免费），命中率达 70-80%。搜索不到时再使用 MusicBrainz/百科搜索，最后才使用 LLM 推断。同时将网易云的推荐与搜索接口与画像系统深度集成，增强歌单管理与 DJ 推荐能力。</p>
+</div>
+
+<table>
+<tr><th>层</th><th>职责</th><th>输入</th><th>输出</th><th>关键组件</th></tr>
+<tr>
+  <td><span class="tag tag-l1">采集层</span></td>
+  <td>从各数据源收集原始数据，网络搜索优先获取歌曲/歌手元数据，LLM 兜底</td>
+  <td>DB 表、天气、metrics、网络搜索、LLM 推断</td>
+  <td>标准化数据块（RawDataChunk）</td>
+  <td>6 个采集器 + 3 个搜索器 + 1 个合并分析器</td>
+</tr>
+<tr>
+  <td><span class="tag tag-l2">构建层</span></td>
+  <td>将原始数据映射为标签，计算权重/置信度，持久化版本化画像</td>
+  <td>RawDataChunk[]</td>
+  <td>版本化 UserProfile JSON</td>
+  <td>标签体系 + 构建器 + 权重计算器 + 存储器</td>
+</tr>
+<tr>
+  <td><span class="tag tag-l3">分析层</span></td>
+  <td>基于画像执行多维分析，产出情绪/风格/习惯/推荐/Agent 等分析结果</td>
+  <td>UserProfile</td>
+  <td>AnalysisResult（供推荐/Agent/Dashboard 消费）</td>
+  <td>5 个分析模块（插件化）+ 1 个无监督聚类模块</td>
+</tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<h2 id="layer1" class="layer-1">二、数据采集层</h2>
+
+<p>采集层是整个画像体系的基石。当前系统的数据分散在 5 个 DB 表和外部服务中，且歌曲/歌手的流派风格元数据完全缺失。本层通过<strong>原始数据采集器</strong>和<strong>LLM 元数据增强器</strong>两类组件，将分散数据统一为标准化数据块。</p>
+
+<h3 id="l1-sources">2.1 数据源清单</h3>
+
+<table>
+<tr><th>数据源</th><th>位置</th><th>当前字段</th><th>缺失字段（需增强）</th><th>采集方式</th></tr>
+<tr>
+  <td>播放历史</td>
+  <td><code>listen_history</code> 表</td>
+  <td>song_id, title, artist, album, duration, played_at, source, skipped</td>
+  <td>歌曲流派、风格、语种、情绪、年代</td>
+  <td>事件驱动 + 定期批量</td>
+</tr>
+<tr>
+  <td>聊天记录</td>
+  <td><code>chat_history</code> 表</td>
+  <td>id, role, content, created_at</td>
+  <td>聊天风格、情绪倾向、话题分类</td>
+  <td>定期批量</td>
+</tr>
+<tr>
+  <td>种子池</td>
+  <td><code>seed_pool</code> 表</td>
+  <td>song_id, title, artist, album, play_count</td>
+  <td>genre_tags（列为空）</td>
+  <td>定期批量</td>
+</tr>
+<tr>
+  <td>用户画像KV</td>
+  <td><code>user_profile</code> 表</td>
+  <td>key, value, updated_at</td>
+  <td>—</td>
+  <td>读取现有 topArtists</td>
+</tr>
+<tr>
+  <td>天气数据</td>
+  <td><code>weatherService</code></td>
+  <td>temp, humidity, code(WMO), city</td>
+  <td>—</td>
+  <td>实时采集</td>
+</tr>
+<tr>
+  <td>系统指标</td>
+  <td><code>metrics.js</code></td>
+  <td>7 Counters, 2 Gauges, 5 Histograms</td>
+  <td>—</td>
+  <td>读取 Prometheus 指标</td>
+</tr>
+<tr>
+  <td>歌曲元数据</td>
+  <td><strong>不存在</strong></td>
+  <td>—</td>
+  <td>流派、子风格、语种、情绪、节奏、年代、乐器</td>
+  <td><span class="badge badge-new">新增</span> 网易云API优先 → 网络搜索 → LLM兜底</td>
+</tr>
+<tr>
+  <td>歌手元数据</td>
+  <td><strong>不存在</strong></td>
+  <td>—</td>
+  <td>地区、语种、活跃年代、风格描述、歌手类型</td>
+  <td><span class="badge badge-new">新增</span> 网易云API优先 → 网络搜索 → LLM兜底</td>
+</tr>
+</table>
+
+<h3 id="l1-raw">2.2 原始数据采集器</h3>
+
+<p>每个采集器实现统一接口，输出标准化数据块。采集器是<strong>纯读取</strong>组件，不修改任何数据。</p>
+
+<h4>ListenHistoryCollector — 播放历史采集器</h4>
+<pre><code>// 输出数据块
+{
+  type: "listen_history",
+  records: [
+    {
+      songId: "203894",
+      title: "晴天",
+      artist: "周杰伦",
+      album: "叶惠美",
+      duration: 269000,
+      playedAt: "2026-07-13T22:30:00Z",
+      source: "recommend",
+      skipped: false,
+      // 以下字段由元数据增强器填充
+      _enriched: null  // → { genre, subGenre, language, mood, era, tempo, instruments }
+    }
+  ],
+  meta: { total: 500, timeRange: "2026-06-13~2026-07-13" }
+}
+</code></pre>
+
+<h4>SeedPoolCollector — 种子池采集器</h4>
+<p>读取 <code>seed_pool</code> 表，获取用户音乐库的组成。配合 <code>play_count</code> 统计各歌曲播放频次，作为偏好权重的基础。</p>
+
+<h4>EnvironmentalCollector — 环境上下文采集器</h4>
+<pre><code>// 输出数据块
+{
+  type: "environmental",
+  records: [
+    { dimension: "weather", values: { temp: 26, humidity: 54, code: 3, city: "西安" } },
+    { dimension: "timeOfDay", values: { hour: 22, period: "night", dayOfWeek: "Sunday" } },
+    { dimension: "metrics", values: {
+        skipRate: 0.12,
+        avgSessionDuration: 3600,
+        chatMessageCount: 45,
+        toolCallCount: 23
+      }
+    }
+  ]
+}
+</code></pre>
+
+<h3 id="l1-enrich">2.3 元数据增强器：网易云 API 优先 → 网络搜索 → LLM 兜底</h3>
+
+<div class="callout callout-critical">
+<p><strong>发现：</strong>项目集成的 NeteaseCloudMusicApi 提供了 10+ 个未使用的接口，可直接获取歌手详情、歌手简介、曲风标签体系、歌曲百科、相似歌曲、相似歌手、智能播放推荐等数据。这些接口免费且返回结构化数据，应作为元数据获取的第一优先级。</p>
+</div>
+
+<h4>网易云 API 可用接口全集（项目未使用 → 画像系统将启用）</h4>
+
+<table>
+<tr><th>接口</th><th>端点</th><th>功能</th><th>对画像系统的价值</th><th>当前状态</th></tr>
+<tr><td><code>artist_detail</code></td><td>/api/artist/detail</td><td>歌手详情（头像、简介、粉丝数）</td><td>歌手地区、类型</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>artist_desc</code></td><td>/api/artist/introduction/desc</td><td>歌手介绍（文本描述）</td><td>提取风格描述、活跃年代</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>artist_songs</code></td><td>/api/artist/songs</td><td>歌手全部歌曲</td><td>扩展种子池</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>style_list</code></td><td>/api/tag/list/get</td><td><strong>全曲风标签列表</strong></td><td>获取完整流派分类体系</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>style_detail</code></td><td>/api/style-tag/home/head</td><td>曲风详情</td><td>风格描述</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>style_song</code></td><td>/api/style-tag/home/song</td><td>按曲风获取歌曲</td><td>构建风格→歌曲反向映射</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>style_artist</code></td><td>/api/style-tag/home/artist</td><td>按曲风获取歌手</td><td>构建风格→歌手映射</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>song_wiki_summary</code></td><td>/api/song/wiki/summary</td><td><strong>歌曲百科信息</strong></td><td>流派、年代、背景</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>song_creators</code></td><td>/api/song/creators</td><td>歌曲创作者</td><td>词曲作者、编曲者</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>song_music_detail</code></td><td>/api/song/music/detail</td><td>歌曲音质详情</td><td>音质偏好分析</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>simi_song</code></td><td>/api/discovery/simiSong</td><td><strong>相似歌曲</strong></td><td>推荐增强</td><td><span class="badge badge-exist">已使用</span></td></tr>
+<tr><td><code>simi_artist</code></td><td>/api/discovery/simiArtist</td><td><strong>相似歌手</strong></td><td>风格偏好扩展</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>simi_playlist</code></td><td>/api/discovery/simiPlaylist</td><td>相似歌单</td><td>歌单推荐</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>playmode_intelligence_list</code></td><td>/api/playmode/intelligence/list</td><td><strong>智能播放推荐</strong></td><td>基于当前歌曲推荐下一首</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>recommend_songs</code></td><td>/api/v3/discovery/recommend/songs</td><td>每日推荐</td><td>推荐增强</td><td><span class="badge badge-exist">已使用</span></td></tr>
+<tr><td><code>recommend_resource</code></td><td>/api/v3/discovery/recommend/resource</td><td>推荐歌单</td><td>歌单推荐</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>personal_fm</code></td><td>/api/v1/radio/get</td><td>私人FM</td><td>推荐增强</td><td><span class="badge badge-exist">已使用</span></td></tr>
+<tr><td><code>personalized</code></td><td>/api/personalized</td><td>个性化推荐</td><td>推荐增强</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>cloudsearch</code></td><td>/api/cloudsearch/pc</td><td><strong>云搜索（支持类型筛选）</strong></td><td>按风格/歌手/语种搜索</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>search_suggest</code></td><td>/api/search/suggest</td><td>搜索建议</td><td>搜索联想</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>search_hot_detail</code></td><td>/api/hotsearchlist/get</td><td>热搜详情</td><td>趋势感知</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>playlist_catlist</code></td><td>/api/playlist/catalogue</td><td>歌单分类</td><td>按风格分类歌单</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td><code>playlist_hot</code></td><td>/api/playlist/hottags</td><td>热门歌单标签</td><td>标签体系参考</td><td><span class="badge badge-new">新增</span></td></tr>
+</table>
+
+<h4>四级降级策略</h4>
+
+<pre><code>// ─── 第一级：网易云 API（免费，结构化数据，命中率 70-80%） ───
+async function enrichFromNeteaseAPI(songId, title, artist) {
+  // 1. song/detail — 获取 entertainmentTags、awardTags（可能含风格标签）
+  const detail = await musicSource.songDetail(songId);
+
+  // 2. song/wiki/summary — 歌曲百科（可能含流派、年代、背景）
+  const wiki = await musicSource.songWiki(songId);
+
+  // 3. artist/detail + artist/desc — 歌手详情和简介
+  const artistDetail = await musicSource.artistDetail(artistId);
+  const artistDesc = await musicSource.artistDesc(artistId);
+
+  // 4. style/list — 获取全曲风标签体系，构建反向映射
+  //    用 style_song 按风格获取歌曲，判断歌曲属于哪些风格
+  const styleTags = await musicSource.styleList();
+  // → 构建风格→歌曲映射，用于反向推断歌曲风格
+
+  // 解析并提取结构化元数据
+  const metadata = parseNeteaseMetadata(detail, wiki, artistDetail, artistDesc);
+  if (metadata) return { ...metadata, _source: 'netease_api', _confidence: 0.92 };
+
+  return null; // 第一级未命中
+}
+
+// ─── 第二级：网络搜索（免费，半结构化，命中率 15-20%） ───
+async function enrichFromWebSearch(title, artist) {
+  const mbResult = await searchMusicBrainz(title, artist);
+  if (mbResult) return { ...mbResult, _source: 'musicbrainz', _confidence: 0.88 };
+
+  const wikiResult = await searchWiki(`${artist} ${title} 歌曲 风格`);
+  if (wikiResult) return { ...wikiResult, _source: 'wiki', _confidence: 0.82 };
+
+  const neteaseTag = await searchNeteaseTags(title, artist);
+  if (neteaseTag) return { ...neteaseTag, _source: 'netease_tag', _confidence: 0.85 };
+
+  return null; // 第二级未命中
+}
+
+// ─── 第三级：LLM 兜底（低成本，推断，命中率 5-10%） ───
+async function enrichFromLLM(songs) {
+  // 固定前缀（被缓存）+ 可变后缀
+  const result = await callLLM(SONG_LLM_PROMPT_PREFIX, songs);
+  return result.map(r => ({ ...r, _source: 'llm', _confidence: 0.70 }));
+}
+
+// ─── 第四级：标记未知（不参与推荐决策） ───
+function markUnknown(songId) {
+  return { songId, _source: 'unknown', _confidence: 0,
+           genre: null, mood: null, _note: '所有来源均未命中' };
+}
+
+// 主流程：依次尝试四级
+async function enrichSongMetadata(song) {
+  return (await enrichFromNeteaseAPI(song.id, song.title, song.artist))
+      || (await enrichFromWebSearch(song.title, song.artist))
+      || (await enrichFromLLM([song]))?.[0]
+      || markUnknown(song.id);
+}
+</code></pre>
+
+<h4>新增数据库表</h4>
+
+<pre><code>-- 歌曲元数据缓存表（新增）
+CREATE TABLE IF NOT EXISTS song_metadata (
+  song_id TEXT PRIMARY KEY,
+  title TEXT,
+  artist TEXT,
+  genre TEXT,
+  sub_genre TEXT,
+  language TEXT,
+  mood TEXT,
+  era TEXT,
+  tempo TEXT,
+  instruments TEXT,        -- JSON array
+  source TEXT,             -- 数据来源: netease_api/musicbrainz/wiki/netease_tag/llm/unknown
+  confidence REAL DEFAULT 0,
+  enriched_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 歌手元数据缓存表（新增）
+CREATE TABLE IF NOT EXISTS artist_metadata (
+  artist TEXT PRIMARY KEY,
+  region TEXT,
+  country TEXT,
+  language TEXT,
+  active_years TEXT,
+  genres TEXT,             -- JSON array
+  style_type TEXT,
+  style_desc TEXT,
+  source TEXT,             -- 数据来源: netease_api/musicbrainz/wiki/netease_tag/llm/unknown
+  confidence REAL DEFAULT 0,
+  enriched_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 曲风标签体系缓存表（新增）
+CREATE TABLE IF NOT EXISTS style_tags_cache (
+  tag_id TEXT PRIMARY KEY,
+  name TEXT,
+  category TEXT,           -- 风格分类
+  description TEXT,
+  cached_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 歌曲-风格反向映射表（新增）
+CREATE TABLE IF NOT EXISTS song_style_mapping (
+  song_id TEXT,
+  tag_id TEXT,
+  tag_name TEXT,
+  source TEXT,             -- netease_api/inferred
+  confidence REAL DEFAULT 0,
+  PRIMARY KEY (song_id, tag_id)
+);
+
+-- 画像快照表（新增）
+CREATE TABLE IF NOT EXISTS profile_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version INTEGER NOT NULL,
+  profile_json TEXT NOT NULL,
+  snapshot_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 采集状态追踪表（新增）
+CREATE TABLE IF NOT EXISTS profile_collection_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  is_first_run INTEGER DEFAULT 1,
+  last_analysis_at DATETIME,
+  last_analysis_type TEXT,
+  total_llm_calls INTEGER DEFAULT 0,
+  total_web_searches INTEGER DEFAULT 0,
+  total_netease_api_calls INTEGER DEFAULT 0
+);
+</code></pre>
+
+<h4>缓存与降级策略</h4>
+<table>
+<tr><th>策略</th><th>说明</th></tr>
+<tr><td>写入前检查</td><td>增强器先查询 <code>song_metadata</code>/<code>artist_metadata</code> 表，已存在的跳过</td></tr>
+<tr><td>网易云 API 优先</td><td>先调用 <code>song/detail</code> + <code>song/wiki/summary</code> + <code>artist/detail</code> + <code>artist/desc</code> 获取结构化数据</td></tr>
+<tr><td>曲风反向映射</td><td>定期用 <code>style_list</code> + <code>style_song</code> 构建风格→歌曲映射，反向推断歌曲风格</td></tr>
+<tr><td>网络搜索次优</td><td>MusicBrainz API → 百度百科/维基百科 → 网易云标签搜索</td></tr>
+<tr><td>LLM 兜底</td><td>仅当所有 API 和网络搜索均无结果时，才触发 LLM 批量推断</td></tr>
+<tr><td>来源标记</td><td><code>source</code> 字段标注数据来源，API 来源置信度 0.92，网络搜索 0.82-0.88，LLM 0.70</td></tr>
+<tr><td>增量增强</td><td>仅对 <code>listen_history</code> 中未增强的歌曲触发获取流程</td></tr>
+<tr><td>手动覆盖</td><td>预留手动修正接口，用户可覆盖任何来源的结果</td></tr>
+<tr><td>缓存命中优化</td><td>LLM Prompt 采用固定前缀（被 DeepSeek 自动缓存，50 倍便宜）+ 可变后缀</td></tr>
+</table>
+
+<h3 id="l1-chat">2.4 聊天风格采集器</h3>
+
+<p>从 <code>chat_history</code> 表提取用户与 DJ 的聊天记录，通过 LLM 分析聊天风格。Prompt 采用固定前缀+可变后缀结构。<strong>用户聚类不再由 LLM 完成，而是由分析层的无监督学习模块独立处理</strong>（见 4.4 节）。</p>
+
+<pre><code>// 固定前缀（被缓存，50倍便宜）
+const CHAT_STYLE_PROMPT_PREFIX = `你是用户画像分析专家。分析用户聊天风格特征。
+请以 JSON 返回:
+{
+  "expressionStyle": "简洁",      // 表达方式: 简洁/详细/幽默/正式/随意
+  "topics": ["音乐讨论"],          // 关注话题
+  "vocabulary": "口语化",          // 词汇特征
+  "interactionMode": "指令型",     // 交互模式: 指令型/对话型/探索型
+  "emotionalTone": "平静",         // 情绪基调
+  "satisfactionPattern": "高要求", // 满意度模式
+  "avgMessageLength": 12,
+  "commandFrequency": 0.7
+}`;
+
+// 可变后缀（每次不同）
+const CHAT_STYLE_PROMPT_SUFFIX = (chatLog) =>
+  `聊天记录:\n${chatLog}`;
+</code></pre>
+
+<h3 id="l1-schedule">2.5 推荐与搜索接口集成（画像驱动）</h3>
+
+<p>网易云 API 提供了丰富的推荐与搜索接口，当前项目仅使用了其中 3 个（<code>simi_song</code>、<code>recommend_songs</code>、<code>personal_fm</code>）。画像系统将启用剩余接口，并<strong>以画像标签作为条件参数</strong>驱动推荐和搜索，实现更精准的歌单管理与 DJ 推荐。</p>
+
+<h4>画像驱动的推荐策略矩阵</h4>
+
+<table>
+<tr><th>画像标签</th><th>触发的 API</th><th>调用条件</th><th>推荐场景</th></tr>
+<tr>
+  <td><code>MusicPreference.genre</code> Top 3</td>
+  <td><code>style_song</code>（按曲风获取歌曲）</td>
+  <td>队列不足时，按 Top 3 风格各取 5 首</td>
+  <td>风格种子填充</td>
+</tr>
+<tr>
+  <td><code>ArtistPreference.topArtists</code> Top 5</td>
+  <td><code>simi_artist</code>（相似歌手）→ <code>artist_songs</code></td>
+  <td>发现新歌手时，找到相似歌手的歌曲</td>
+  <td>歌手偏好扩展</td>
+</tr>
+<tr>
+  <td><code>MusicPreference.mood</code> 当前情绪</td>
+  <td><code>cloudsearch</code>（按情绪关键词搜索）</td>
+  <td>情绪分析模块输出变化时</td>
+  <td>情绪匹配推荐</td>
+</tr>
+<tr>
+  <td><code>BehaviorHabit.activePeriod</code> 当前时段</td>
+  <td><code>personal_fm</code> + <code>personalized</code></td>
+  <td>每时段切换时刷新推荐池</td>
+  <td>时段感知推荐</td>
+</tr>
+<tr>
+  <td>当前播放歌曲</td>
+  <td><code>playmode_intelligence_list</code>（智能播放）</td>
+  <td>每首歌播放时，预取 3 首智能推荐</td>
+  <td>无缝衔接推荐</td>
+</tr>
+<tr>
+  <td><code>MusicPreference.genre</code> + <code>era</code></td>
+  <td><code>cloudsearch</code>（组合搜索：风格+年代）</td>
+  <td>队列风格单一时触发多样性补充</td>
+  <td>多样性注入</td>
+</tr>
+<tr>
+  <td><code>ArtistPreference.regions</code> 偏好地区</td>
+  <td><code>style_artist</code>（按曲风+地区获取歌手）</td>
+  <td>扩展种子池时</td>
+  <td>地区风格探索</td>
+</tr>
+<tr>
+  <td><code>EmotionProfile.currentMood</code> + 天气</td>
+  <td><code>recommend_resource</code>（推荐歌单）</td>
+  <td>天气变化或情绪波动时</td>
+  <td>情境歌单推荐</td>
+</tr>
+<tr>
+  <td>全局趋势感知</td>
+  <td><code>search_hot_detail</code>（热搜详情）</td>
+  <td>每 24 小时检查一次</td>
+  <td>流行趋势感知（可选融入推荐）</td>
+</tr>
+</table>
+
+<h4>推荐增强器架构（RecommendationEnhancer 升级）</h4>
+
+<pre><code>// server/domain/profile/analyzers/RecommendationEnhancer.js
+class RecommendationEnhancer extends BaseAnalyzer {
+  async analyze(profile) {
+    // 1. 从画像提取推荐参数
+    const params = this._buildParams(profile);
+
+    // 2. 并行调用多个推荐 API（Promise.all 降低延迟）
+    const [styleSongs, simiArtists, intelligence, personalized] = await Promise.all([
+      this._fetchByStyleTags(params.topGenres),        // style_song
+      this._fetchBySimiArtists(params.topArtists),     // simi_artist → artist_songs
+      this._fetchIntelligence(params.currentSongId),   // playmode_intelligence_list
+      this._fetchPersonalized(params.mood),             // personalized
+    ]);
+
+    // 3. 合并 + 去重 + 按画像权重排序
+    const candidates = this._mergeAndRank(
+      [...styleSongs, ...simiArtists, ...intelligence, ...personalized],
+      profile
+    );
+
+    // 4. 输出增强推荐参数供 recommender.js 使用
+    return {
+      genreHints: params.topGenres,           // 回填到 fillQueue 的 genreHints
+      styleTagIds: params.styleTagIds,        // style_song 的 tagId
+      moodKeywords: params.moodKeywords,      // cloudsearch 的情绪关键词
+      similarArtistIds: params.similarArtistIds,
+      intelligenceSeedId: params.currentSongId,
+      rankedCandidates: candidates.slice(0, 30),
+    };
+  }
+
+  _buildParams(profile) {
+    return {
+      topGenres: profile.tags.MusicPreference.genre
+        .filter(t => t.weight > 0.3)
+        .slice(0, 3)
+        .map(t => t.value),
+      topArtists: profile.tags.ArtistPreference.topArtists.slice(0, 5),
+      mood: profile.tags.EmotionProfile.currentMood?.value || '平静',
+      currentSongId: this.queueStore.current?.id,
+    };
+  }
+}
+</code></pre>
+
+<h4>与现有 recommender.js 的集成方式</h4>
+
+<p>RecommendationEnhancer 不直接修改 <code>recommender.js</code>，而是通过端口接口输出推荐参数，由 <code>recommender.js</code> 的 <code>fillQueue</code> 方法消费：</p>
+
+<table>
+<tr><th>现有 fillQueue 策略</th><th>画像增强后</th><th>数据来源 API</th></tr>
+<tr><td><code>genreHints</code> — 始终为空</td><td>从画像 Top 3 风格填充 + <code>style_song</code> 按风格获取歌曲</td><td><code>style_list</code> + <code>style_song</code></td></tr>
+<tr><td><code>personalFm</code> — 无条件调用</td><td>仅当画像情绪匹配"探索型"时调用</td><td><code>personal_fm</code></td></tr>
+<tr><td><code>similarSongs</code> — 仅相似歌曲</td><td>增加 <code>simi_artist</code> 相似歌手歌曲</td><td><code>simi_song</code> + <code>simi_artist</code></td></tr>
+<tr><td><code>dailyRecs</code> — 无条件调用</td><td>叠加 <code>personalized</code> 个性化推荐</td><td><code>recommend_songs</code> + <code>personalized</code></td></tr>
+<tr><td><code>genreSearch</code> — 随机选歌手搜索</td><td>改为按画像风格+年代组合搜索</td><td><code>cloudsearch</code></td></tr>
+<tr><td><strong>新增</strong>：智能播放</td><td>基于当前歌曲预取推荐</td><td><code>playmode_intelligence_list</code></td></tr>
+<tr><td><strong>新增</strong>：情绪匹配</td><td>按当前情绪关键词搜索</td><td><code>cloudsearch</code> + <code>search_suggest</code></td></tr>
+<tr><td><strong>新增</strong>：情境歌单</td><td>天气+情绪匹配推荐歌单</td><td><code>recommend_resource</code></td></tr>
+</table>
+
+<h4>歌单管理增强</h4>
+
+<p>结合画像标签和网易云歌单 API，实现智能歌单管理：</p>
+
+<table>
+<tr><th>功能</th><th>实现方式</th><th>API 接口</th></tr>
+<tr><td>风格分类歌单</td><td>按画像 Top 5 风格，各创建/维护一个歌单</td><td><code>playlist_catlist</code> + <code>playlist_create</code></td></tr>
+<tr><td>情绪歌单</td><td>按情绪标签（欢快/忧伤/平静等）维护歌单</td><td><code>cloudsearch</code> + <code>playlist_track_add</code></td></tr>
+<tr><td>相似歌单推荐</td><td>基于用户已有歌单推荐相似歌单</td><td><code>simi_playlist</code></td></tr>
+<tr><td>时段歌单</td><td>按时段偏好（早晨/夜晚）维护歌单</td><td><code>recommend_resource</code></td></tr>
+<tr><td>歌单标签同步</td><td>将画像风格标签同步到歌单标签</td><td><code>playlist_tags_update</code></td></tr>
+</table>
+
+<h4>DJ 推荐增强</h4>
+
+<p>画像标签注入 DJ 的 system prompt，让 DJ 的口播和推荐更个性化：</p>
+
+<pre><code>// AgentContextProvider 输出的 DJ 上下文（注入 context.js slotMemory）
+`[听众画像]
+核心风格: 华语流行(0.75)、独立流行(0.42) | 偏好地区: 华语(0.70)
+偏好歌手: 周杰伦、陈奕迅、五月天 | 歌手类型: 创作型(0.65)
+活跃时段: 晚间型(0.85) | 情绪状态: 放松/怀旧
+聊天风格: 简洁指令型，高要求 | 跳过率: 低(12%)
+听众原型: 深夜文艺青年(0.82)
+当前天气: 西安 26°C 阴 | 建议: 适合播放舒缓怀旧风格
+
+[推荐策略提示]
+- 优先播放华语流行和独立流行风格
+- 可推荐相似歌手: 林俊杰、林宥嘉（基于周杰伦相似歌手）
+- 当前情绪匹配: 怀旧类歌曲权重 +20%
+- 时段建议: 夜晚适合中慢板节奏`
+</code></pre>
+
+<h4>新增 Agent 工具：画像感知搜索</h4>
+
+<pre><code>// 新增 Agent 工具: search_by_profile
+// Agent 可基于画像标签搜索音乐，而非仅靠关键词
+{
+  name: "search_by_profile",
+  description: "基于用户画像标签搜索音乐。可按风格、情绪、年代、地区等维度搜索。",
+  parameters: {
+    dimension: { type: "string", enum: ["genre", "mood", "era", "region", "artist_style"] },
+    value: { type: "string", description: "维度值，如 'pop', '怀旧', '2000s', '华语'" },
+    limit: { type: "number", default: 10 }
+  }
+}
+// 实现：调用 cloudsearch API，将维度+值组合为搜索关键词
+</code></pre>
+
+<h3 id="l1-schedule2">2.6 采集调度策略</h3>
+
+<div class="callout callout-info">
+<p><strong>首次启动全量构建机制：</strong>用户首次启动时（<code>profile_collection_state.is_first_run = 1</code>），系统立即对已有全部数据执行一次全量采集 + 画像构建 + 分析，建立初始画像。之后切换为定期 + 条件触发模式。</p>
+</div>
+
+<table>
+<tr><th>采集器</th><th>触发方式</th><th>频率</th><th>说明</th></tr>
+<tr><td>ListenHistoryCollector</td><td>事件驱动 + 定期</td><td>每首歌播放结束时 + 每 100 小时</td><td>实时记录行为，定期批量回扫</td></tr>
+<tr><td>ChatHistoryCollector</td><td>定期 + 条件触发</td><td>每 100 小时 + ≥10 条新消息时触发</td><td>条件触发避免无效调用</td></tr>
+<tr><td>SeedPoolCollector</td><td>定期</td><td>每 100 小时</td><td>种子池变化较少</td></tr>
+<tr><td>EnvironmentalCollector</td><td>实时</td><td>每 5 分钟</td><td>天气、时段、指标</td></tr>
+<tr><td>SongMetadataEnricher</td><td>增量触发</td><td>新歌曲进入 listen_history 时</td><td>网络搜索优先 → LLM 兜底，缓存结果</td></tr>
+<tr><td>ArtistMetadataEnricher</td><td>增量触发</td><td>新歌手出现时</td><td>同上</td></tr>
+<tr><td>ChatClusterAnalyzer</td><td>定期 + 条件触发</td><td>每 100 小时 + ≥10 条新消息时触发</td><td>聊天风格+聚类合并调用</td></tr>
+<tr><td><strong>首次启动全量</strong></td><td><strong>一次性触发</strong></td><td><strong>仅首次</strong></td><td><strong>对所有已有 listen_history + chat_history 执行全量采集+构建+分析</strong></td></tr>
+</table>
+
+<h4>首次启动全量构建流程</h4>
+<pre><code>// server/domain/profile/ProfileOrchestrator.js
+async function runIfNeeded() {
+  const state = await getCollectionState();
+
+  if (state.isFirstRun) {
+    // ─── 首次启动：全量构建 ───
+    logger.info('first run detected — executing full profile build');
+
+    // 1. 全量采集所有数据
+    const allChunks = await collectAll();  // listen_history + chat_history + seed_pool + environment
+
+    // 2. 对所有歌曲/歌手执行元数据增强（网络搜索优先 → LLM 兜底）
+    await enrichAllMetadata(allChunks);
+
+    // 3. 全量构建画像
+    const profile = await buildProfile(allChunks);
+
+    // 4. 执行所有分析模块
+    await runAllAnalyzers(profile);
+
+    // 5. 标记首次启动完成
+    await markFirstRunComplete();
+    logger.info('initial profile built successfully');
+  } else {
+    // ─── 常规模式：定期 + 条件触发 ───
+    const hoursSinceLast = hoursSince(state.lastAnalysisAt);
+    if (hoursSinceLast >= 100) {
+      await runConditionalAnalysis();
+    }
+  }
+}
+</code></pre>
+
+<h3 id="l1-interface">2.7 采集器插件接口</h3>
+
+<pre><code>// server/domain/profile/collectors/BaseCollector.js
+class BaseCollector {
+  /**
+   * @returns {string} 采集器唯一名称
+   */
+  get name() { throw new Error('Not implemented'); }
+
+  /**
+   * 执行数据采集
+   * @returns {Promise&lt;RawDataChunk&gt;} 标准化数据块
+   */
+  async collect() { throw new Error('Not implemented'); }
+
+  /**
+   * 采集器是否就绪
+   * @returns {boolean}
+   */
+  isReady() { return true; }
+}
+
+// RawDataChunk 标准格式
+/**
+ * @typedef {Object} RawDataChunk
+ * @property {string} type        - 数据块类型
+ * @property {Array}  records     - 数据记录数组
+ * @property {Object} meta        - 元信息（总量、时间范围等）
+ * @property {number} collectedAt - 采集时间戳
+ */
+</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<h2 id="layer2" class="layer-2">三、画像构建层</h2>
+
+<p>构建层接收采集层输出的标准化数据块，将其映射为多维度标签，计算权重与置信度，最终生成版本化的用户画像 JSON。</p>
+
+<h3 id="l2-taxonomy">3.1 标签分类体系</h3>
+
+<p>标签体系是<strong>可配置的 JSON Schema</strong>，存储在 <code>config/tag-taxonomy.json</code> 中。新增标签维度只需修改配置文件，无需改动代码。</p>
+
+<div class="tag-tree">
+<div class="root">UserProfile 标签体系</div>
+├── <span class="branch">音乐偏好标签 (MusicPreference)</span>
+│   ├── <span class="leaf">流派</span> <span class="dim">pop, rock, folk, electronic, classical, jazz, hip-hop, rnb, metal, country</span>
+│   ├── <span class="leaf">子风格</span> <span class="dim">indie-pop, synth-wave, post-rock, mandopop, j-pop, k-pop, lo-fi...</span>
+│   ├── <span class="leaf">语种</span> <span class="dim">中文, 英文, 日语, 韩语, 纯音乐, 其他</span>
+│   ├── <span class="leaf">情绪基调</span> <span class="dim">欢快, 忧伤, 平静, 激昂, 怀旧, 浪漫, 治愈, 暗黑</span>
+│   ├── <span class="leaf">节奏</span> <span class="dim">慢板, 中板, 快板</span>
+│   ├── <span class="leaf">年代</span> <span class="dim">80s, 90s, 00s, 10s, 20s</span>
+│   └── <span class="leaf">乐器</span> <span class="dim">吉他, 钢琴, 电子合成器, 鼓, 弦乐, 管乐...</span>
+│
+├── <span class="branch">歌手偏好标签 (ArtistPreference)</span>
+│   ├── <span class="leaf">偏好歌手</span> <span class="dim">[{name, weight, playCount}] — Top 30</span>
+│   ├── <span class="leaf">歌手地区</span> <span class="dim">华语, 欧美, 日韩, 东南亚, 其他</span>
+│   ├── <span class="leaf">歌手风格</span> <span class="dim">创作型, 偶像型, 实力派, 独立音乐人, 乐队</span>
+│   └── <span class="leaf">歌手年代</span> <span class="dim">新生代(2010+), 中生代(1990-2010), 老牌(1990前)</span>
+│
+├── <span class="branch">行为习惯标签 (BehaviorHabit)</span>
+│   ├── <span class="leaf">活跃时段</span> <span class="dim">早晨型(6-12), 下午型(12-18), 晚间型(18-24), 夜猫型(0-6)</span>
+│   ├── <span class="leaf">听歌强度</span> <span class="dim">轻度(&lt;1h/天), 中度(1-3h), 重度(3h+)</span>
+│   ├── <span class="leaf">跳过率</span> <span class="dim">低(&lt;10%), 中(10-30%), 高(30%+)</span>
+│   ├── <span class="leaf">完播率</span> <span class="dim">高(70%+), 中(40-70%), 低(&lt;40%)</span>
+│   ├── <span class="leaf">互动频率</span> <span class="dim">活跃, 普通, 沉默</span>
+│   └── <span class="leaf">会话模式</span> <span class="dim">长时间连续, 短时频繁, 间歇性</span>
+│
+├── <span class="branch">情绪特征标签 (EmotionProfile)</span>
+│   ├── <span class="leaf">基础情绪</span> <span class="dim">开心, 放松, 忧郁, 焦虑, 平静, 兴奋, 怀旧, 孤独</span>
+│   ├── <span class="leaf">情绪触发</span> <span class="dim">天气影响型, 时段影响型, 歌曲触发型</span>
+│   ├── <span class="leaf">情绪稳定性</span> <span class="dim">稳定, 波动, 季节性</span>
+│   └── <span class="leaf">当前情绪</span> <span class="dim">[实时更新，每次播放/聊天时刷新]</span>
+│
+├── <span class="branch">聊天风格标签 (ChatStyle)</span>
+│   ├── <span class="leaf">表达方式</span> <span class="dim">简洁, 详细, 幽默, 正式, 随意</span>
+│   ├── <span class="leaf">关注话题</span> <span class="dim">音乐讨论, 情感倾诉, 日常闲聊, 技术交流, 天气问候</span>
+│   ├── <span class="leaf">词汇特征</span> <span class="dim">口语化, 书面化, 专业术语, 网络用语</span>
+│   ├── <span class="leaf">交互模式</span> <span class="dim">指令型, 对话型, 探索型</span>
+│   └── <span class="leaf">满意度模式</span> <span class="dim">高要求, 宽容, 多变, 稳定</span>
+│
+└── <span class="branch">环境上下文标签 (EnvironmentalContext)</span>
+    ├── <span class="leaf">天气偏好</span> <span class="dim">晴天听欢快, 雨天听忧伤, 阴天听平静...</span>
+    ├── <span class="leaf">季节偏好</span> <span class="dim">春夏秋冬不同风格倾向</span>
+    └── <span class="leaf">时段偏好</span> <span class="dim">早晨听活力, 夜晚听舒缓...</span>
+</div>
+
+<h4>标签体系配置文件示例</h4>
+<pre><code>// server/domain/profile/config/tag-taxonomy.json
+{
+  "version": 1,
+  "categories": [
+    {
+      "name": "MusicPreference",
+      "label": "音乐偏好",
+      "dimensions": [
+        {
+          "name": "genre",
+          "label": "流派",
+          "values": ["pop","rock","folk","electronic","classical","jazz","hip-hop","rnb","metal","country"],
+          "multiSelect": true,
+          "weightSource": "play_count"
+        },
+        {
+          "name": "mood",
+          "label": "情绪基调",
+          "values": ["欢快","忧伤","平静","激昂","怀旧","浪漫","治愈","暗黑"],
+          "multiSelect": true,
+          "weightSource": "play_count"
+        }
+        // ... 其他维度
+      ]
+    }
+    // ... 其他类别
+  ]
+}
+</code></pre>
+
+<h3 id="l2-structure">3.2 标签数据结构</h3>
+
+<pre><code>// 单个标签的完整结构
+{
+  "category": "MusicPreference",
+  "dimension": "genre",
+  "value": "pop",
+  "weight": 0.75,            // 0-1，基于频次 + 时间衰减
+  "confidence": 0.85,         // 0-1，基于数据量 + LLM 置信度
+  "evidence": [               // 支撑证据（最多保留 10 条）
+    {
+      "songId": "203894",
+      "title": "晴天",
+      "artist": "周杰伦",
+      "source": "listen_history",
+      "playedAt": "2026-07-13T22:30:00Z"
+    }
+  ],
+  "lastUpdated": "2026-07-14T10:00:00Z",
+  "decayFactor": 0.95,        // 每周衰减因子（Ebbinghaus 曲线）
+  "version": 1                // 标签 schema 版本
+}
+</code></pre>
+
+<h3 id="l2-pipeline">3.3 画像构建流水线</h3>
+
+<div class="arch-diagram">
+<div class="arch-box arch-box-l1">RawDataChunk[]</div>
+<div class="arch-arrow">&#8594;</div>
+<div class="arch-box arch-box-l2">TagMapper</div>
+<div class="arch-arrow">&#8594;</div>
+<div class="arch-box arch-box-l2">WeightCalculator</div>
+<div class="arch-arrow">&#8594;</div>
+<div class="arch-box arch-box-l2">ConflictResolver</div>
+<div class="arch-arrow">&#8594;</div>
+<div class="arch-box arch-box-l2">DecayApplier</div>
+<div class="arch-arrow">&#8594;</div>
+<div class="arch-box arch-box-l2">ProfileStore</div>
+</div>
+
+<h4>TagMapper — 标签映射器</h4>
+<p>将 RawDataChunk 中的每条记录映射到标签体系中的标签。例如，一首 <code>genre: "pop"</code> 的歌曲映射为 <code>MusicPreference.genre = "pop"</code> 的证据项。</p>
+
+<h4>WeightCalculator — 权重计算器</h4>
+<pre><code>// 权重计算公式
+weight = frequencyScore * recencyScore * confidenceScore
+
+// frequencyScore: 基于播放频次的归一化分数
+//   = min(playCount / maxPlayCount, 1.0)
+//   例: 该流派播放 50 次 / 最多的流派播放 80 次 = 0.625
+
+// recencyScore: 基于最近播放时间的衰减分数
+//   = decayFactor ^ (weeksSinceLastPlay)
+//   例: 2 周前最后播放, decayFactor=0.95 → 0.95^2 = 0.9025
+
+// confidenceScore: 基于数据量 + LLM 置信度
+//   = min(evidenceCount / 10, 1.0) * avgLLMConfidence
+//   例: 8 条证据 / 10 = 0.8 * LLM平均置信度 0.85 = 0.68
+</code></pre>
+
+<h4>ConflictResolver — 冲突解决器</h4>
+<p>当同一维度出现冲突标签时（如 LLM 对同一歌曲推断出不同流派），按置信度取高者；若置信度接近，保留两者并降低各自权重。</p>
+
+<h4>DecayApplier — 衰减应用器</h4>
+<p>每次画像更新时，对所有已有标签应用时间衰减。超过 4 周未被证据支撑的标签，权重降至 0.1 以下时自动标记为"休眠"。</p>
+
+<h3 id="l2-weight">3.4 权重计算与衰减机制</h3>
+
+<table>
+<tr><th>因子</th><th>计算方式</th><th>说明</th></tr>
+<tr><td>频次权重</td><td><code>playCount / maxPlayCount</code></td><td>该标签关联歌曲的播放总次数，归一化到 0-1</td></tr>
+<tr><td>时间衰减</td><td><code>0.95 ^ weeksSinceLastPlay</code></td><td>Ebbinghaus 遗忘曲线，每周衰减 5%</td></tr>
+<tr><td>置信度</td><td><code>min(evidenceCount/10, 1) * avgLLMConfidence</code></td><td>证据越多越可信，LLM 置信度加权</td></tr>
+<tr><td>跳过惩罚</td><td><code>weight *= (1 - skipRate * 0.5)</code></td><td>高跳过率降低该标签权重</td></tr>
+<tr><td>完播奖励</td><td><code>weight *= (1 + completeRate * 0.2)</code></td><td>高完播率提升该标签权重</td></tr>
+</table>
+
+<h3 id="l2-store">3.5 画像存储与版本管理</h3>
+
+<pre><code>// 完整 UserProfile JSON 结构
+{
+  "version": 3,                    // 画像版本号
+  "schemaVersion": 1,              // 标签体系版本
+  "lastUpdated": "2026-07-14T10:00:00Z",
+  "tags": {
+    "MusicPreference": {
+      "genre": [
+        { "value": "pop", "weight": 0.75, "confidence": 0.85, "evidence": [...], ... },
+        { "value": "rock", "weight": 0.42, "confidence": 0.78, "evidence": [...], ... }
+      ],
+      "mood": [
+        { "value": "怀旧", "weight": 0.68, "confidence": 0.80, "evidence": [...], ... }
+      ]
+      // ... 其他维度
+    },
+    "ArtistPreference": {
+      "topArtists": [
+        { "name": "周杰伦", "weight": 0.92, "playCount": 45, "region": "华语", "styleType": "创作型" }
+      ],
+      "regions": [
+        { "value": "华语", "weight": 0.70, "confidence": 0.90 }
+      ]
+      // ...
+    },
+    "BehaviorHabit": {
+      "activePeriod": { "value": "晚间型", "weight": 0.85, "confidence": 0.95 },
+      "skipRate": { "value": "低", "weight": 0.90, "confidence": 1.0 },
+      // ...
+    },
+    "EmotionProfile": {
+      "baseEmotions": [
+        { "value": "放松", "weight": 0.72, "confidence": 0.75 }
+      ],
+      "currentMood": { "value": "平静", "weight": 1.0, "confidence": 0.80, "lastUpdated": "..." }
+    },
+    "ChatStyle": {
+      "expressionStyle": { "value": "简洁", "weight": 0.88, "confidence": 0.85 },
+      // ...
+    },
+    "EnvironmentalContext": {
+      "weatherPreference": [...],
+      // ...
+    }
+  },
+  "metadata": {
+    "totalTags": 42,
+    "avgConfidence": 0.82,
+    "dataPoints": 500,
+    "lastAnalysisAt": "2026-07-14T10:00:00Z"
+  }
+}
+</code></pre>
+
+<h4>快照管理</h4>
+<p>每次画像更新生成一个快照，存入 <code>profile_snapshots</code> 表。保留最近 30 个快照，用于：</p>
+<ul>
+<li>画像演化时间线可视化</li>
+<li>回滚到历史版本</li>
+<li>分析偏好变化趋势</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<h2 id="layer3" class="layer-3">四、分析层</h2>
+
+<p>分析层是画像的价值出口。每个分析模块是独立插件，读取画像 JSON，输出结构化分析结果。模块间无依赖，可并行执行。</p>
+
+<h3 id="l3-emotion">4.1 情绪分析模块 (EmotionAnalyzer)</h3>
+
+<table>
+<tr><th>输入</th><th>分析维度</th><th>输出</th></tr>
+<tr>
+  <td>EmotionProfile 标签 + 播放行为 + 聊天情绪</td>
+  <td>
+    <ul>
+    <li><strong>情绪基线</strong>：用户的基础情绪状态（最近 7 天加权平均）</li>
+    <li><strong>情绪波动</strong>：情绪变化频率与幅度</li>
+    <li><strong>情绪触发器</strong>：天气/时段/歌曲对情绪的影响权重</li>
+    <li><strong>情绪-音乐映射</strong>：不同情绪状态下的音乐偏好</li>
+    <li><strong>情绪预测</strong>：基于当前时段+天气预测用户情绪</li>
+    </ul>
+  </td>
+  <td>AnalysisResult: { baseline, volatility, triggers, musicMapping, prediction }</td>
+</tr>
+</table>
+
+<h3 id="l3-style">4.2 风格爱好分析模块 (StylePreferenceAnalyzer)</h3>
+
+<table>
+<tr><th>输入</th><th>分析维度</th><th>输出</th></tr>
+<tr>
+  <td>MusicPreference + ArtistPreference 标签</td>
+  <td>
+    <ul>
+    <li><strong>核心风格</strong>：Top 5 主导风格 + 深度评分</li>
+    <li><strong>风格广度</strong>：偏好多样性指数（Shannon 熵）</li>
+    <li><strong>风格演变</strong>：最近 4 周的偏好变化趋势</li>
+    <li><strong>风格组合</strong>：哪些风格经常共现（关联规则）</li>
+    <li><strong>风格缺口</strong>：未探索但可能喜欢的风格（协同过滤思路）</li>
+    </ul>
+  </td>
+  <td>AnalysisResult: { coreStyles, diversity, evolution, coOccurrence, gaps }</td>
+</tr>
+</table>
+
+<h3 id="l3-habit">4.3 日常习惯分析模块 (DailyHabitAnalyzer)</h3>
+
+<table>
+<tr><th>输入</th><th>分析维度</th><th>输出</th></tr>
+<tr>
+  <td>BehaviorHabit + EnvironmentalContext 标签</td>
+  <td>
+    <ul>
+    <li><strong>听歌时间线</strong>：24 小时分布热力图数据</li>
+    <li><strong>会话模式</strong>：典型会话时长、频率、间隔</li>
+    <li><strong>跳过模式</strong>：什么类型的歌曲容易被跳过</li>
+    <li><strong>互动模式</strong>：与 DJ 的互动频率和类型</li>
+    <li><strong>排班建议</strong>：基于习惯优化播放计划</li>
+    </ul>
+  </td>
+  <td>AnalysisResult: { timeline, sessionPattern, skipPattern, interaction, scheduleSuggestion }</td>
+</tr>
+</table>
+
+<h3 id="l3-cluster">4.4 用户聚类分析模块 (UserClusterAnalyzer) — 无监督学习</h3>
+
+<p>用户聚类<strong>不依赖 LLM</strong>，采用无监督学习算法从画像标签特征向量中自动发现听众群体。聚类标签由算法自动生成，而非预定义。模块预留接口以便未来与社交模块联动。</p>
+
+<h4>特征工程</h4>
+
+<p>将 UserProfile 中的标签转化为数值特征向量，供聚类算法消费：</p>
+
+<pre><code>// server/domain/profile/analyzers/UserClusterAnalyzer.js
+
+/**
+ * 将 UserProfile 标签转化为特征向量
+ * 每个维度归一化到 0-1，使用标签的 weight 值
+ */
+function buildFeatureVector(profile) {
+  const features = {};
+
+  // 1. 音乐流派特征（10 维）
+  const genres = ['pop','rock','folk','electronic','classical','jazz','hip-hop','rnb','metal','country'];
+  const genreTags = profile.tags.MusicPreference?.genre || [];
+  genres.forEach(g => {
+    const tag = genreTags.find(t => t.value === g);
+    features[`genre_${g}`] = tag ? tag.weight : 0;
+  });
+
+  // 2. 情绪特征（8 维）
+  const moods = ['欢快','忧伤','平静','激昂','怀旧','浪漫','治愈','暗黑'];
+  const moodTags = profile.tags.MusicPreference?.mood || [];
+  moods.forEach(m => {
+    const tag = moodTags.find(t => t.value === m);
+    features[`mood_${m}`] = tag ? tag.weight : 0;
+  });
+
+  // 3. 歌手地区特征（5 维）
+  const regions = ['华语','欧美','日韩','东南亚','其他'];
+  const regionTags = profile.tags.ArtistPreference?.regions || [];
+  regions.forEach(r => {
+    const tag = regionTags.find(t => t.value === r);
+    features[`region_${r}`] = tag ? tag.weight : 0;
+  });
+
+  // 4. 行为习惯特征（6 维）
+  features['habit_activePeriod_morning'] = profile.tags.BehaviorHabit?.activePeriod?.value === '早晨型' ? 1 : 0;
+  features['habit_activePeriod_afternoon'] = profile.tags.BehaviorHabit?.activePeriod?.value === '下午型' ? 1 : 0;
+  features['habit_activePeriod_evening'] = profile.tags.BehaviorHabit?.activePeriod?.value === '晚间型' ? 1 : 0;
+  features['habit_activePeriod_night'] = profile.tags.BehaviorHabit?.activePeriod?.value === '夜猫型' ? 1 : 0;
+  features['habit_skipRate'] = parseSkipRate(profile.tags.BehaviorHabit?.skipRate?.value);
+  features['habit_listenIntensity'] = parseIntensity(profile.tags.BehaviorHabit?.listenIntensity?.value);
+
+  // 5. 聊天风格特征（4 维）
+  features['chat_commandFreq'] = profile.tags.ChatStyle?.commandFrequency || 0;
+  features['chat_avgLength'] = normalizeLength(profile.tags.ChatStyle?.avgMessageLength);
+  features['chat_instructional'] = profile.tags.ChatStyle?.interactionMode === '指令型' ? 1 : 0;
+  features['chat_demanding'] = profile.tags.ChatStyle?.satisfactionPattern === '高要求' ? 1 : 0;
+
+  // 总维度: 10 + 8 + 5 + 6 + 4 = 33 维
+  return features;
+}
+</code></pre>
+
+<h4>聚类算法</h4>
+
+<table>
+<tr><th>算法</th><th>适用场景</th><th>选择理由</th></tr>
+<tr>
+  <td><strong>K-Means</strong>（主要）</td>
+  <td>单用户电台场景：将历史快照作为多个"虚拟用户"进行聚类</td>
+  <td>实现简单、可解释性强、簇中心即为典型画像</td>
+</tr>
+<tr>
+  <td>DBSCAN（备选）</td>
+  <td>社交模块上线后：多用户聚类，自动发现群体数量</td>
+  <td>无需预设 K 值，能发现任意形状的簇，自动识别异常点</td>
+</tr>
+</table>
+
+<h4>单用户场景的聚类策略</h4>
+
+<p>当前系统为单用户电台，聚类策略是将用户的<strong>历史画像快照</strong>作为多个时间节点的"虚拟用户"，发现用户自身的偏好演变模式：</p>
+
+<pre><code>class UserClusterAnalyzer extends BaseAnalyzer {
+  async analyze(profile) {
+    // 1. 获取历史画像快照（最近 30 个）
+    const snapshots = await profileSnapshotManager.recent(30);
+
+    // 2. 为每个快照构建特征向量
+    const featureVectors = snapshots.map(s => buildFeatureVector(s.profile));
+
+    // 3. 加入当前画像
+    featureVectors.push(buildFeatureVector(profile));
+
+    // 4. 自动确定最佳 K 值（轮廓系数 Silhouette Score）
+    const optimalK = this._findOptimalK(featureVectors);
+
+    // 5. 执行 K-Means 聚类
+    const clusters = this._kmeans(featureVectors, optimalK);
+
+    // 6. 为每个簇生成可解释标签
+    const labeledClusters = clusters.map(cluster => ({
+      clusterId: cluster.id,
+      centroid: cluster.centroid,
+      label: this._generateClusterLabel(cluster.centroid),  // 自动标签
+      memberSnapshots: cluster.members,
+      size: cluster.members.length,
+    }));
+
+    // 7. 确定当前画像所属簇
+    const currentCluster = labeledClusters[labeledClusters.length - 1];
+
+    return {
+      optimalK,
+      clusters: labeledClusters,
+      currentClusterId: currentCluster.clusterId,
+      currentClusterLabel: currentCluster.label,
+      clusterDistribution: this._computeDistribution(labeledClusters),
+    };
+  }
+
+  /**
+   * 根据簇中心特征自动生成标签
+   * 取权重最高的 3 个特征维度组合为标签
+   */
+  _generateClusterLabel(centroid) {
+    const sorted = Object.entries(centroid)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 3);
+    const parts = sorted.map(([k, v]) => {
+      // genre_pop → "流行", mood_怀旧 → "怀旧"
+      const [, value] = k.split('_');
+      return value;
+    });
+    return parts.join('·');  // 例: "pop·怀旧·晚间"
+  }
+
+  /**
+   * 轮廓系数自动选 K（2-8 范围）
+   */
+  _findOptimalK(vectors) {
+    let bestK = 2, bestScore = -1;
+    for (let k = 2; k <= Math.min(8, vectors.length - 1); k++) {
+      const result = this._kmeans(vectors, k);
+      const score = this._silhouette(vectors, result);
+      if (score > bestScore) { bestScore = score; bestK = k; }
+    }
+    return bestK;
+  }
+}
+</code></pre>
+
+<h4>聚类输出结构</h4>
+
+<pre><code>{
+  "optimalK": 3,
+  "clusters": [
+    {
+      "clusterId": 0,
+      "label": "pop·怀旧·晚间",
+      "centroid": { "genre_pop": 0.75, "mood_怀旧": 0.68, ... },
+      "memberSnapshots": ["2026-06-14T10:00:00Z", "2026-06-20T10:00:00Z"],
+      "size": 8
+    },
+    {
+      "clusterId": 1,
+      "label": "rock·激昂·下午",
+      "centroid": { "genre_rock": 0.62, "mood_激昂": 0.55, ... },
+      "memberSnapshots": ["2026-07-01T10:00:00Z"],
+      "size": 3
+    },
+    {
+      "clusterId": 2,
+      "label": "folk·平静·夜猫",
+      "centroid": { "genre_folk": 0.70, "mood_平静": 0.80, ... },
+      "memberSnapshots": ["2026-07-10T10:00:00Z"],
+      "size": 5
+    }
+  ],
+  "currentClusterId": 2,
+  "currentClusterLabel": "folk·平静·夜猫",
+  "clusterDistribution": [
+    { "label": "pop·怀旧·晚间", "ratio": 0.42 },
+    { "label": "folk·平静·夜猫", "ratio": 0.32 },
+    { "label": "rock·激昂·下午", "ratio": 0.26 }
+  ]
+}
+</code></pre>
+
+<h4>社交模块联动预留接口</h4>
+
+<div class="callout callout-info">
+<p>当前系统为单用户电台，但聚类模块预留完整的社交联动接口。未来社交模块上线后，多用户聚类可直接复用本模块，仅需将输入从"单用户历史快照"切换为"多用户当前画像"。</p>
+</div>
+
+<pre><code>// server/domain/profile/clusterPort.js — 聚类端口接口
+
+/**
+ * 聚类分发端口 — 预留社交模块联动
+ * 当前：单用户历史快照聚类
+ * 未来：多用户实时聚类 + 群体推荐 + 社交匹配
+ */
+export const clusterPort = {
+  /**
+   * 获取当前用户的聚类结果
+   * @returns {ClusterResult} 当前簇 ID、标签、分布
+   */
+  getCurrentCluster() {},
+
+  /**
+   * 获取所有簇的分布情况
+   * @returns {ClusterDistribution[]} 簇标签 + 成员比例
+   */
+  getClusterDistribution() {},
+
+  /**
+   * [社交预留] 查找同簇用户
+   * 当前返回空数组（单用户模式）
+   * 社交模块上线后返回同簇的其他用户
+   * @returns {string[]} 用户 ID 列表
+   */
+  findSimilarUsers(clusterId) { return []; },
+
+  /**
+   * [社交预留] 获取簇推荐
+   * 当前返回当前簇的中心画像推荐参数
+   * 社交模块上线后返回同簇群体的协同过滤推荐
+   * @returns {RecommendationParams}
+   */
+  getClusterRecommendations(clusterId) {},
+
+  /**
+   * [社交预留] 聚类变化订阅
+   * 社交模块可订阅聚类变化事件
+   * @param {Function} callback
+   */
+  onClusterChange(callback) {},
+
+  /**
+   * [社交预留] 导出聚类数据
+   * 供社交模块或数据分析使用
+   * @returns {ExportableClusterData}
+   */
+  exportClusterData() {},
+};
+
+// ─── 未来社交模块联动场景 ───
+// 1. 同簇用户推荐：发现品味相似的用户，推荐其歌单
+// 2. 簇间推荐：推荐相邻簇的探索性内容
+// 3. 群体趋势：统计各簇的热门歌曲/歌手，推送趋势
+// 4. 社交匹配：基于簇标签匹配好友
+// 5. 协同过滤：同簇用户的听歌行为互相增强推荐
+</code></pre>
+
+<h4>新增数据库表</h4>
+
+<pre><code>-- 聚类结果缓存表（新增）
+CREATE TABLE IF NOT EXISTS cluster_results (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cluster_json TEXT NOT NULL,         -- 完整聚类结果 JSON
+  optimal_k INTEGER,
+  current_cluster_id INTEGER,
+  current_cluster_label TEXT,
+  computed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 聚类-用户映射表（社交预留，当前仅存当前用户）
+CREATE TABLE IF NOT EXISTS cluster_user_mapping (
+  cluster_id INTEGER,
+  user_id TEXT,                       -- 当前为 'self'，社交上线后为真实用户 ID
+  cluster_label TEXT,
+  joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (cluster_id, user_id)
+);
+</code></pre>
+
+<h4>新增 Prometheus 指标</h4>
+
+<pre><code>// 聚类相关指标
+profile_cluster_count           // 当前簇数量（Gauge）
+profile_cluster_current_id      // 当前所属簇 ID（Gauge）
+profile_cluster_silhouette      // 轮廓系数（Gauge，聚类质量指标）
+profile_cluster_runs_total      // 聚类执行次数（Counter）
+</code></pre>
+
+<h3 id="l3-recommend">4.5 推荐增强模块 (RecommendationEnhancer)</h3>
+
+<p>将画像标签转化为推荐参数，增强现有 <code>recommender.js</code> 的 <code>fillQueue</code> 策略。</p>
+
+<table>
+<tr><th>现有策略</th><th>画像增强</th></tr>
+<tr><td><code>genreHints</code> — 始终为空</td><td>从 <code>MusicPreference.genre</code> Top 3 填充</td></tr>
+<tr><td><code>topArtists</code> — 仅按播放频次</td><td>加入权重+置信度+衰减，更准确</td></tr>
+<tr><td><code>topGenres</code> — 从未写入</td><td>从 <code>MusicPreference.subGenre</code> 填充</td></tr>
+<tr><td>无情绪感知</td><td>根据 <code>EmotionProfile.currentMood</code> 调整推荐基调</td></tr>
+<tr><td>无时段感知</td><td>根据 <code>EnvironmentalContext.timePreference</code> 调整</td></tr>
+</table>
+
+<h3 id="l3-agent">4.6 Agent 上下文提供模块 (AgentContextProvider)</h3>
+
+<p>为 ReAct Agent 提供精简的画像上下文，注入 system prompt。</p>
+
+<pre><code>// 生成的 Agent 上下文块（注入 context.js 的 slotMemory）
+`[听众画像]
+核心风格: 华语流行、独立流行 | 偏好歌手: 周杰伦、陈奕迅
+活跃时段: 晚间型 | 情绪状态: 放松/怀旧
+聊天风格: 简洁指令型，高要求 | 跳过率: 低(12%)
+听众原型: 深夜文艺青年(0.82)
+当前天气: 西安 26°C 阴 | 建议: 适合播放舒缓怀旧风格`
+
+// 同时新增 Agent 工具: get_user_profile_detail
+// Agent 可按需检索完整画像（Profile-as-Tool 模式）
+</code></pre>
+
+<h3 id="l3-schedule">4.7 分析调度策略</h3>
+
+<table>
+<tr><th>触发方式</th><th>执行模块</th><th>频率</th></tr>
+<tr><td><strong>首次启动全量</strong></td><td>全部 6 个模块</td><td><strong>仅首次启动时一次性执行</strong></td></tr>
+<tr><td>定期分析</td><td>全部模块并行</td><td>每 100 小时</td></tr>
+<tr><td>条件触发</td><td>ChatClusterAnalyzer + 全部模块</td><td>≥10 条新聊天消息 或 画像标签变化 ≥20%</td></tr>
+<tr><td>实时情绪刷新</td><td>仅 EmotionAnalyzer</td><td>每首歌播放时</td></tr>
+<tr><td>Agent 请求</td><td>仅 AgentContextProvider</td><td>按需（缓存 5 分钟）</td></tr>
+<tr><td>推荐请求</td><td>仅 RecommendationEnhancer</td><td>按需（缓存 10 分钟）</td></tr>
+<tr><td>Dashboard 请求</td><td>全部模块（读缓存）</td><td>按需</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<h2 id="viz" class="cross">五、可视化系统集成</h2>
+
+<p>画像系统接入现有 Dashboard（<code>/dashboard</code>），新增画像监控面板，实时展示标签状态和分析结果。</p>
+
+<h3>5.1 新增 Dashboard 面板</h3>
+
+<table>
+<tr><th>面板</th><th>内容</th><th>数据源</th></tr>
+<tr><td>标签云</td><td>按权重大小展示 Top 30 标签，颜色按类别区分</td><td><code>dashboard:profile-update</code> 事件</td></tr>
+<tr><td>画像雷达图</td><td>6 维度（音乐/歌手/行为/情绪/聊天/环境）综合评分</td><td>分析结果缓存</td></tr>
+<tr><td>情绪时间线</td><td>最近 7 天情绪变化曲线</td><td>EmotionAnalyzer 历史</td></tr>
+<tr><td>风格演化图</td><td>最近 4 周风格偏好变化堆叠面积图</td><td>profile_snapshots 表</td></tr>
+<tr><td>听众原型卡片</td><td>当前聚类结果 + 置信度</td><td>UserClusterAnalyzer</td></tr>
+<tr><td>采集状态</td><td>各采集器最后运行时间、数据量、网络搜索/LLM 调用次数</td><td>新增 metrics</td></tr>
+<tr><td>元数据来源分布</td><td>网络搜索 vs LLM 兜底占比饼图</td><td>song_metadata/artist_metadata source 字段统计</td></tr>
+</table>
+
+<h3>5.2 新增 Prometheus 指标</h3>
+
+<pre><code>// 新增 Gauge 指标
+profile_tag_count           // 当前标签总数
+profile_tag_count{category}  // 按类别的标签数
+profile_confidence_avg       // 平均置信度
+profile_version              // 当前画像版本号
+profile_data_points          // 数据点总量
+
+// 新增 Counter 指标
+profile_collection_runs_total{collector}     // 采集器执行次数
+profile_enrichment_web_searches_total{source} // 网络搜索次数（musicbrainz/wiki/netease）
+profile_enrichment_llm_calls_total{type}      // LLM 兜底调用次数
+profile_analysis_runs_total{module}           // 分析模块执行次数
+profile_snapshot_created_total                // 快照创建次数
+profile_first_run_completed                   // 首次启动全量构建完成标志
+profile_cluster_runs_total                    // 聚类执行次数
+profile_cluster_count                         // 当前簇数量（Gauge）
+profile_cluster_silhouette                    // 轮廓系数（Gauge，聚类质量）
+</code></pre>
+
+<h3>5.3 新增 Socket.IO 事件</h3>
+
+<table>
+<tr><th>事件</th><th>方向</th><th>频率</th><th>内容</th></tr>
+<tr><td><code>dashboard:profile-update</code></td><td>Server → Dashboard</td><td>画像更新时</td><td>变更的标签列表 + 新权重</td></tr>
+<tr><td><code>dashboard:profile-snapshot</code></td><td>Server → Dashboard</td><td>每 100 小时 + 首次启动</td><td>完整画像快照</td></tr>
+<tr><td><code>dashboard:analysis-result</code></td><td>Server → Dashboard</td><td>分析完成时</td><td>分析模块结果</td></tr>
+<tr><td><code>dashboard:enrichment-progress</code></td><td>Server → Dashboard</td><td>增强进行中</td><td>当前处理进度</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<h2 id="ext" class="cross">六、扩展性架构</h2>
+
+<div class="callout callout-info">
+<p><strong>设计原则：</strong>所有算法、数据源、标签维度、分析模块均为<strong>可替换插件</strong>。核心代码只定义接口契约和编排流程，具体实现通过配置文件和依赖注入完成。新增功能 = 新增文件 + 配置注册，<strong>不修改现有代码</strong>。</p>
+</div>
+
+<h3>6.1 扩展点全景图</h3>
+
+<table>
+<tr><th>扩展点</th><th>接口基类</th><th>配置注册</th><th>替换方式</th></tr>
+<tr><td>数据采集器</td><td><code>BaseCollector</code></td><td><code>collectors.config.json</code></td><td>实现接口 + 配置注册</td></tr>
+<tr><td>元数据搜索提供者</td><td><code>BaseSearchProvider</code></td><td><code>enrichment-chain.config.json</code></td><td>实现接口 + 配置链路顺序</td></tr>
+<tr><td>LLM 适配器</td><td><code>LlmAdapter</code></td><td><code>llm.config.json</code></td><td>实现接口 + 替换注入</td></tr>
+<tr><td>权重计算公式</td><td><code>WeightStrategy</code></td><td><code>weight-strategy.config.json</code></td><td>实现接口 + 配置选择</td></tr>
+<tr><td>衰减函数</td><td><code>DecayStrategy</code></td><td><code>decay-strategy.config.json</code></td><td>实现接口 + 配置选择</td></tr>
+<tr><td>聚类算法</td><td><code>ClusterStrategy</code></td><td><code>cluster-strategy.config.json</code></td><td>实现接口 + 配置选择</td></tr>
+<tr><td>分析模块</td><td><code>BaseAnalyzer</code></td><td><code>analyzers.config.json</code></td><td>实现接口 + 配置注册</td></tr>
+<tr><td>标签维度</td><td>JSON Schema</td><td><code>tag-taxonomy.json</code></td><td>纯配置，无需代码</td></tr>
+<tr><td>推荐策略</td><td><code>RecommendationStrategy</code></td><td><code>recommendation-strategy.config.json</code></td><td>实现接口 + 配置注册</td></tr>
+<tr><td>可视化面板</td><td><code>BaseDashboardPanel</code></td><td><code>dashboard-panels.config.json</code></td><td>实现接口 + 配置注册</td></tr>
+</table>
+
+<h3>6.2 接口契约定义</h3>
+
+<h4>采集器接口 — BaseCollector</h4>
+<pre><code>// server/domain/profile/collectors/BaseCollector.js
+class BaseCollector {
+  /** @returns {string} 采集器唯一名称 */
+  get name() { throw new Error('Not implemented'); }
+
+  /** @returns {string} 采集器描述 */
+  get description() { return ''; }
+
+  /**
+   * 执行数据采集
+   * @param {Object} context - 采集上下文（DB 连接、musicSource、weather 等）
+   * @returns {Promise&lt;RawDataChunk&gt;} 标准化数据块
+   */
+  async collect(context) { throw new Error('Not implemented'); }
+
+  /** @returns {boolean} 采集器是否就绪 */
+  isReady() { return true; }
+
+  /**
+   * [可选] 首次启动时的特殊采集逻辑
+   * 默认调用 collect()
+   * @param {Object} context
+   * @returns {Promise&lt;RawDataChunk&gt;}
+   */
+  async collectFirstRun(context) { return this.collect(context); }
+}
+</code></pre>
+
+<h4>搜索提供者接口 — BaseSearchProvider</h4>
+<pre><code>// server/domain/profile/collectors/search/BaseSearchProvider.js
+class BaseSearchProvider {
+  /** @returns {string} 提供者名称 */
+  get name() { throw new Error('Not implemented'); }
+
+  /**
+   * 搜索歌曲元数据
+   * @param {{title: string, artist: string, songId: string}} song
+   * @returns {Promise&lt;SongMetadata|null&gt;} 元数据或 null
+   */
+  async searchSong(song) { throw new Error('Not implemented'); }
+
+  /**
+   * 搜索歌手元数据
+   * @param {{name: string, artistId?: string}} artist
+   * @returns {Promise&lt;ArtistMetadata|null&gt;} 元数据或 null
+   */
+  async searchArtist(artist) { throw new Error('Not implemented'); }
+
+  /** @returns {number} 此提供者的默认置信度 (0-1) */
+  get defaultConfidence() { return 0.8; }
+}
+</code></pre>
+
+<h4>权重计算策略 — WeightStrategy</h4>
+<pre><code>// server/domain/profile/builders/WeightStrategy.js
+class WeightStrategy {
+  /** @returns {string} 策略名称 */
+  get name() { throw new Error('Not implemented'); }
+
+  /**
+   * 计算标签权重
+   * @param {TagEvidence[]} evidence - 支撑该标签的证据列表
+   * @param {Object} context - 上下文（maxPlayCount、skipRate 等）
+   * @returns {number} 权重值 0-1
+   */
+  calculate(evidence, context) { throw new Error('Not implemented'); }
+}
+
+// ─── 默认实现：频次×时间衰减×置信度 ───
+class DefaultWeightStrategy extends WeightStrategy {
+  get name() { return 'default'; }
+  calculate(evidence, context) {
+    const freqScore = Math.min(evidence.length / 10, 1.0);
+    const recencyScore = Math.pow(0.95, this._weeksSince(evidence[0]?.playedAt));
+    const confScore = evidence.reduce((s, e) => s + (e.confidence || 0.7), 0) / evidence.length;
+    const skipPenalty = context.skipRate ? (1 - context.skipRate * 0.5) : 1;
+    return freqScore * recencyScore * confScore * skipPenalty;
+  }
+}
+</code></pre>
+
+<h4>衰减策略 — DecayStrategy</h4>
+<pre><code>// server/domain/profile/builders/DecayStrategy.js
+class DecayStrategy {
+  /** @returns {string} 策略名称 */
+  get name() { throw new Error('Not implemented'); }
+
+  /**
+   * 计算衰减后的权重
+   * @param {number} currentWeight - 当前权重
+   * @param {number} weeksSinceLastEvidence - 距上次证据的周数
+   * @returns {number} 衰减后权重
+   */
+  apply(currentWeight, weeksSinceLastEvidence) { throw new Error('Not implemented'); }
+
+  /** @returns {number} 权重低于此值时标记为休眠 */
+  get hibernateThreshold() { return 0.1; }
+}
+
+// ─── 默认实现：Ebbinghaus 遗忘曲线 ───
+class EbbinghausDecayStrategy extends DecayStrategy {
+  get name() { return 'ebbinghaus'; }
+  apply(currentWeight, weeks) {
+    return currentWeight * Math.pow(0.95, weeks);
+  }
+}
+</code></pre>
+
+<h4>聚类策略 — ClusterStrategy</h4>
+<pre><code>// server/domain/profile/analyzers/ClusterStrategy.js
+class ClusterStrategy {
+  /** @returns {string} 策略名称 */
+  get name() { throw new Error('Not implemented'); }
+
+  /**
+   * 执行聚类
+   * @param {number[][]} vectors - 特征向量数组
+   * @param {Object} options - 聚类参数
+   * @returns {ClusterResult} 聚类结果
+   */
+  cluster(vectors, options) { throw new Error('Not implemented'); }
+
+  /**
+   * [可选] 自动选择最优参数（如 K 值）
+   * @param {number[][]} vectors
+   * @returns {Object} 最优参数
+   */
+  autoTune(vectors) { return {}; }
+}
+
+// ─── K-Means 实现 ───
+class KMeansClusterStrategy extends ClusterStrategy {
+  get name() { return 'kmeans'; }
+  cluster(vectors, options) { /* K-Means 实现 */ }
+  autoTune(vectors) { /* 轮廓系数选 K */ }
+}
+
+// ─── DBSCAN 实现（社交模块上线后启用） ───
+class DBSCANClusterStrategy extends ClusterStrategy {
+  get name() { return 'dbscan'; }
+  cluster(vectors, options) { /* DBSCAN 实现 */ }
+}
+</code></pre>
+
+<h4>分析器接口 — BaseAnalyzer</h4>
+<pre><code>// server/domain/profile/analyzers/BaseAnalyzer.js
+class BaseAnalyzer {
+  /** @returns {string} 分析器名称 */
+  get name() { throw new Error('Not implemented'); }
+
+  /** @returns {string[]} 依赖的画像标签类别 */
+  get requiredTagCategories() { return []; }
+
+  /**
+   * 执行分析
+   * @param {UserProfile} profile - 用户画像
+   * @param {Object} context - 分析上下文（snapshots、weather、queue 等）
+   * @returns {Promise&lt;AnalysisResult&gt;} 分析结果
+   */
+  async analyze(profile, context) { throw new Error('Not implemented'); }
+
+  /** @returns {boolean} 是否满足分析条件（如数据量是否足够） */
+  canAnalyze(profile) { return true; }
+}
+</code></pre>
+
+<h4>推荐策略接口 — RecommendationStrategy</h4>
+<pre><code>// server/domain/profile/analyzers/RecommendationStrategy.js
+class RecommendationStrategy {
+  /** @returns {string} 策略名称 */
+  get name() { throw new Error('Not implemented'); }
+
+  /**
+   * 基于画像生成推荐参数
+   * @param {UserProfile} profile
+   * @param {Object} context - 上下文（currentSong、weather、timeOfDay 等）
+   * @returns {Promise&lt;RecommendationParams&gt;} 推荐参数
+   */
+  async recommend(profile, context) { throw new Error('Not implemented'); }
+}
+</code></pre>
+
+<h3>6.3 配置文件体系</h3>
+
+<p>所有可变参数通过 JSON 配置文件管理，位于 <code>server/domain/profile/config/</code> 目录。配置文件支持版本号，变更时递增版本并编写迁移脚本。</p>
+
+<div class="file-tree">
+<span class="dir">server/domain/profile/config/</span>
+├── <span class="file">tag-taxonomy.json</span>              <span class="comment"># 标签分类体系（6 大类，N 维度）</span>
+├── <span class="file">collectors.config.json</span>          <span class="comment"># 采集器注册与调度</span>
+├── <span class="file">enrichment-chain.config.json</span>    <span class="comment"># 元数据获取降级链</span>
+├── <span class="file">weight-strategy.config.json</span>     <span class="comment"># 权重计算策略选择</span>
+├── <span class="file">decay-strategy.config.json</span>      <span class="comment"># 衰减函数策略选择</span>
+├── <span class="file">cluster-strategy.config.json</span>    <span class="comment"># 聚类算法选择与参数</span>
+├── <span class="file">analyzers.config.json</span>           <span class="comment"># 分析模块注册与调度</span>
+├── <span class="file">recommendation-strategy.config.json</span> <span class="comment"># 推荐策略注册</span>
+├── <span class="file">schedule.config.json</span>            <span class="comment"># 全局调度参数</span>
+└── <span class="file">migration/</span>                      <span class="comment"># 版本迁移脚本</span>
+    ├── <span class="file">v1_to_v2.js</span>                   <span class="comment"># 标签体系 v1 → v2 迁移</span>
+    └── <span class="file">README.md</span>                    <span class="comment"># 迁移规范</span>
+</div>
+
+<h4>配置文件示例</h4>
+
+<pre><code>// collectors.config.json — 采集器注册
+{
+  "version": 1,
+  "collectors": [
+    {
+      "name": "ListenHistoryCollector",
+      "module": "./collectors/ListenHistoryCollector.js",
+      "enabled": true,
+      "trigger": { "type": "event+periodic", "event": "song:ended", "periodHours": 100 }
+    },
+    {
+      "name": "SongMetadataEnricher",
+      "module": "./collectors/SongMetadataEnricher.js",
+      "enabled": true,
+      "trigger": { "type": "incremental", "watchTable": "listen_history" }
+    }
+  ]
+}
+
+// enrichment-chain.config.json — 降级链配置
+{
+  "version": 1,
+  "songChain": [
+    { "provider": "NeteaseTagSearcher", "enabled": true, "timeout": 3000 },
+    { "provider": "MusicBrainzSearcher", "enabled": true, "timeout": 5000 },
+    { "provider": "WikiSearcher", "enabled": true, "timeout": 5000 },
+    { "provider": "LLMEnricher", "enabled": true, "timeout": 10000, "batchSize": 15 }
+  ],
+  "artistChain": [
+    { "provider": "NeteaseTagSearcher", "enabled": true, "timeout": 3000 },
+    { "provider": "MusicBrainzSearcher", "enabled": true, "timeout": 5000 },
+    { "provider": "WikiSearcher", "enabled": true, "timeout": 5000 },
+    { "provider": "LLMEnricher", "enabled": true, "timeout": 10000, "batchSize": 10 }
+  ]
+}
+
+// weight-strategy.config.json
+{
+  "version": 1,
+  "strategy": "default",
+  "params": {
+    "frequencyNormalization": "max",
+    "recencyDecayFactor": 0.95,
+    "recencyUnit": "week",
+    "skipPenaltyFactor": 0.5,
+    "completeRewardFactor": 0.2
+  }
+}
+
+// cluster-strategy.config.json
+{
+  "version": 1,
+  "strategy": "kmeans",
+  "params": {
+    "minK": 2,
+    "maxK": 8,
+    "autoTune": true,
+    "autoTuneMetric": "silhouette",
+    "maxIterations": 100,
+    "featureDimensions": 33
+  },
+  "fallback": {
+    "strategy": "dbscan",
+    "trigger": "vectors>100",
+    "params": { "eps": 0.5, "minSamples": 3 }
+  }
+}
+
+// schedule.config.json — 全局调度
+{
+  "version": 1,
+  "analysisIntervalHours": 100,
+  "firstRunMode": "full",
+  "conditionalTriggers": {
+    "chatCluster": { "newMessagesThreshold": 10 },
+    "analysisRerun": { "tagChangeRatioThreshold": 0.20 }
+  },
+  "snapshotRetention": 30,
+  "hibernateThreshold": 0.1,
+  "hibernateAfterWeeks": 4
+}
+</code></pre>
+
+<h3>6.4 事件总线 — 模块间松耦合通信</h3>
+
+<p>各层之间通过事件总线通信，而非直接调用。新增模块只需订阅事件，不影响现有模块。</p>
+
+<pre><code>// server/domain/profile/events/ProfileEventBus.js
+import { EventEmitter } from 'events';
+
+class ProfileEventBus extends EventEmitter {
+  // ─── 采集层事件 ───
+  // 'collection:started'    { collector, timestamp }
+  // 'collection:completed'  { collector, chunk, duration }
+  // 'collection:failed'     { collector, error }
+  // 'enrichment:progress'   { processed, total, source }
+  // 'enrichment:cache-hit'  { songId, source }
+
+  // ─── 构建层事件 ───
+  // 'profile:building'      { version, chunkCount }
+  // 'profile:updated'       { version, changedTags, newTags }
+  // 'profile:snapshot'      { version, snapshot }
+  // 'tag:hibernated'        { category, dimension, value }
+
+  // ─── 分析层事件 ───
+  // 'analysis:started'      { module }
+  // 'analysis:completed'    { module, result }
+  // 'cluster:changed'       { oldCluster, newCluster, label }
+  // 'emotion:shifted'       { oldMood, newMood, trigger }
+
+  // ─── 社交预留事件 ───
+  // 'cluster:user-joined'   { userId, clusterId }    // 社交模块上线后
+  // 'cluster:user-left'     { userId, clusterId }    // 社交模块上线后
+}
+
+export const profileEventBus = new ProfileEventBus();
+</code></pre>
+
+<table>
+<tr><th>事件</th><th>发布者</th><th>订阅者</th><th>用途</th></tr>
+<tr><td><code>profile:updated</code></td><td>ProfileBuilder</td><td>DashboardEmitter、条件触发检查器</td><td>推送标签变更到 Dashboard</td></tr>
+<tr><td><code>enrichment:progress</code></td><td>SongMetadataEnricher</td><td>DashboardEmitter</td><td>显示增强进度</td></tr>
+<tr><td><code>cluster:changed</code></td><td>UserClusterAnalyzer</td><td>clusterPort、DashboardEmitter</td><td>触发社交联动</td></tr>
+<tr><td><code>emotion:shifted</code></td><td>EmotionAnalyzer</td><td>RecommendationEnhancer</td><td>情绪变化触发推荐刷新</td></tr>
+<tr><td><code>tag:hibernated</code></td><td>DecayApplier</td><td>DashboardEmitter</td><td>标签休眠通知</td></tr>
+</table>
+
+<h3>6.5 目录结构（完整版）</h3>
+
+<div class="file-tree">
+<span class="dir">server/domain/profile/</span>
+├── <span class="dir">collectors/</span>                    <span class="comment"># 第一层：数据采集</span>
+│   ├── <span class="file">BaseCollector.js</span>              <span class="comment"># 采集器基类</span>
+│   ├── <span class="file">ListenHistoryCollector.js</span>     <span class="comment"># 播放历史采集</span>
+│   ├── <span class="file">ChatHistoryCollector.js</span>       <span class="comment"># 聊天记录采集</span>
+│   ├── <span class="file">SeedPoolCollector.js</span>          <span class="comment"># 种子池采集</span>
+│   ├── <span class="file">EnvironmentalCollector.js</span>     <span class="comment"># 环境/天气/指标采集</span>
+│   ├── <span class="file">SongMetadataEnricher.js</span>       <span class="comment"># 歌曲元数据增强（四级降级）</span>
+│   ├── <span class="file">ArtistMetadataEnricher.js</span>     <span class="comment"># 歌手元数据增强（四级降级）</span>
+│   ├── <span class="file">ChatStyleAnalyzer.js</span>          <span class="comment"># 聊天风格分析（LLM）</span>
+│   ├── <span class="file">RecommendationIntegrator.js</span>   <span class="comment"># 画像驱动推荐搜索集成</span>
+│   └── <span class="dir">search/</span>                    <span class="comment"># 搜索提供者（可插拔）</span>
+│       ├── <span class="file">BaseSearchProvider.js</span>     <span class="comment"># 搜索提供者基类</span>
+│       ├── <span class="file">NeteaseTagSearcher.js</span>     <span class="comment"># 网易云 API 标签</span>
+│       ├── <span class="file">MusicBrainzSearcher.js</span>    <span class="comment"># MusicBrainz API</span>
+│       ├── <span class="file">WikiSearcher.js</span>           <span class="comment"># 百度百科/维基百科</span>
+│       └── <span class="file">LLMEnricher.js</span>            <span class="comment"># LLM 兜底增强器</span>
+│
+├── <span class="dir">builders/</span>                       <span class="comment"># 第二层：画像构建</span>
+│   ├── <span class="file">TagMapper.js</span>                  <span class="comment"># 数据→标签映射器</span>
+│   ├── <span class="file">WeightStrategy.js</span>             <span class="comment"># 权重策略基类 + 默认实现</span>
+│   ├── <span class="file">DecayStrategy.js</span>              <span class="comment"># 衰减策略基类 + Ebbinghaus 实现</span>
+│   ├── <span class="file">ConflictResolver.js</span>           <span class="comment"># 标签冲突解决</span>
+│   ├── <span class="file">ProfileBuilder.js</span>             <span class="comment"># 构建流水线编排</span>
+│   ├── <span class="file">ProfileStore.js</span>               <span class="comment"># 画像持久化</span>
+│   ├── <span class="file">ProfileSnapshotManager.js</span>     <span class="comment"># 快照管理</span>
+│   └── <span class="file">SchemaMigrator.js</span>             <span class="comment"># 画像 Schema 版本迁移</span>
+│
+├── <span class="dir">analyzers/</span>                       <span class="comment"># 第三层：多维分析</span>
+│   ├── <span class="file">BaseAnalyzer.js</span>               <span class="comment"># 分析器基类</span>
+│   ├── <span class="file">ClusterStrategy.js</span>            <span class="comment"># 聚类策略基类 + K-Means/DBSCAN 实现</span>
+│   ├── <span class="file">EmotionAnalyzer.js</span>            <span class="comment"># 情绪分析</span>
+│   ├── <span class="file">StylePreferenceAnalyzer.js</span>    <span class="comment"># 风格爱好分析</span>
+│   ├── <span class="file">DailyHabitAnalyzer.js</span>         <span class="comment"># 日常习惯分析</span>
+│   ├── <span class="file">UserClusterAnalyzer.js</span>        <span class="comment"># 用户聚类（使用 ClusterStrategy）</span>
+│   ├── <span class="file">RecommendationStrategy.js</span>     <span class="comment"># 推荐策略基类 + 默认实现</span>
+│   ├── <span class="file">RecommendationEnhancer.js</span>     <span class="comment"># 推荐增强（使用 RecommendationStrategy）</span>
+│   └── <span class="file">AgentContextProvider.js</span>       <span class="comment"># Agent 上下文</span>
+│
+├── <span class="dir">plugins/</span>                         <span class="comment"># 扩展点</span>
+│   └── <span class="file">PluginRegistry.js</span>             <span class="comment"># 插件注册中心</span>
+│
+├── <span class="dir">events/</span>                          <span class="comment"># 事件总线</span>
+│   └── <span class="file">ProfileEventBus.js</span>            <span class="comment"># 事件总线（EventEmitter）</span>
+│
+├── <span class="dir">visualization/</span>                   <span class="comment"># 可视化集成</span>
+│   ├── <span class="file">ProfileMetrics.js</span>             <span class="comment"># Prometheus 指标定义</span>
+│   └── <span class="file">ProfileDashboardEmitter.js</span>    <span class="comment"># Socket.IO 事件推送</span>
+│
+├── <span class="dir">config/</span>                          <span class="comment"># 可配置项（全部 JSON）</span>
+│   ├── <span class="file">tag-taxonomy.json</span>             <span class="comment"># 标签分类体系</span>
+│   ├── <span class="file">collectors.config.json</span>        <span class="comment"># 采集器注册与调度</span>
+│   ├── <span class="file">enrichment-chain.config.json</span>  <span class="comment"># 元数据降级链</span>
+│   ├── <span class="file">weight-strategy.config.json</span>   <span class="comment"># 权重策略</span>
+│   ├── <span class="file">decay-strategy.config.json</span>    <span class="comment"># 衰减策略</span>
+│   ├── <span class="file">cluster-strategy.config.json</span>  <span class="comment"># 聚类策略</span>
+│   ├── <span class="file">analyzers.config.json</span>         <span class="comment"># 分析器注册</span>
+│   ├── <span class="file">recommendation-strategy.config.json</span>
+│   ├── <span class="file">schedule.config.json</span>          <span class="comment"># 全局调度</span>
+│   └── <span class="dir">migration/</span>                    <span class="comment"># 版本迁移脚本</span>
+│
+├── <span class="file">ProfileOrchestrator.js</span>           <span class="comment"># 三层编排器（入口）</span>
+├── <span class="file">profilePort.js</span>                   <span class="comment"># 端口接口（D8 兼容）</span>
+└── <span class="file">clusterPort.js</span>                   <span class="comment"># 聚类分发端口（社交预留）</span>
+</div>
+
+<h3>6.6 扩展场景全集</h3>
+
+<table>
+<tr><th>#</th><th>扩展场景</th><th>操作</th><th>改动范围</th></tr>
+<tr><td>1</td><td>新增"曲风 BPM"标签维度</td><td>tag-taxonomy.json 添加维度 + enrichment prompt 加字段</td><td>仅配置</td></tr>
+<tr><td>2</td><td>新增"睡眠质量"分析模块</td><td>实现 BaseAnalyzer + analyzers.config.json 注册</td><td>仅新增文件</td></tr>
+<tr><td>3</td><td>新增 Spotify 数据源</td><td>实现 BaseCollector + collectors.config.json 注册</td><td>仅新增文件</td></tr>
+<tr><td>4</td><td>替换 LLM 为 GPT-4</td><td>实现 LlmAdapter + llm.config.json 切换</td><td>仅新增 + 配置</td></tr>
+<tr><td>5</td><td>替换 K-Means 为层次聚类</td><td>实现 ClusterStrategy + cluster-strategy.config.json 切换</td><td>仅新增 + 配置</td></tr>
+<tr><td>6</td><td>替换 Ebbinghaus 衰减为线性衰减</td><td>实现 DecayStrategy + decay-strategy.config.json 切换</td><td>仅新增 + 配置</td></tr>
+<tr><td>7</td><td>修改权重计算公式</td><td>实现 WeightStrategy + weight-strategy.config.json 切换</td><td>仅新增 + 配置</td></tr>
+<tr><td>8</td><td>新增网络搜索源（Discogs）</td><td>实现 BaseSearchProvider + enrichment-chain.config.json 插入链路</td><td>仅新增 + 配置</td></tr>
+<tr><td>9</td><td>调整降级链顺序（Wiki 优先于 MusicBrainz）</td><td>修改 enrichment-chain.config.json 数组顺序</td><td>仅配置</td></tr>
+<tr><td>10</td><td>调整分析频率 100h → 72h</td><td>修改 schedule.config.json</td><td>仅配置</td></tr>
+<tr><td>11</td><td>调整条件触发阈值（10 条消息 → 5 条）</td><td>修改 schedule.config.json</td><td>仅配置</td></tr>
+<tr><td>12</td><td>标签体系升级 v2（新增"音乐复杂度"维度）</td><td>tag-taxonomy.json 版本+1 + migration/v1_to_v2.js</td><td>配置 + 迁移</td></tr>
+<tr><td>13</td><td>新增推荐策略（协同过滤）</td><td>实现 RecommendationStrategy + recommendation-strategy.config.json 注册</td><td>仅新增 + 配置</td></tr>
+<tr><td>14</td><td>接入社交模块</td><td>clusterPort 已预留 + 订阅 cluster:changed 事件 + DBSCAN 策略切换</td><td>仅新增</td></tr>
+<tr><td>15</td><td>新增 Dashboard 面板（BPM 分布图）</td><td>实现面板组件 + dashboard-panels.config.json 注册</td><td>仅新增 + 配置</td></tr>
+<tr><td>16</td><td>新增 Agent 工具（get_cluster_info）</td><td>实现工具 + ToolFactory 注册</td><td>仅新增</td></tr>
+<tr><td>17</td><td>禁用某个采集器</td><td>collectors.config.json 中 enabled: false</td><td>仅配置</td></tr>
+<tr><td>18</td><td>禁用某个分析器</td><td>analyzers.config.json 中 enabled: false</td><td>仅配置</td></tr>
+</table>
+
+<h3>6.7 版本化与迁移策略</h3>
+
+<table>
+<tr><th>版本化对象</th><th>版本字段</th><th>迁移方式</th></tr>
+<tr><td>标签体系</td><td><code>tag-taxonomy.json → version</code></td><td>SchemaMigrator 自动执行迁移脚本，新增维度向下兼容</td></tr>
+<tr><td>画像 JSON</td><td><code>schemaVersion</code></td><td>读取时检测版本，自动迁移到最新</td></tr>
+<tr><td>配置文件</td><td>各自 <code>version</code> 字段</td><td>启动时校验版本，不兼容时报错</td></tr>
+<tr><td>数据库表</td><td>SQLite schema 版本</td><td>initDb 时自动 ALTER TABLE 添加新列</td></tr>
+</table>
+
+<pre><code>// server/domain/profile/builders/SchemaMigrator.js
+class SchemaMigrator {
+  constructor() {
+    this.migrations = new Map();  // version → migrate function
+  }
+
+  register(fromVersion, toVersion, migrateFn) {
+    this.migrations.set(`${fromVersion}→${toVersion}`, migrateFn);
+  }
+
+  migrate(profile) {
+    let current = profile.schemaVersion;
+    while (current < TARGET_SCHEMA_VERSION) {
+      const key = `${current}→${current + 1}`;
+      const migrateFn = this.migrations.get(key);
+      if (!migrateFn) throw new Error(`No migration for ${key}`);
+      profile = migrateFn(profile);
+      profile.schemaVersion = ++current;
+    }
+    return profile;
+  }
+}
+
+// 迁移脚本示例: v1 → v2 (新增"音乐复杂度"维度)
+migrator.register(1, 2, (profile) => {
+  profile.tags.MusicPreference.complexity = [];  // 新增空维度
+  return profile;
+});
+</code></pre>
+
+<h3>6.8 D8 架构合规</h3>
+
+<div class="callout callout-warn">
+<p>遵循项目硬约束：仅 <code>server/bootstrap.js</code> 可跨层导入。画像系统通过 <code>profilePort.js</code> 暴露端口接口，<code>bootstrap.js</code> 在组合根中完成依赖注入。</p>
+</div>
+
+<pre><code>// server/domain/profile/profilePort.js — 端口接口
+export const profilePort = {
+  // ─── 采集层 ───
+  collectAll: () => Promise&lt;RawDataChunk[]&gt;,
+  enrichSongMetadata: (songs) => Promise&lt;void&gt;,
+  enrichArtistMetadata: (artists) => Promise&lt;void&gt;,
+
+  // ─── 构建层 ───
+  buildProfile: (chunks) => Promise&lt;UserProfile&gt;,
+  getProfile: () => UserProfile,
+  getProfileSnapshot: (version) => ProfileSnapshot,
+  getSnapshots: (limit) => ProfileSnapshot[],
+
+  // ─── 分析层 ───
+  runAnalysis: (modules) => Promise&lt;Map&lt;string, AnalysisResult&gt;&gt;,
+  getAgentContext: () => string,
+  getRecommendationParams: () => RecommendationParams,
+
+  // ─── 聚类 ───
+  getCurrentCluster: () => ClusterResult,
+  getClusterDistribution: () => ClusterDistribution[],
+};
+
+// server/bootstrap.js — 组合根
+import { PluginRegistry } from './domain/profile/plugins/PluginRegistry.js';
+import { ProfileOrchestrator } from './domain/profile/ProfileOrchestrator.js';
+import { profilePort } from './domain/profile/profilePort.js';
+
+function createProfileSystem(deps) {
+  // 1. 加载配置
+  const configs = loadAllConfigs('./domain/profile/config/');
+
+  // 2. 注册插件（从配置文件驱动）
+  const registry = new PluginRegistry();
+  for (const c of configs.collectors) {
+    const Collector = (await import(c.module)).default;
+    registry.registerCollector(new Collector());
+  }
+  for (const a of configs.analyzers) {
+    const Analyzer = (await import(a.module)).default;
+    registry.registerAnalyzer(new Analyzer());
+  }
+
+  // 3. 注入策略（从配置选择）
+  const weightStrategy = createStrategy(configs.weightStrategy, WeightStrategies);
+  const decayStrategy = createStrategy(configs.decayStrategy, DecayStrategies);
+  const clusterStrategy = createStrategy(configs.clusterStrategy, ClusterStrategies);
+
+  // 4. 创建编排器
+  const orchestrator = new ProfileOrchestrator({
+    registry, configs, weightStrategy, decayStrategy, clusterStrategy,
+    ...deps  // DB、musicSource、weather、llmAdapter 等
+  });
+
+  // 5. 绑定端口接口
+  Object.assign(profilePort, orchestrator.getPortImplementation());
+  return { profilePort, orchestrator };
+}
+</code></pre>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<h2 id="impl">七、实施计划（TDD）</h2>
+
+<p>遵循 Red → Green → Refactor 循环，分 4 个阶段渐进交付。</p>
+
+<h3>Phase 1 — 数据采集层 + DB 扩展</h3>
+
+<div class="timeline-item l1">
+<p><strong>步骤 1.1</strong> — 扩展数据库 Schema</p>
+<ul>
+<li>新增 <code>song_metadata</code>、<code>artist_metadata</code>、<code>profile_snapshots</code>、<code>profile_collection_state</code> 四张表</li>
+<li>测试：表创建、CRUD、索引验证</li>
+</ul>
+</div>
+
+<div class="timeline-item l1">
+<p><strong>步骤 1.2</strong> — 实现 BaseCollector + 3 个原始采集器</p>
+<ul>
+<li>ListenHistoryCollector、SeedPoolCollector、EnvironmentalCollector</li>
+<li>测试：空数据、正常数据、边界条件</li>
+</ul>
+</div>
+
+<div class="timeline-item l1">
+<p><strong>步骤 1.3</strong> — 实现网易云 API 扩展 + 网络搜索提供者 + 元数据增强器</p>
+<ul>
+<li>扩展 <code>neteaseApi.js</code>：新增 <code>artistDetail</code>、<code>artistDesc</code>、<code>artistSongs</code>、<code>styleList</code>、<code>styleSong</code>、<code>styleArtist</code>、<code>songWiki</code>、<code>songCreators</code>、<code>simiArtist</code>、<code>simiPlaylist</code>、<code>playmodeIntelligence</code>、<code>recommendResource</code>、<code>personalized</code>、<code>cloudsearch</code>、<code>searchHotDetail</code> 接口封装</li>
+<li>MusicBrainzSearcher（免费 API）、WikiSearcher、NeteaseTagSearcher</li>
+<li>SongMetadataEnricher + ArtistMetadataEnricher：四级降级策略</li>
+<li>测试：mock API 返回、各级降级触发条件、缓存命中/未命中、来源标记、错误恢复</li>
+</ul>
+</div>
+
+<div class="timeline-item l1">
+<p><strong>步骤 1.4</strong> — 实现 ChatHistoryCollector + ChatClusterAnalyzer（合并）</p>
+<ul>
+<li>聊天风格+用户聚类合并为单次 LLM 调用，固定前缀+可变后缀 Prompt</li>
+<li>测试：mock LLM 返回、空聊天记录、长聊天记录、精简输出 schema 验证</li>
+</ul>
+</div>
+
+<h3>Phase 2 — 画像构建层</h3>
+
+<div class="timeline-item l2">
+<p><strong>步骤 2.1</strong> — 设计 tag-taxonomy.json + TagMapper</p>
+<ul>
+<li>JSON Schema 定义全部 6 大类标签维度</li>
+<li>TagMapper 将 RawDataChunk 映射为标签证据</li>
+<li>测试：各种数据类型映射、未知值处理</li>
+</ul>
+</div>
+
+<div class="timeline-item l2">
+<p><strong>步骤 2.2</strong> — 实现 WeightCalculator + ConflictResolver + DecayApplier</p>
+<ul>
+<li>频次权重、时间衰减、置信度、跳过惩罚、完播奖励</li>
+<li>测试：权重计算公式验证、冲突解决策略、衰减曲线</li>
+</ul>
+</div>
+
+<div class="timeline-item l2">
+<p><strong>步骤 2.3</strong> — 实现 ProfileBuilder + ProfileStore + ProfileSnapshotManager</p>
+<ul>
+<li>流水线编排、画像持久化、快照管理</li>
+<li>测试：增量更新、版本递增、快照创建/回滚</li>
+</ul>
+</div>
+
+<h3>Phase 3 — 分析层</h3>
+
+<div class="timeline-item l3">
+<p><strong>步骤 3.1</strong> — 实现 BaseAnalyzer + EmotionAnalyzer + StylePreferenceAnalyzer</p>
+<ul>
+<li>情绪基线/波动/触发器、风格核心/广度/演变</li>
+<li>测试：mock 画像数据、分析结果验证</li>
+</ul>
+</div>
+
+<div class="timeline-item l3">
+<p><strong>步骤 3.2</strong> — 实现 DailyHabitAnalyzer + UserClusterAnalyzer（无监督聚类）</p>
+<ul>
+<li>时间线分析、会话模式、跳过模式、排班建议</li>
+<li>K-Means 聚类：特征工程（33 维）→ 轮廓系数选 K → 簇标签生成 → clusterPort 社交预留接口</li>
+<li>测试：时间分布计算、特征向量构建、K-Means 聚类结果验证、轮廓系数计算、簇标签生成、社交接口空返回</li>
+</ul>
+</div>
+
+<div class="timeline-item l3">
+<p><strong>步骤 3.3</strong> — 实现 RecommendationEnhancer + AgentContextProvider</p>
+<ul>
+<li>增强 recommender.fillQueue、注入 Agent system prompt</li>
+<li>测试：推荐参数生成、Agent 上下文格式验证</li>
+</ul>
+</div>
+
+<h3>Phase 4 — 可视化集成 + 编排</h3>
+
+<div class="timeline-item">
+<p><strong>步骤 4.1</strong> — 实现 ProfileOrchestrator + 首次启动全量构建 + ProfileMetrics + ProfileDashboardEmitter</p>
+<ul>
+<li>三层编排、首次启动全量构建逻辑、100 小时定期 + 条件触发调度</li>
+<li>Prometheus 指标、Socket.IO 事件推送</li>
+<li>测试：首次启动全量流程、常规调度流程、条件触发逻辑、指标注册、事件推送</li>
+</ul>
+</div>
+
+<div class="timeline-item">
+<p><strong>步骤 4.2</strong> — Dashboard 面板扩展</p>
+<ul>
+<li>标签云、雷达图、情绪时间线、风格演化图</li>
+<li>测试：前端渲染验证</li>
+</ul>
+</div>
+
+<div class="timeline-item">
+<p><strong>步骤 4.3</strong> — bootstrap.js 依赖注入 + 集成测试</p>
+<ul>
+<li>在组合根中注册所有组件，D8 合规</li>
+<li>端到端测试：播放歌曲 → 采集 → 构建 → 分析 → Dashboard 更新</li>
+</ul>
+</div>
+
+<table>
+<tr><th>阶段</th><th>新文件</th><th>修改文件</th><th>预计测试数</th></tr>
+<tr><td>Phase 1</td><td>9 个采集器 + 3 个搜索器 + 网易云API扩展 + BaseCollector + DB 扩展</td><td>schema.js, neteaseApi.js, LegacyNeteaseMusicSourceAdapter.js</td><td>~40</td></tr>
+<tr><td>Phase 2</td><td>7 个构建器 + tag-taxonomy.json</td><td>—</td><td>~25</td></tr>
+<tr><td>Phase 3</td><td>6 个分析器 + BaseAnalyzer + RecommendationIntegrator + clusterPort</td><td>recommender.js, context.js, ToolFactory.js</td><td>~25</td></tr>
+<tr><td>Phase 4</td><td>3 个可视化组件 + Orchestrator</td><td>bootstrap.js, dashboard/index.html, metrics.js</td><td>~17</td></tr>
+<tr><td><strong>合计</strong></td><td><strong>~31 个新文件</strong></td><td><strong>~8 个修改</strong></td><td><strong>~102 个测试</strong></td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<h2 id="risk">八、成本与风险分析</h2>
+
+<h3>8.1 LLM 调用成本估算（优化后）</h3>
+
+<p>采用四级降级策略后，70-80% 的元数据通过网易云 API（免费）获取，15-20% 通过网络搜索获取，仅 5-10% 需要 LLM 兜底。DeepSeek V4 Flash 支持自动 prompt 缓存，缓存命中输入价格为未命中的 1/50 [$TRAE_REF](https://api-docs.deepseek.com/quick_start/pricing)。</p>
+
+<table>
+<tr><th>调用场景</th><th>频率</th><th>Token 用量</th><th>月成本（CNY）</th></tr>
+<tr><td>歌曲元数据增强（LLM 兜底）</td><td>~100 首新歌/月，<strong>80% 网易云API命中</strong>，仅 10% 需 LLM（≈1 次）</td><td>~2000 input（固定前缀缓存命中）+ ~1500 output/次</td><td>≈ 0.005 元</td></tr>
+<tr><td>歌手元数据增强（LLM 兜底）</td><td>~20 个新歌手/月，<strong>85% 网易云API命中</strong>，仅 10% 需 LLM（≈1 次）</td><td>~1000 input + ~800 output/次</td><td>≈ 0.003 元</td></tr>
+<tr><td>聊天风格分析</td><td>每 100 小时 + 条件触发（≥10 条新消息）→ 实际约 <strong>7 次/月</strong></td><td>~3000 input（固定前缀缓存命中）+ ~1000 input（可变后缀）+ ~150 output/次</td><td>≈ 0.01 元</td></tr>
+<tr><td>用户聚类（无监督）</td><td>每 100 小时</td><td><strong>0 LLM 调用</strong>（K-Means 本地计算）</td><td><strong>0 元</strong></td></tr>
+<tr><td>首次启动全量构建</td><td><strong>仅 1 次</strong>（一次性）</td><td>全量歌曲/歌手元数据（大部分网易云API命中）+ 聊天分析</td><td>≈ 0.03 元（一次性）</td></tr>
+<tr><td><strong>合计（稳态）</strong></td><td>—</td><td>—</td><td><strong>≈ 0.03 元/月</strong></td></tr>
+</table>
+
+<div class="callout callout-ok">
+<p><strong>成本从原始 2.65 元/月降至约 0.03 元/月</strong>（降幅 99%），主要得益于：网易云 API 优先策略消除了 70-80% 的 LLM 调用；分析频率从 6 小时降至 100 小时 + 条件触发；合并调用 + 缓存命中 + 精简输出进一步压缩单次成本。网易云 API 和网络搜索均免费，无额外费用。新增的推荐与搜索接口集成（<code>style_song</code>、<code>simi_artist</code>、<code>playmode_intelligence_list</code>等）均为网易云 API 调用，不产生额外成本。</p>
+</div>
+
+<h3>8.2 风险与缓解</h3>
+
+<table>
+<tr><th>风险</th><th>级别</th><th>缓解措施</th></tr>
+<tr><td>网易云 API 接口返回格式不一致</td><td><span class="tag tag-medium">中</span></td><td>每个接口独立解析器 + source 字段标记来源 + 置信度区分</td></tr>
+<tr><td>网易云 API 接口限流</td><td><span class="tag tag-low">低</span></td><td>批量请求 + 本地缓存 + 请求间隔控制（≥200ms）</td></tr>
+<tr><td>MusicBrainz/百科 API 不可用</td><td><span class="tag tag-low">低</span></td><td>四级降级：网易云API → MusicBrainz → Wiki → LLM 兜底 → 标记未知</td></tr>
+<tr><td>LLM 兜底推断不准确</td><td><span class="tag tag-low">低</span></td><td>LLM 来源置信度标记为 0.70（低于 API 0.92），低置信度标签不参与推荐决策</td></tr>
+<tr><td>DeepSeek API 不可用</td><td><span class="tag tag-low">低</span></td><td>增强器失败时降级为"无元数据"模式，画像构建继续使用已有数据</td></tr>
+<tr><td>画像漂移（标签累积过多）</td><td><span class="tag tag-medium">中</span></td><td>衰减机制自动降低旧标签权重 + 休眠标签清理（4 周无证据 → 休眠）</td></tr>
+<tr><td>性能影响（API/LLM 调用阻塞）</td><td><span class="tag tag-low">低</span></td><td>所有调用异步执行，不阻塞播放/聊天主流程；API 设置 5s 超时；推荐 API 并行调用</td></tr>
+<tr><td>首次启动全量构建耗时长</td><td><span class="tag tag-medium">中</span></td><td>分批处理（每批 15 首），进度通过 <code>dashboard:enrichment-progress</code> 实时推送</td></tr>
+<tr><td>D8 架构违规</td><td><span class="tag tag-low">低</span></td><td>通过 profilePort.js 端口接口隔离，仅 bootstrap.js 做依赖注入</td></tr>
+</table>
+
+<h3>8.3 与现有系统的兼容性</h3>
+
+<table>
+<tr><th>现有组件</th><th>影响</th><th>兼容方案</th></tr>
+<tr><td><code>recommender.js</code></td><td>topGenres 从空变为有值；fillQueue 策略增强</td><td>RecommendationEnhancer 通过端口接口输出参数，recommender.js 消费；新增智能播放/情绪匹配/情境歌单策略</td></tr>
+<tr><td><code>context.js</code></td><td>slotMemory 获得更丰富的画像 + 推荐策略提示</td><td>AgentContextProvider 输出格式兼容现有 <code>[听众画像：...]</code> 格式，新增推荐策略提示段</td></tr>
+<tr><td><code>neteaseApi.js</code></td><td>新增 15+ 个接口封装</td><td>纯新增函数，不影响现有接口</td></tr>
+<tr><td><code>LegacyNeteaseMusicSourceAdapter.js</code></td><td>新增 artistDetail/songWiki/styleList 等方法</td><td>纯新增方法，不影响现有方法</td></tr>
+<tr><td><code>ToolFactory.js</code></td><td>新增 search_by_profile 工具</td><td>纯新增工具注册，不影响现有 11 个工具</td></tr>
+<tr><td><code>user_profile</code> KV 表</td><td>新增 profile 键存储完整画像 JSON</td><td>向后兼容，现有 topArtists 键保留</td></tr>
+<tr><td><code>seed_pool.genre_tags</code></td><td>从空变为有值</td><td>SongMetadataEnricher 回填已有种子池</td></tr>
+<tr><td>Dashboard</td><td>新增画像面板 + 元数据来源分布</td><td>独立面板，不影响现有 metrics/logs 面板</td></tr>
+</table>
+
+<div class="callout callout-ok">
+<p><strong>总结：</strong>重设计方案以三层架构为核心，采集层采用<strong>网易云 API 优先 → 网络搜索 → LLM 兜底 → 标记未知</strong>的四级降级策略获取歌曲/歌手元数据，启用了 20+ 个此前未使用的网易云接口；构建层提供 6 大类可配置标签体系，含权重/置信度/衰减机制；分析层 6 个模块覆盖情绪/风格/习惯/聚类/推荐/Agent 全场景，其中<strong>用户聚类采用 K-Means 无监督学习</strong>（33 维特征向量 + 轮廓系数自动选 K），<strong>不依赖 LLM</strong>，并通过 <code>clusterPort.js</code> 预留社交模块联动接口（同簇用户查找、簇推荐、聚类变化订阅、数据导出）。推荐与搜索接口与画像系统深度集成，通过画像标签驱动 <code>style_song</code>、<code>simi_artist</code>、<code>cloudsearch</code>、<code>playmode_intelligence_list</code> 等接口。首次启动执行全量构建建立初始画像，之后按 100 小时 + 条件触发模式运行。插件注册体系 + JSON 配置化标签体系保证系统可扩展、可修改。全量接入现有 Dashboard 可视化系统，稳态月成本约 <strong>0.02 元</strong>（聚类零 LLM 成本）。</p>
+</div>
+
+</body>
+</html>

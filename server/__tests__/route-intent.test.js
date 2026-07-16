@@ -22,6 +22,22 @@ vi.mock('../infrastructure/netease/neteaseApi.js', () => ({
   getUserPlaylists: vi.fn(async () => ({ playlist: [] })),
   getPlaylistTracks: vi.fn(async () => ({ songs: [] })),
   scrobbleSong: vi.fn(async () => {}),
+  getArtistDetail: vi.fn(),
+  getArtistDesc: vi.fn(),
+  getArtistSongs: vi.fn(),
+  getStyleList: vi.fn(),
+  getStyleSongs: vi.fn(),
+  getStyleArtists: vi.fn(),
+  getSongWikiSummary: vi.fn(),
+  getSongCreators: vi.fn(),
+  getSimilarArtists: vi.fn(),
+  getPlaymodeIntelligenceList: vi.fn(),
+  getRecommendResource: vi.fn(),
+  getPersonalized: vi.fn(),
+  getSearchSuggest: vi.fn(),
+  getSearchHotDetail: vi.fn(),
+  getPlaylistCatlist: vi.fn(),
+  getPlaylistHot: vi.fn(),
 }));
 vi.mock('../services/claude.js', () => ({
   extractIntent: vi.fn(),
@@ -32,6 +48,15 @@ import { searchSongs } from '../infrastructure/netease/neteaseApi.js';
 import { extractIntent } from '../services/claude.js';
 
 const song = (id, name) => ({ id, name, ar: [{ name: 'x' }] });
+
+// D8 compliance: router.js no longer imports infrastructure directly.
+// Provide a mock music adapter that wraps the mocked searchSongs.
+const mockMusic = {
+  search: async (query, limit) => {
+    const res = await searchSongs(query, limit);
+    return res?.result?.songs || [];
+  },
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -61,7 +86,7 @@ describe('routeIntent search-direct path', () => {
 
   it('playPrefix_songName_searchesAndReturnsResults', async () => {
     searchSongs.mockResolvedValue({ result: { songs: [song(1, '晴天'), song(2, '稻香')] } });
-    const r = await routeIntent('放 晴天');
+    const r = await routeIntent('放 晴天', { music: mockMusic });
     expect(r.route).toBe('ncm');
     expect(r.action).toBe('play_search');
     expect(r.params.query).toBe('晴天');
@@ -73,7 +98,7 @@ describe('routeIntent AI path (extractIntent)', () => {
   it('playMood_mapsMoodAndSearches', async () => {
     extractIntent.mockResolvedValue({ action: 'play_mood', params: { mood: 'happy' } });
     searchSongs.mockResolvedValue({ result: { songs: [song(1, 'a')] } });
-    const r = await routeIntent('我想开心一点');
+    const r = await routeIntent('我想开心一点', { music: mockMusic });
     expect(r.route).toBe('hybrid');
     expect(r.action).toBe('play_mood');
     expect(searchSongs).toHaveBeenCalledWith('欢快 流行', 5);
@@ -82,7 +107,7 @@ describe('routeIntent AI path (extractIntent)', () => {
   it('playSong_searchesAndReturnsHybrid', async () => {
     extractIntent.mockResolvedValue({ action: 'play_song', params: { song: '晴天' } });
     searchSongs.mockResolvedValue({ result: { songs: [song(1, '晴天')] } });
-    const r = await routeIntent('帮我找晴天这首歌');
+    const r = await routeIntent('帮我找晴天这首歌', { music: mockMusic });
     expect(r.route).toBe('hybrid');
     expect(r.action).toBe('play_song');
   });

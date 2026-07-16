@@ -29,6 +29,8 @@ const E = {
   LOGIN_REQUIRED: 'radio:login-required',
   ERROR: 'radio:error',
   CRAB_ANIMATION: 'crab:animation',
+  CRAB_BUBBLES: 'crab:bubbles',
+  CRAB_BUBBLE_CLICK: 'crab:bubble-click',
   SYNC_TIME: 'sync:time',
   PLAN_UPDATE: 'plan:update',
 };
@@ -49,12 +51,18 @@ export default function App() {
   });
   const [chatMessages, setChatMessages] = useState([]);
   const [djSpeechUrl, setDjSpeechUrl] = useState(null);
+  const djSpeechUrlRef = useRef(null);
+  const pendingSongChangeRef = useRef(null);
   const [crabState, setCrabState] = useState('idle');
   const crabStateRef = useRef(crabState);
+  const [bubbles, setBubbles] = useState([]);
+  const [bubblesVisible, setBubblesVisible] = useState(false);
+  const bubbleTimeoutRef = useRef(null);
   crabStateRef.current = crabState;
   const isPlayingRef = useRef(false);
   isPlayingRef.current = radioState.isPlaying;
   const musicAudioRef = useRef(null);
+  const musicRetryRef = useRef(0);
   const speechAudioRef = useRef(null);
   const speechTypeRef = useRef('transition');
   const [audioEl, setAudioEl] = useState(null);
@@ -89,6 +97,7 @@ export default function App() {
     const audio = musicAudioRef.current;
     if (!audio || !radioState.audioUrl) return;
     if (audio.src === radioState.audioUrl) return; // already loaded
+    musicRetryRef.current = 0; // reset retry counter for new song
     audio.src = radioState.audioUrl;
     audio.load();
     audio.play().catch(() => {});
@@ -98,12 +107,22 @@ export default function App() {
   useEffect(() => {
     const audio = musicAudioRef.current;
     if (!audio || !radioState.audioUrl) return;
+    if (!connected) return; // Don't play when disconnected
     if (radioState.isPlaying) {
       audio.play().catch(() => {});
     } else {
       audio.pause();
     }
-  }, [radioState.isPlaying, loggedIn]);
+  }, [radioState.isPlaying, loggedIn, connected]);
+
+  // Pause all audio when socket disconnects (server down / killed)
+  useEffect(() => {
+    if (connected) return;
+    const music = musicAudioRef.current;
+    const speech = speechAudioRef.current;
+    if (music) { music.pause(); }
+    if (speech) { speech.pause(); }
+  }, [connected]);
 
   // DJ speech
   useEffect(() => {
@@ -142,12 +161,19 @@ export default function App() {
         if (resolved) return;
         resolved = true;
         setDjSpeechUrl(null);
+        djSpeechUrlRef.current = null;
         if (music && isAnnounce && prevVolume !== undefined) {
           music.volume = prevVolume;
         }
         if (socket) socket.emit('dj-speech-finished', { type: curType });
         if (music && !isAnnounce && radioState.isPlaying) {
           music.play().catch(() => {});
+        }
+        // Apply deferred song change if one was waiting
+        if (pendingSongChangeRef.current) {
+          const pending = pendingSongChangeRef.current;
+          pendingSongChangeRef.current = null;
+          setRadioState(prev => ({ ...prev, ...pending }));
         }
       };
 
@@ -192,12 +218,19 @@ export default function App() {
     const safety = setTimeout(() => {
       if (speech && !speech.ended && !speech.paused) return; // still playing
       setDjSpeechUrl(null);
+      djSpeechUrlRef.current = null;
       if (music && isAnnounce && prevVolume !== undefined) {
         music.volume = prevVolume;
       }
       if (socket) socket.emit('dj-speech-finished', { type: curType });
       if (music && !isAnnounce && radioState.isPlaying) {
         music.play().catch(() => {});
+      }
+      // Apply deferred song change if one was waiting
+      if (pendingSongChangeRef.current) {
+        const pending = pendingSongChangeRef.current;
+        pendingSongChangeRef.current = null;
+        setRadioState(prev => ({ ...prev, ...pending }));
       }
     }, curType === 'cold-start' ? 15000 : 30000);
     return () => {
@@ -209,7 +242,15 @@ export default function App() {
     if (!socket) return;
     socket.on(E.RADIO_STATE, (state) => setRadioState(prev => ({ ...prev, ...state })));
     socket.on(E.SONG_CHANGE, (data) => {
-      setRadioState(prev => ({ ...prev, currentSong: data.song, startedAt: data.startedAt, isPlaying: true, audioUrl: data.audioUrl || null }));
+      const newSongState = { currentSong: data.song, startedAt: data.startedAt, isPlaying: true, audioUrl: data.audioUrl || null };
+      // If speech is playing, defer song change until speech finishes
+      if (djSpeechUrlRef.current) {
+        pendingSongChangeRef.current = newSongState;
+        // Update song info but don't switch audio yet
+        setRadioState(prev => ({ ...prev, currentSong: data.song, startedAt: data.startedAt, isPlaying: true }));
+      } else {
+        setRadioState(prev => ({ ...prev, ...newSongState }));
+      }
       setCrabState('bouncing');
       setTimeout(() => setCrabState(isPlayingRef.current ? 'listening' : 'idle'), 3000);
       if (coldPhaseRef.current === 'loading') setColdPhase('exit');
@@ -229,11 +270,12 @@ export default function App() {
         pendingSpeechRef.current = data.audioUrl;
         setColdPhase('exit');
       } else {
+        djSpeechUrlRef.current = data.audioUrl;
         setDjSpeechUrl(data.audioUrl);
         setCrabState('talking');
       }
     });
-    socket.on(E.DJ_SPEECH_END, () => { setDjSpeechUrl(null); setCrabState(isPlayingRef.current ? 'listening' : 'idle'); });
+    socket.on(E.DJ_SPEECH_END, () => { setDjSpeechUrl(null); djSpeechUrlRef.current = null; setCrabState(isPlayingRef.current ? 'listening' : 'idle'); });
     socket.on(E.DJ_STREAM_CHUNK, (data) => {
       setChatMessages(prev => {
         const last = prev[prev.length - 1];
@@ -265,13 +307,28 @@ export default function App() {
     socket.on(E.LOGIN_REQUIRED, () => setLoggedIn(false));
     socket.on(E.PLAN_UPDATE, (data) => { setPlan(data); });
     socket.on(E.ERROR, (err) => { setError(err.message); setTimeout(() => setError(null), 5000); });
+    socket.on(E.CRAB_BUBBLES, ({ bubbles: newBubbles }) => {
+      setBubbles(newBubbles);
+      setBubblesVisible(true);
+      setCrabState('blowing');
+      setTimeout(() => {
+        setCrabState(prev => prev === 'blowing' ? (isPlayingRef.current ? 'listening' : 'idle') : prev);
+      }, 3000);
+      if (bubbleTimeoutRef.current) clearTimeout(bubbleTimeoutRef.current);
+      bubbleTimeoutRef.current = setTimeout(() => setBubblesVisible(false), 30000);
+    });
     socket.on('auth:login-success', () => setLoggedIn(true));
     fetch('/api/auth/status').then(r => r.json()).then(data => setLoggedIn(data.loggedIn)).catch(() => {});
     // Fetch initial plan
     fetch('/api/plan/today').then(r => r.json()).then(data => {
       if (data.blocks) setPlan(data);
     }).catch(() => {});
-    return () => { socket.off(E.RADIO_STATE); socket.off(E.SONG_CHANGE); /* ... etc, cleaned up by socket.disconnect */ };
+    return () => {
+      socket.off(E.RADIO_STATE);
+      socket.off(E.SONG_CHANGE);
+      socket.off(E.CRAB_BUBBLES);
+      if (bubbleTimeoutRef.current) clearTimeout(bubbleTimeoutRef.current);
+    };
   }, [socket]);
 
   // Signal server that client is ready for cold start (logged in + connected)
@@ -345,6 +402,12 @@ export default function App() {
     setChatOpen(prev => !prev);
     if (socket) socket.emit('crab:click', { interaction: 'chat' });
   }, [socket]);
+  const handleBubbleClick = useCallback((tag) => {
+    if (!socket) return;
+    socket.emit(E.CRAB_BUBBLE_CLICK, tag);
+    setCrabState('bouncing');
+    setTimeout(() => setCrabState(isPlayingRef.current ? 'listening' : 'idle'), 2000);
+  }, [socket]);
   const handleLoginPhone = useCallback((phone, password) => {
     // Unlock audio for autoplay — this runs during a user click gesture
     if (speechAudioRef.current) speechAudioRef.current.play().catch(() => {});
@@ -396,7 +459,30 @@ export default function App() {
 
   return (
     <div className="app-container" style={{ background: 'var(--bg-primary)', minHeight: '100vh' }}>
-      <audio ref={musicAudioRef} preload="auto" crossOrigin="anonymous" onEnded={() => { if (socket) socket.emit('player:ended'); }} />
+      <audio ref={musicAudioRef} preload="auto" crossOrigin="anonymous"
+        onEnded={() => { if (socket) socket.emit('player:ended'); }}
+        onError={() => {
+          const audio = musicAudioRef.current;
+          if (!audio || !radioState.audioUrl) return;
+          if (!connected) return; // Don't retry when server is down
+          if (musicRetryRef.current >= 2) {
+            // Exhausted retries — skip to next song instead of stalling
+            musicRetryRef.current = 0;
+            if (socket) socket.emit('player:ended');
+            return;
+          }
+          musicRetryRef.current += 1;
+          const retryDelay = 800 * musicRetryRef.current;
+          setTimeout(() => {
+            if (!connected) return; // Server went down during retry delay
+            if (audio.src !== radioState.audioUrl) return; // song changed
+            audio.load();
+            audio.play().catch(() => {
+              if (musicRetryRef.current >= 2 && socket) socket.emit('player:ended');
+            });
+          }, retryDelay);
+        }}
+      />
       <audio ref={speechAudioRef} preload="auto" />
 
       {/* Cold-start loading overlay */}
@@ -435,7 +521,15 @@ export default function App() {
       {/* Player — always mounted, hidden when not active */}
       <div style={{ display: view === 'player' ? 'flex' : 'none', flexDirection: 'column', flex: 1 }}>
         <Layout
-          crab={<CrabMascot state={crabState} onInteract={handleCrabClick} />}
+          crab={
+            <CrabMascot
+              state={crabState}
+              onInteract={handleCrabClick}
+              bubbles={bubbles}
+              onBubbleClick={handleBubbleClick}
+              bubblesVisible={bubblesVisible}
+            />
+          }
           spectrum={<Spectrum audioElement={audioEl} isPlaying={radioState.isPlaying} theme={theme} songKey={radioState.currentSong?.id} />}
           chat={<ChatBox messages={chatMessages} onSend={handleChatMessage} isOpen={chatOpen} onToggle={setChatOpen} />}
           chatOpen={chatOpen}

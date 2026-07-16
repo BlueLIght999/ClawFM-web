@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createConversationService } from '../application/services/ConversationService.js';
+import { createConversationService } from '../agent/application/services/ConversationService.js';
 
 function createSystemDeps() {
   const queue = {

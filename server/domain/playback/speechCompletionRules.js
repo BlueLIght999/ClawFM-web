@@ -14,12 +14,12 @@
  * @param {string | undefined | null} type — the speech type from the client.
  * @returns {SpeechCompletionAction}
  *   - 'cold-start'  → start music after cold-open speech
- *   - 'no-op'       → chat / chat-announce: do nothing to playback
+ *   - 'no-op'       → chat / chat-announce / proactive: do nothing to playback
  *   - 'normal'      → transition / refill / undefined: signal scheduler speech is done
  */
 export function classifySpeechCompletion(type) {
   if (type === 'cold-start') return 'cold-start';
-  if (type === 'chat' || type === 'chat-announce') return 'no-op';
+  if (type === 'chat' || type === 'chat-announce' || type === 'proactive') return 'no-op';
   return 'normal';
 }
 

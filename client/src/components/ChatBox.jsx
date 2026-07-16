@@ -97,7 +97,7 @@ export default function ChatBox({ messages, onSend, isOpen, onToggle }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <CrabAvatar />
           <span className="pixel-text" style={{ fontSize: 9, color: 'var(--accent)' }}>
-            DJ DAN
+            {'DJ DAN'}
           </span>
         </div>
         <button onClick={() => onToggle?.(false)} style={{
@@ -113,10 +113,10 @@ export default function ChatBox({ messages, onSend, isOpen, onToggle }) {
       }}>
         {messages.length === 0 && (
           <div style={{ textAlign: 'center', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: 15, marginTop: 10 }}>
-            Ask the DJ anything...<br />
-            "Play something chill"<br />
-            "Who is this artist?"<br />
-            "What's playing next?"
+            {'Ask the DJ anything...'}<br />
+            {'"Play something chill"'}<br />
+            {'"Who is this artist?"'}<br />
+            {"What's playing next?"}
           </div>
         )}
         {messages.map((msg, i) => (
@@ -164,13 +164,13 @@ export default function ChatBox({ messages, onSend, isOpen, onToggle }) {
           className="pixel-input"
           value={input}
           onChange={e => setInput(e.target.value)}
-          placeholder="> Type message..."
+          placeholder={'> Type message...'}
           style={{
             flex: 1, border: 'none',
             borderRight: '1px solid var(--border-dim)', fontSize: 15,
           }}
         />
-        <button type="submit" className="pixel-btn" style={{ fontSize: 11, flexShrink: 0 }}>SEND</button>
+        <button type="submit" className="pixel-btn" style={{ fontSize: 11, flexShrink: 0 }}>{'SEND'}</button>
       </form>
     </div>
   );

@@ -18,6 +18,10 @@ describe('speech completion rules', () => {
     expect(classifySpeechCompletion('chat-announce')).toBe('no-op');
   });
 
+  it('classifySpeechCompletion_proactive_returnsNoOp', () => {
+    expect(classifySpeechCompletion('proactive')).toBe('no-op');
+  });
+
   it('classifySpeechCompletion_undefined_returnsNormal', () => {
     expect(classifySpeechCompletion(undefined)).toBe('normal');
   });
@@ -50,6 +54,10 @@ describe('speech completion rules', () => {
 
   it('isNoOpCompletion_chatAnnounce_returnsTrue', () => {
     expect(isNoOpCompletion('chat-announce')).toBe(true);
+  });
+
+  it('isNoOpCompletion_proactive_returnsTrue', () => {
+    expect(isNoOpCompletion('proactive')).toBe(true);
   });
 
   it('isNoOpCompletion_other_returnsFalse', () => {

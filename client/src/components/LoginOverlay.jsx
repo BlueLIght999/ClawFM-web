@@ -40,12 +40,22 @@ export default function LoginOverlay({ onPhoneLogin, onQrLogin, connected, socke
       setQrStatus('Logged in!');
       setLoading(false);
       setLoginError('');
+      if (qrKeyRef.current?._phoneTimeout) clearTimeout(qrKeyRef.current._phoneTimeout);
     });
 
-    socket.on('error', (err) => {
-      if (err?.code === 'AUTH_FAILED' || err?.code === 'QR_FAILED') {
+    socket.on('radio:error', (err) => {
+      // 6-digit numeric error codes per ERROR-HANDLING.md
+      // 10402=AUTH_LOGIN_FAILED, 10301=AUTH_QR_POLL_FAILED, 10303=AUTH_QR_CREATE_FAILED
+      const isAuthError = err?.code === 10402 || err?.code === 10301 || err?.code === 10303;
+      if (isAuthError) {
         setLoading(false);
+        if (qrKeyRef.current?._phoneTimeout) clearTimeout(qrKeyRef.current._phoneTimeout);
         setLoginError(err.message || 'Login failed');
+        const isQrError = err?.code === 10301 || err?.code === 10303;
+        if (isQrError) {
+          setQrImage(null);
+          setQrStatus('QR failed. Click button to retry.');
+        }
       }
     });
 
@@ -54,13 +64,14 @@ export default function LoginOverlay({ onPhoneLogin, onQrLogin, connected, socke
       socket.off('auth:qr-status');
       socket.off('auth:qr-expired');
       socket.off('auth:login-success');
-      socket.off('error');
+      socket.off('radio:error');
     };
   }, [socket]);
 
   const handleQrClick = () => {
     setTab('qr');
     setQrImage(null);
+    setLoginError('');
     setQrStatus('Generating QR code...');
     onQrLogin();
   };
@@ -71,6 +82,12 @@ export default function LoginOverlay({ onPhoneLogin, onQrLogin, connected, socke
     setLoading(true);
     setLoginError('');
     onPhoneLogin(phone, password);
+    // Safety timeout: if no response in 15s, reset loading state
+    if (qrKeyRef.current._phoneTimeout) clearTimeout(qrKeyRef.current._phoneTimeout);
+    qrKeyRef.current._phoneTimeout = setTimeout(() => {
+      setLoading(false);
+      setLoginError('Login timed out — please retry');
+    }, 15000);
   };
 
   return (
@@ -194,9 +211,21 @@ export default function LoginOverlay({ onPhoneLogin, onQrLogin, connected, socke
               {qrImage ? (
                 <img src={qrImage} alt="QR Code" style={{ width: 140, height: 140 }} />
               ) : (
-                <span>{qrStatus || 'QR HERE'}</span>
+                <span style={{ fontSize: 10, padding: 8, textAlign: 'center' }}>{qrStatus || 'QR HERE'}</span>
               )}
             </div>
+            {loginError && tab === 'qr' && (
+              <p className="pixel-text" style={{ fontSize: 7, color: '#ff6b6b', textAlign: 'center', marginTop: 8 }}>
+                {loginError}
+              </p>
+            )}
+            <button
+              onClick={handleQrClick}
+              className="pixel-btn"
+              style={{ fontSize: 7, marginTop: 8, padding: '4px 12px' }}
+            >
+              {qrImage ? 'REFRESH QR' : 'RETRY QR'}
+            </button>
             <p className="pixel-text" style={{ fontSize: 6, marginTop: 8, color: qrStatus ? 'var(--text-secondary)' : 'var(--text-dim)' }}>
               {qrStatus || "Click \"QR Login\" again if expired"}
             </p>

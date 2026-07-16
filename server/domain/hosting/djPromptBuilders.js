@@ -18,9 +18,9 @@ Rules:
 - "reject_recommend": user dislikes the recently recommended songs. Triggers: "不行", "不好听", "这些歌不行", "换一批", "不喜欢", "不对胃口", "有没有别的", "再换一些", "这些不喜欢", "不好", "不怎么样". This takes priority over other actions.
 - "chat": casual conversation, not a music request.`;
 
-const CHAT_MODE_PROMPT = 'You are in chat/conversation mode. Respond in plain conversational text, NOT JSON. Keep it very brief — 2-3 short sentences max. Like a real FM DJ on air.';
+const CHAT_MODE_PROMPT = '你正在聊天/对话模式。用中文以纯对话文本回复，不要输出 JSON。保持简短 — 最多 2-3 个短句，像一个真实的电台 DJ 在播音。';
 
-const COLD_OPEN_STREAM_SYSTEM = 'You are going live. Speak naturally in first person. No JSON — just your spoken words. Keep it 15-30 seconds spoken. Do NOT include stage directions or emotion tags.';
+const COLD_OPEN_STREAM_SYSTEM = '你现在要开播了。用中文以第一人称自然地说话。不要输出 JSON — 只输出你说的内容。保持 15-30 秒的口语长度。不要包含舞台指示或情感标签。';
 
 /**
  * Build messages for generateDjResponse.
@@ -69,12 +69,12 @@ export function buildIntentMessages(userMessage, topArtists) {
  */
 export function buildHabitsMessages(persona, topArtists, analysis) {
   const artistStr = (topArtists || []).slice(0, 10).map(a => `${a.name} (${a.count})`).join(', ');
-  const prompt = `Listener profile:
-Top Artists: ${artistStr || 'not enough data'}
-Total Songs: ${analysis?.totalSongs || 'unknown'}
-Genres: ${(analysis?.topGenres || []).map(g => g.name).join(', ') || 'unknown'}
+  const prompt = `听众画像：
+最常听的歌手：${artistStr || '数据不足'}
+总听歌数：${analysis?.totalSongs || '未知'}
+音乐风格：${(analysis?.topGenres || []).map(g => g.name).join(', ') || '未知'}
 
-Write 2-3 sentences of warm, personal observation about their taste. DJ style, plain text.`;
+用中文写 2-3 句温暖、有个性的观察，聊聊听众的音乐品味。DJ 口吻，纯文本。`;
   return [
     { role: 'system', content: persona },
     { role: 'user', content: prompt },
@@ -96,7 +96,7 @@ export function buildChatMessages(persona, userMessage, contextFragments, histor
   if (contextFragments) messages.push({ role: 'system', content: contextFragments });
   const artistNames = (topArtists || []).slice(0, 5).map(a => a.name).join(', ');
   if (artistNames) {
-    messages.push({ role: 'system', content: `[Listener profile: top artists include ${artistNames}]` });
+    messages.push({ role: 'system', content: `[听众画像：最常听的歌手包括 ${artistNames}]` });
   }
   for (const h of history) messages.push({ role: h.role, content: h.content });
   messages.push({ role: 'user', content: userMessage });
@@ -112,21 +112,21 @@ export function buildChatMessages(persona, userMessage, contextFragments, histor
  * @returns {Array<{role:string,content:string}>}
  */
 export function buildColdOpenMessages(persona, nextSong, weather, timeOfDay) {
-  const nextTitle = nextSong?.name || nextSong?.title || 'our first track';
+  const nextTitle = nextSong?.name || nextSong?.title || '第一首歌';
   const nextArtist = artistName(nextSong);
   return [
     { role: 'system', content: persona },
     {
       role: 'user',
       content: [
-        'You are going live on Qclaudio 88.7 for the first time right now.',
-        weather ? `Current weather: ${weather}.` : '',
-        `Time of day: ${timeOfDay || 'this moment'}.`,
-        `The first song you'll play is: "${nextTitle}" by ${nextArtist}.`,
+        'Qclaudio 88.7 电台现在首次开播，你即将上线。',
+        weather ? `当前天气：${weather}。` : '',
+        `时段：${timeOfDay || '此刻'}。`,
+        `你即将播放的第一首歌是：${nextArtist} 的《${nextTitle}》。`,
         '',
-        'Warmly introduce yourself, the station, comment on the time/weather/mood,',
-        'then naturally introduce this first song. Keep it 15-30 seconds spoken.',
-        'Output JSON with exactly: {"say": "your spoken script here"}',
+        '用中文热情地介绍自己、介绍电台，聊聊时间/天气/心情，',
+        '然后自然地引出这第一首歌。保持 15-30 秒的口语长度。',
+        '输出 JSON，格式为：{"say": "你的中文口播文稿"}',
       ].join('\n'),
     },
   ];
@@ -148,10 +148,10 @@ export function buildColdOpenStreamMessages(persona, nextTitle, nextArtist, weat
     {
       role: 'user',
       content: [
-        weather ? `Current weather: ${weather}.` : '',
-        `Time of day: ${timeOfDay || 'this moment'}.`,
-        `The first song: "${nextTitle}" by ${nextArtist}.`,
-        'Introduce yourself, the station, comment on the vibe, then naturally lead into this song.',
+        weather ? `当前天气：${weather}。` : '',
+        `时段：${timeOfDay || '此刻'}。`,
+        `第一首歌：${nextArtist} 的《${nextTitle}》。`,
+        '用中文介绍自己、介绍电台，聊聊氛围，然后自然地引出这首歌。',
       ].join('\n'),
     },
   ];
@@ -167,24 +167,24 @@ export function buildColdOpenStreamMessages(persona, nextTitle, nextArtist, weat
  */
 export function buildRefillSpeechMessages(persona, upcomingSongs, weather, timeOfDay) {
   const songList = (upcomingSongs || []).slice(0, 3).map(s => {
-    const name = s.name || s.title || 'a track';
+    const name = s.name || s.title || '一首歌';
     const artist = artistName(s);
-    return `"${name}" by ${artist}`;
-  }).join('; ');
+    return `${artist} 的《${name}》`;
+  }).join('、');
 
   return [
     { role: 'system', content: persona },
     {
       role: 'user',
       content: [
-        'The song queue just ran out and was automatically refilled with fresh recommendations.',
-        `Upcoming highlights: ${songList}.`,
-        weather ? `Weather: ${weather}.` : '',
-        `Time: ${timeOfDay || 'this moment'}.`,
+        '歌曲队列刚刚耗尽，已自动补充了新的推荐歌曲。',
+        `即将播放：${songList}。`,
+        weather ? `天气：${weather}。` : '',
+        `时段：${timeOfDay || '此刻'}。`,
         '',
-        'Briefly acknowledge the refill naturally — mention 1-2 upcoming highlights.',
-        'Do NOT sound robotic. Keep it 10-15 seconds spoken.',
-        'Output JSON with exactly: {"say": "your spoken script here"}',
+        '用中文简短自然地介绍一下这次补充 — 提到 1-2 首即将播放的歌曲。',
+        '不要像机器人。保持 10-15 秒的口语长度。',
+        '输出 JSON，格式为：{"say": "你的中文口播文稿"}',
       ].join('\n'),
     },
   ];
@@ -196,7 +196,7 @@ export function buildRefillSpeechMessages(persona, upcomingSongs, weather, timeO
  * @returns {string}
  */
 export function resolveSongTitle(song) {
-  return song?.name || song?.title || 'our first track';
+  return song?.name || song?.title || '第一首歌';
 }
 
 /**
@@ -205,8 +205,8 @@ export function resolveSongTitle(song) {
  * @returns {string}
  */
 export function coldOpenFallback(nextSong) {
-  const title = nextSong?.name || nextSong?.title || 'this track';
-  return `Welcome to Qclaudio 88.7. Let's start with ${title}.`;
+  const title = nextSong?.name || nextSong?.title || '这首歌';
+  return `欢迎收听 Qclaudio 88.7。让我们从《${title}》开始吧。`;
 }
 
 /**
@@ -216,7 +216,7 @@ export function coldOpenFallback(nextSong) {
  * @returns {string}
  */
 export function coldOpenStreamFallback(nextTitle, nextArtist) {
-  return `Welcome to Qclaudio 88.7. Let's start with ${nextTitle} by ${nextArtist}.`;
+  return `欢迎收听 Qclaudio 88.7。让我们从${nextArtist}的《${nextTitle}》开始吧。`;
 }
 
 /**
@@ -224,5 +224,5 @@ export function coldOpenStreamFallback(nextTitle, nextArtist) {
  * @returns {string}
  */
 export function refillSpeechFallback() {
-  return "Fresh tracks are lined up and ready to go. Let's keep the music flowing.";
+  return '新的歌曲已经排好了，让我们继续享受音乐吧。';
 }

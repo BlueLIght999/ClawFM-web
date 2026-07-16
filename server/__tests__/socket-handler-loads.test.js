@@ -45,12 +45,12 @@ describe('socket handler module loads', () => {
     expect(source).not.toContain("import('../infrastructure/netease/neteaseApi.js')");
   });
 
-  it('delegatesChatTurnOrchestrationToAgentTurnService', () => {
-    // After extraction: chat logic lives in handleChatMessage(), not between
-    // socket.on markers.  Verify delegation patterns across the whole file.
+  it('delegatesChatTurnOrchestrationToAgentLoopService', () => {
+    // After ReAct integration: chat logic dispatches through AgentLoopService
+    // which internally decides: fast-route → AgentTurnService, or ReAct loop.
     const source = fs.readFileSync(path.resolve(__dirname, '../socket/handler.js'), 'utf-8');
 
-    expect(source).toContain('agentTurnService.handleMessage');
+    expect(source).toContain('agentLoopService.handleMessage');
     expect(source).not.toContain('routeIntent(');
     expect(source).not.toContain('conversationService.handlePlanAction');
     expect(source).not.toContain('conversationService.handlePersonalizedRecommendation');
@@ -113,7 +113,7 @@ describe('socket handler module loads', () => {
   it('delegatesChatStreamingTextRulesToDomain', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../socket/handler.js'), 'utf-8');
     const serviceSource = fs.readFileSync(
-      path.resolve(__dirname, '../application/services/StreamingConversationService.js'),
+      path.resolve(__dirname, '../agent/application/services/StreamingConversationService.js'),
       'utf-8',
     );
     const chatStart = source.indexOf('socket.on(EVENTS.CHAT_MESSAGE');
@@ -187,13 +187,18 @@ describe('socket handler module loads', () => {
     const authEnd = source.indexOf('function wirePlayerControls', authStart);
     const authHandlers = source.slice(authStart, authEnd);
 
+    // Phone login delegation stays in handler.js
     expect(authHandlers).toContain('authenticationService.loginWithPhone');
-    expect(authHandlers).toContain('authenticationService.createQrLogin');
-    expect(authHandlers).toContain('authenticationService.checkQrLogin');
     expect(authHandlers).not.toContain("import('../infrastructure/netease/neteaseApi.js')");
     expect(authHandlers).not.toContain('phoneLogin');
     expect(authHandlers).not.toContain('createQrLogin, checkQrLogin');
     expect(authHandlers).not.toContain('checkLoginStatus');
+
+    // QR login delegated to extracted qrLoginHandler.js
+    expect(authHandlers).toContain('wireQrLoginHandler');
+    const qrSource = fs.readFileSync(path.resolve(__dirname, '../socket/qrLoginHandler.js'), 'utf-8');
+    expect(qrSource).toContain('authenticationService.createQrLogin');
+    expect(qrSource).toContain('authenticationService.checkQrLogin');
   });
 
   it('delegatesTransitionSpeechToDjSpeechService', () => {

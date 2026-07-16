@@ -11,19 +11,16 @@ import {
   seedSongMatchesPreference,
   toSeedSongFromTrack,
 } from '../domain/curation/recommenderRules.js';
-import { defaultCorpus } from '../infrastructure/storage/defaultCorpus.js';
-import { legacyNeteaseMusicSourceAdapter } from '../infrastructure/music/LegacyNeteaseMusicSourceAdapter.js';
-import { legacyListenHistoryRepository } from '../infrastructure/persistence/repositories/LegacyListenHistoryRepository.js';
-import { legacySeedPoolRepository } from '../infrastructure/persistence/repositories/LegacySeedPoolRepository.js';
-import { legacyListenerProfileRepository } from '../infrastructure/persistence/repositories/LegacyListenerProfileRepository.js';
+import { songId } from '../domain/curation/songId.js';
+import { createGenreSearchEngine } from '../domain/routing/GenreSearchEngine.js';
 
 export class Recommender {
   constructor({
-    music = legacyNeteaseMusicSourceAdapter,
-    listenHistory = legacyListenHistoryRepository,
-    seedPool = legacySeedPoolRepository,
-    profile = legacyListenerProfileRepository,
-    corpus = defaultCorpus,
+    music = null,
+    listenHistory = null,
+    seedPool = null,
+    profile = null,
+    corpus = null,
     queueStore = queue,
   } = {}) {
     this.music = music;
@@ -40,16 +37,37 @@ export class Recommender {
     this._planProgress = { planId: null, currentBlockIndex: 0, songsFilledInBlock: 0, autoMode: true, pinned: false };
   }
 
+  /** Inject dependencies via bootstrap.js (D8 compliance) */
+  configure({ music, listenHistory, seedPool, profile, corpus }) {
+    if (music) this.music = music;
+    if (listenHistory) this.listenHistory = listenHistory;
+    if (seedPool) this.seedPoolRepo = seedPool;
+    if (profile) this.profile = profile;
+    if (corpus) this.corpus = corpus;
+  }
+
   async init(uid) {
     this.uid = uid;
+    if (!this.profile || !this.music) {
+      console.log('[Recommender] Dependencies not configured — call configure() first');
+      return;
+    }
     const profile = this.profile.get();
     if (profile.topArtists) this.topArtists = profile.topArtists;
     if (profile.topGenres) this.topGenres = profile.topGenres;
 
-    this._buildSeedPool().catch(e => console.error('[Recommender] Seed pool build failed:', e.message));
-
+    // Don't fire _buildSeedPool yet — it competes with fillQueue for API bandwidth.
+    // It will be triggered after the first fillQueue completes.
+    this._seedPoolPending = true;
     this.initialized = true;
     console.log(`[Recommender] Initialized for uid=${uid}, seed pool: ${this.seedPool.length} songs`);
+  }
+
+  /** Build seed pool after initial queue fill to avoid API bandwidth contention. */
+  _maybeBuildSeedPool() {
+    if (!this._seedPoolPending) return;
+    this._seedPoolPending = false;
+    this._buildSeedPool().catch(e => console.error('[Recommender] Seed pool build failed:', e.message));
   }
 
   // ─── Seed pool construction ─────────────────────────────────────
@@ -160,6 +178,8 @@ export class Recommender {
 
     console.log(`[Recommender] fillQueue total: ${allSongs.length} songs (target ${targetSize})`);
     this._commitFillResult(allSongs, activeBlockHints);
+    // Build seed pool now that fillQueue's API calls are done (avoids bandwidth contention)
+    this._maybeBuildSeedPool();
     return allSongs;
   }
 
@@ -197,12 +217,20 @@ export class Recommender {
   }
 
   async _collectFromStrategies(strategies, strategyNames, recentIds, targetSize) {
+    // Run all strategies in parallel to minimize latency (was sequential)
+    const results = await Promise.allSettled(
+      strategies.map(fn => fn().catch(e => {
+        console.log(`[Recommender] strategy error:`, e.message);
+        return [];
+      }))
+    );
+
     const allSongs = [];
-    for (let si = 0; si < strategies.length; si++) {
-      const songs = await strategies[si]();
+    for (let si = 0; si < results.length; si++) {
+      const songs = results[si].status === 'fulfilled' ? results[si].value : [];
       console.log(`[Recommender] strategy "${strategyNames[si]}" returned ${songs.length} songs`);
       for (const s of songs) {
-        const sid = String(s.id || s.song_id);
+        const sid = songId(s);
         if (!recentIds.has(sid) && allSongs.length < targetSize) {
           allSongs.push(s);
           recentIds.add(sid);
@@ -280,7 +308,7 @@ export class Recommender {
     Object.assign(this._planProgress, saved);
     for (const s of more) {
       if (allSongs.length >= targetSize) break;
-      const sid = String(s.id || s.song_id);
+      const sid = songId(s);
       if (!recentIds.has(sid)) {
         allSongs.push(s);
         recentIds.add(sid);
@@ -302,7 +330,7 @@ export class Recommender {
     for (const strategy of strategies) {
       const batch = await strategy();
       for (const s of batch) {
-        const sid = String(s.id || s.song_id);
+        const sid = songId(s);
         if (!recentIds.has(sid) && songs.length < targetSize) {
           songs.push(s);
           recentIds.add(sid);
@@ -329,16 +357,22 @@ export class Recommender {
 
   async _fetchByGenreHints(recentIds, _hourArtists, hints) {
     const songs = [];
+    // Use GenreSearchEngine for multi-source genre search (playlist + artist + song)
+    const genreEngine = createGenreSearchEngine(this.music);
     for (const block of hints) {
       const genres = block.genreHints || [];
       for (const genre of genres.slice(0, 2)) {
         if (songs.length >= 20) break;
         try {
-          const tracks = (await this.music.search(genre, 5)).filter(t => {
+          const tracks = (await genreEngine.search(genre, { limit: 8 })).filter(t => {
             const sid = String(t.id);
             return !recentIds.has(sid);
           });
-          songs.push(...tracks);
+          // Add tracks, respecting the 20-song cap
+          for (const t of tracks) {
+            if (songs.length >= 20) break;
+            songs.push(t);
+          }
         } catch { /* skip failed genre search */ }
       }
     }
@@ -358,7 +392,7 @@ export class Recommender {
   async _fetchSimilarSongs(_recentIds, _hourArtists) {
     if (!this.queueStore.current) { console.log('[Recommender] _fetchSimilarSongs: no queue.current'); return []; }
     try {
-      const currentId = this.queueStore.current.id || this.queueStore.current.song_id;
+      const currentId = songId(this.queueStore.current);
       return (await this.music.similar(String(currentId))).slice(0, 10);
     } catch (e) { console.log('[Recommender] _fetchSimilarSongs error:', e.message); return []; }
   }

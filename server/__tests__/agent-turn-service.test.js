@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAgentTurnService } from '../application/services/AgentTurnService.js';
+import { createAgentTurnService } from '../agent/application/services/AgentTurnService.js';
 
 function createDeps(overrides = {}) {
   const queue = {
@@ -44,6 +44,8 @@ function createDeps(overrides = {}) {
       ...overrides.userActivity,
     },
     now: vi.fn(() => 12345),
+    persona: 'test-persona',
+    music: { search: vi.fn(async () => []), ...overrides.music },
   };
   return deps;
 }
@@ -63,7 +65,7 @@ describe('AgentTurnService', () => {
       handled: true,
       snapshot: { future: [] },
       unavailableMessage: {
-        text: 'DJ booth is offline - DeepSeek API key not configured yet.',
+        text: 'DJ 暂时离线，请稍后再试。',
       },
     });
   });
@@ -149,5 +151,37 @@ describe('AgentTurnService', () => {
     expect(result.toolResults).toBe('retry result');
     expect(result.queueUpdate).toEqual({ upcomingSongs: [{ id: 'fresh' }] });
     expect(result.streamRequest.contextPrompt).toBe('assembled-context');
+  });
+
+  it('handleMessage_mergedRoute_searchesMusicAndReturnsMergedStream', async () => {
+    const songs = [
+      { id: 's1', name: 'Happy Song', ar: [{ name: 'Artist' }] },
+    ];
+    const mergedStream = (async function* () { yield '好的！'; })();
+    const deps = createDeps({
+      intentRouter: {
+        route: vi.fn(async () => ({
+          route: 'merged',
+          action: 'pending',
+          params: {},
+          mergedChat: {
+            streamWithIntent: vi.fn(async () => ({
+              intent: Promise.resolve({ action: 'play_mood', params: { mood: 'happy' } }),
+              stream: mergedStream,
+            })),
+          },
+        })),
+      },
+      music: { search: vi.fn(async () => songs) },
+    });
+    const service = createAgentTurnService(deps);
+
+    const result = await service.handleMessage({ text: '来点开心的', snapshot: null });
+
+    expect(deps.music.search).toHaveBeenCalledWith('欢快 流行', 5);
+    expect(result.mergedStream).toBe(mergedStream);
+    expect(result.routing.route).toBe('hybrid');
+    expect(result.routing.results).toHaveLength(1);
+    expect(result.queueUpdate).toBeTruthy();
   });
 });

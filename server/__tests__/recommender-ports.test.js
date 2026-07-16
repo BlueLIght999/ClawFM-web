@@ -13,6 +13,22 @@ vi.mock('../infrastructure/netease/neteaseApi.js', () => ({
   getSongUrl: vi.fn(() => { throw new Error('legacy getSongUrl called'); }),
   getLyric: vi.fn(() => { throw new Error('legacy getLyric called'); }),
   scrobbleSong: vi.fn(() => { throw new Error('legacy scrobbleSong called'); }),
+  getArtistDetail: vi.fn(() => { throw new Error('legacy getArtistDetail called'); }),
+  getArtistDesc: vi.fn(() => { throw new Error('legacy getArtistDesc called'); }),
+  getArtistSongs: vi.fn(() => { throw new Error('legacy getArtistSongs called'); }),
+  getStyleList: vi.fn(() => { throw new Error('legacy getStyleList called'); }),
+  getStyleSongs: vi.fn(() => { throw new Error('legacy getStyleSongs called'); }),
+  getStyleArtists: vi.fn(() => { throw new Error('legacy getStyleArtists called'); }),
+  getSongWikiSummary: vi.fn(() => { throw new Error('legacy getSongWikiSummary called'); }),
+  getSongCreators: vi.fn(() => { throw new Error('legacy getSongCreators called'); }),
+  getSimilarArtists: vi.fn(() => { throw new Error('legacy getSimilarArtists called'); }),
+  getPlaymodeIntelligenceList: vi.fn(() => { throw new Error('legacy getPlaymodeIntelligenceList called'); }),
+  getRecommendResource: vi.fn(() => { throw new Error('legacy getRecommendResource called'); }),
+  getPersonalized: vi.fn(() => { throw new Error('legacy getPersonalized called'); }),
+  getSearchSuggest: vi.fn(() => { throw new Error('legacy getSearchSuggest called'); }),
+  getSearchHotDetail: vi.fn(() => { throw new Error('legacy getSearchHotDetail called'); }),
+  getPlaylistCatlist: vi.fn(() => { throw new Error('legacy getPlaylistCatlist called'); }),
+  getPlaylistHot: vi.fn(() => { throw new Error('legacy getPlaylistHot called'); }),
 }));
 
 vi.mock('../db/history.js', () => ({

@@ -1,8 +1,10 @@
 import { useState, useCallback } from 'react';
 
 const MOOD_LABELS = {
-  morning: 'MORNING', afternoon: 'AFTERNOON',
-  evening: 'EVENING', night: 'NIGHT',
+  morning: 'MORNING',
+  afternoon: 'AFTERNOON',
+  evening: 'EVENING',
+  night: 'NIGHT',
 };
 
 export default function DJSchedule({ plan, onRefresh, activeBlockIndex, socket }) {
@@ -42,7 +44,7 @@ export default function DJSchedule({ plan, onRefresh, activeBlockIndex, socket }
         fontFamily: 'var(--font-mono)', fontSize: 18, color: 'var(--text-dim)',
         textAlign: 'center',
       }}>
-        <span className="cursor-blink">Generating schedule...</span>
+        <span className="cursor-blink">{'Generating schedule...'}</span>
       </div>
     );
   }
@@ -54,7 +56,7 @@ export default function DJSchedule({ plan, onRefresh, activeBlockIndex, socket }
         fontFamily: 'var(--font-mono)', fontSize: 16, color: 'var(--text-dim)',
         textAlign: 'center',
       }}>
-        No schedule available.
+        {'No schedule available.'}
       </div>
     );
   }
@@ -80,7 +82,7 @@ export default function DJSchedule({ plan, onRefresh, activeBlockIndex, socket }
         <span style={{ color: 'var(--neon-cyan)', width: 20, textAlign: 'center' }}>
           {expanded ? '[-]' : '[+]'}
         </span>
-        <span style={{ color: 'var(--neon-cyan)' }}>SCHEDULE</span>
+        <span style={{ color: 'var(--neon-cyan)' }}>{'SCHEDULE'}</span>
         <span style={{ color: 'var(--text-dim)' }}>·</span>
         <span style={{ color: 'var(--accent-glow)' }}>
           {MOOD_LABELS[plan.mood] || plan.mood?.toUpperCase() || 'ON AIR'}
@@ -101,13 +103,13 @@ export default function DJSchedule({ plan, onRefresh, activeBlockIndex, socket }
             background: isAuto ? 'var(--accent)' : 'transparent',
             color: isAuto ? 'var(--bg-primary)' : 'var(--text-dim)',
           }}
-        >AUTO</button>
+        >{'AUTO'}</button>
         {onRefresh && (
           <button
             className="pixel-btn"
             onClick={(e) => { e.stopPropagation(); onRefresh(); }}
             style={{ fontSize: 9, padding: '3px 8px', fontFamily: 'var(--font-pixel)' }}
-          >REFRESH</button>
+          >{'REFRESH'}</button>
         )}
       </button>
 
@@ -190,19 +192,19 @@ export default function DJSchedule({ plan, onRefresh, activeBlockIndex, socket }
                       fontFamily: 'var(--font-pixel)', fontSize: 9, color: 'var(--accent-dark)',
                       background: 'rgba(224,123,86,0.1)', padding: '1px 6px',
                     }}>
-                      {block.targetCount || 6} TRACKS
+                      {block.targetCount || 6}{' TRACKS'}
                     </span>
                     {isPinned && (
                       <span style={{
                         fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'var(--neon-pink)',
                         background: 'rgba(255,107,157,0.15)', padding: '1px 4px',
-                      }}>PINNED</span>
+                      }}>{'PINNED'}</span>
                     )}
                     {(isActive && !isPinned) && (
                       <span style={{
                         fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'var(--neon-cyan)',
                         background: 'rgba(123,255,255,0.1)', padding: '1px 4px',
-                      }}>NOW</span>
+                      }}>{'NOW'}</span>
                     )}
                     <span style={{ flex: 1 }} />
                     <button
@@ -245,7 +247,7 @@ export default function DJSchedule({ plan, onRefresh, activeBlockIndex, socket }
               fontFamily: 'var(--font-mono)', fontSize: 16, color: 'var(--text-dim)',
               margin: '12px 0 0 0', textAlign: 'right',
             }}>
-              Generated {new Date(plan.generatedAt).toLocaleTimeString()}
+              {'Generated '}{new Date(plan.generatedAt).toLocaleTimeString()}
             </p>
           )}
         </div>

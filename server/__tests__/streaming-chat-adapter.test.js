@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createLegacyStreamingChatAdapter } from '../infrastructure/llm/LegacyStreamingChatAdapter.js';
+import { createLegacyStreamingChatAdapter } from '../agent/infrastructure/LegacyStreamingChatAdapter.js';
 
 describe('LegacyStreamingChatAdapter', () => {
   it('stream_delegatesToLegacyChatWithDj', async () => {

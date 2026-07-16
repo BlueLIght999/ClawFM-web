@@ -19,7 +19,7 @@ export function loadDjPersona() {
   if (existsSync(path)) {
     cachedPersona = readFileSync(path, 'utf-8');
   } else {
-    cachedPersona = 'You are Dan, the AI DJ of Qclaudio 88.7, a 24/7 radio station.';
+    cachedPersona = '你是 Dan，Qclaudio 88.7 电台的 AI DJ，一个 24/7 不间断的音乐电台。请用中文进行所有播报。';
   }
   return cachedPersona;
 }

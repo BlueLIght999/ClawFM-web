@@ -9,7 +9,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const SERVER_DIR = resolve(ROOT, 'server');
 const CLIENT_DIR = resolve(ROOT, 'client');
-const PORT = 3333;
+const PORT = parseInt(process.env.PORT || '3333', 10);
 const URL = `http://localhost:${PORT}`;
 
 console.log(`
@@ -33,20 +33,22 @@ if (!fs.existsSync(resolve(CLIENT_DIR, 'dist', 'index.html'))) {
   console.log('[Build] Building frontend...');
   try {
     execSync('npx vite build', { cwd: CLIENT_DIR, stdio: 'inherit' });
-  } catch (e) {
+  } catch (_e) {
     console.error('[!] Build failed. Run: cd client && npm install && npx vite build');
     process.exit(1);
   }
 }
 
-// Check if server is already running
+// Bug L9: Check server status with proper status code verification
 function checkServer() {
   return new Promise((resolve) => {
-    http.get(`${URL}/api/auth/status`, (res) => {
-      resolve(true);
-    }).on('error', () => {
-      resolve(false);
+    const req = http.get(`${URL}/api/auth/status`, (res) => {
+      // Drain response to free the socket
+      res.resume();
+      resolve(res.statusCode === 200);
     });
+    req.on('error', () => resolve(false));
+    req.setTimeout(3000, () => { req.destroy(); resolve(false); });
   });
 }
 
@@ -62,38 +64,81 @@ async function main() {
       env: { ...process.env, NODE_ENV: 'production' },
     });
 
-    // Wait for server to be ready
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        // Last attempt
-        http.get(`${URL}/api/auth/status`, () => resolve()).on('error', () => {
-          reject(new Error('Server failed to start within 30s timeout'));
+    // Bug L6: Kill serverProc on startup failure to prevent orphaned process
+    try {
+      await new Promise((resolve, reject) => {
+        let stdoutBuffer = '';
+        let settled = false;
+
+        const timeout = setTimeout(() => {
+          if (settled) return;
+          // Last attempt
+          http.get(`${URL}/api/auth/status`, (res) => {
+            res.resume();
+            if (res.statusCode === 200) {
+              settled = true;
+              resolve();
+            } else {
+              settled = true;
+              reject(new Error('Server failed to start within 30s timeout'));
+            }
+          }).on('error', () => {
+            settled = true;
+            reject(new Error('Server failed to start within 30s timeout'));
+          });
+        }, 30000);
+
+        // Bug L5: Accumulate stdout into buffer to avoid missing 'ON AIR' across chunk splits
+        serverProc.stdout.on('data', (data) => {
+          stdoutBuffer += data.toString();
+          if (stdoutBuffer.includes('ON AIR') && !settled) {
+            settled = true;
+            clearTimeout(timeout);
+            resolve();
+          }
+          // Trim buffer to prevent unbounded growth
+          if (stdoutBuffer.length > 1024) {
+            stdoutBuffer = stdoutBuffer.slice(-512);
+          }
         });
-      }, 30000);
 
-      serverProc.stdout.on('data', (data) => {
-        const line = data.toString();
-        if (line.includes('ON AIR')) {
-          clearTimeout(timeout);
-          resolve();
-        }
+        serverProc.stderr.on('data', (data) => {
+          const msg = data.toString().trim();
+          if (msg) console.error('[Server]', msg);
+        });
+
+        serverProc.on('error', (err) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeout);
+            reject(err);
+          }
+        });
+
+        serverProc.on('exit', (code) => {
+          if (code !== 0 && code !== null && !settled) {
+            settled = true;
+            clearTimeout(timeout);
+            reject(new Error(`Server process exited with code ${code}`));
+          }
+        });
       });
+      console.log('[Server] Ready');
+    } catch (e) {
+      // Bug L6: Clean up orphaned process on startup failure
+      if (serverProc && !serverProc.killed) {
+        serverProc.kill('SIGTERM');
+      }
+      console.error('[!]', e.message);
+      process.exit(1);
+    }
 
-      serverProc.stderr.on('data', (data) => {
-        const msg = data.toString().trim();
-        if (msg) console.error('[Server]', msg);
-      });
-
-      serverProc.on('error', reject);
-
-      serverProc.on('exit', (code) => {
-        if (code !== 0 && code !== null) {
-          clearTimeout(timeout);
-          reject(new Error(`Server process exited with code ${code}`));
-        }
-      });
+    // Bug L7: Handle post-startup crashes
+    serverProc.on('exit', (code) => {
+      if (code !== 0 && code !== null) {
+        console.error(`\n[Server] Process crashed (code ${code}). The launcher (index.js) will auto-restart it.`);
+      }
     });
-    console.log('[Server] Ready');
   } else {
     console.log('[Server] Already running');
   }
@@ -119,12 +164,31 @@ async function main() {
     const args = process.platform === 'win32' ? ['/c', 'start', URL] : [URL];
     spawn(cmd, args, { stdio: 'ignore' });
     console.log(`[Window] Opened ${URL} in browser. Press Ctrl+C to stop.\n`);
-    // Keep alive on Ctrl+C
-    process.on('SIGINT', () => {
+
+    // Kill server child process on any exit signal
+    function shutdown() {
       console.log('\n[Qclaudio] Goodbye.');
-      if (serverProc) serverProc.kill();
-      process.exit(0);
-    });
+      if (serverProc && !serverProc.killed) {
+        // Send SIGTERM and wait for child to exit before parent exits.
+        // The child's gracefulShutdown calls io.close() to disconnect
+        // clients immediately, then closes HTTP server.
+        serverProc.kill('SIGTERM');
+        const forceKillTimer = setTimeout(() => {
+          if (!serverProc.killed) {
+            console.log('[Qclaudio] Force-killing server...');
+            serverProc.kill('SIGKILL');
+          }
+        }, 6000);
+        serverProc.on('exit', () => {
+          clearTimeout(forceKillTimer);
+          process.exit(0);
+        });
+      } else {
+        process.exit(0);
+      }
+    }
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
   }
 }
 

@@ -4,7 +4,7 @@ import {
   buildSearchToolResults,
   latestToolResults,
   nextRecommendationSnapshot,
-} from '../domain/agent/agentTurnRules.js';
+} from '../agent/domain/agentTurnRules.js';
 
 describe('agent turn rules', () => {
   it('buildSearchToolResults_formatsStableSongFieldsAndLegacyArtists', () => {

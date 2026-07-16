@@ -58,7 +58,7 @@ describe('DjSpeechService', () => {
       contextPrompt: 'weather prompt',
     });
     expect(deps.speech.synthesize).toHaveBeenCalledWith('Hello from the booth.');
-    expect(deps.scheduler.speechGenerationDone).toHaveBeenCalledWith(1.4);
+    expect(deps.scheduler.speechGenerationDone).toHaveBeenCalledWith(3);
     expect(result).toEqual({
       speechHandled: true,
       waitForClient: true,
@@ -136,7 +136,7 @@ describe('DjSpeechService', () => {
       timeOfDay: 'evening',
     });
     expect(deps.speech.synthesize).toHaveBeenCalledWith('Fresh tracks.');
-    expect(deps.scheduler.speechGenerationDone).toHaveBeenCalledWith(13 / 15);
+    expect(deps.scheduler.speechGenerationDone).toHaveBeenCalledWith(3);
     expect(result).toEqual({
       speechHandled: true,
       waitForClient: true,

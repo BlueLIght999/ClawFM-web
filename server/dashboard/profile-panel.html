@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profile System - Monitoring Panel</title>
+<style>
+/* ==================== CSS Variables ==================== */
+/* Mirrors the parent dashboard so the iframe matches seamlessly. */
+:root {
+  --bg: #1a1a2e;
+  --panel: #222240;
+  --panel-light: #2a2a4a;
+  --panel-header: #1e1e38;
+  --text: #e8e8f0;
+  --text-dim: #8a8aaa;
+  --text-faint: #5a5a7a;
+  --accent: #7c5cff;
+  --accent-dim: #4a3a8a;
+  --border: #333355;
+  --border-light: #3d3d5c;
+  --green: #4ade80;
+  --yellow: #facc15;
+  --red: #f87171;
+  --blue: #60a5fa;
+  --orange: #fb923c;
+  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, 'Courier New', monospace;
+}
+
+/* ==================== Reset & Base ==================== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ==================== Scrollbar ==================== */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
+
+/* ==================== Panel Header Bar ==================== */
+.profile-panel-root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.panel-header-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--panel-header);
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-header-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+.conn-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  background: var(--panel-light);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.conn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--yellow);
+  animation: pulse 1.5s infinite;
+}
+
+.conn-pill.connected .conn-dot { background: var(--green); animation: none; }
+.conn-pill.disconnected .conn-dot { background: var(--red); animation: none; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ==================== Scroll Body ==================== */
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+/* ==================== Metric Cards ==================== */
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.metric-card {
+  background: var(--panel-light);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: border-color 0.15s;
+}
+
+.metric-card:hover { border-color: var(--border-light); }
+
+.metric-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.metric-value {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.metric-value.dim { color: var(--text-faint); }
+
+.metric-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+/* ==================== Section Card ==================== */
+.section-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.section-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--panel-header);
+  border-bottom: 1px solid var(--border);
+}
+
+.section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-dim);
+}
+
+.section-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.section-body {
+  padding: 8px 12px;
+}
+
+/* ==================== Tag Distribution ==================== */
+.dimension-group {
+  margin-bottom: 8px;
+}
+
+.dimension-group:last-child { margin-bottom: 0; }
+
+.dimension-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dimension-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.tag-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.tag-bar-name {
+  width: 70px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+.tag-bar-track {
+  flex: 1;
+  height: 14px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.tag-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease-out;
+  min-width: 2px;
+}
+
+.tag-bar-weight {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  width: 36px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.tag-empty {
+  color: var(--text-faint);
+  font-size: 12px;
+  padding: 8px 0;
+  text-align: center;
+}
+
+/* ==================== Cluster Info ==================== */
+.cluster-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.cluster-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  background: var(--panel-light);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.cluster-item-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cluster-item-value {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.cluster-item-value.accent { color: var(--accent); }
+
+.cluster-label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  background: rgba(124, 92, 255, 0.1);
+  border: 1px solid rgba(124, 92, 255, 0.3);
+  border-radius: 5px;
+}
+
+.cluster-label-row .cluster-item-label { margin-bottom: 0; }
+
+.cluster-label-row .cluster-item-value { font-size: 15px; color: var(--accent); }
+
+.cluster-empty {
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: center;
+  padding: 12px 0;
+}
+
+/* ==================== Analysis Log ==================== */
+.analysis-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.analysis-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--panel-light);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  animation: logFadeIn 0.2s ease-out;
+}
+
+@keyframes logFadeIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.analysis-type-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  min-width: 70px;
+  text-align: center;
+}
+
+.analysis-type-badge.chat_style    { background: rgba(250,204,21,0.2); color: var(--yellow); }
+.analysis-type-badge.emotion       { background: rgba(96,165,250,0.2); color: var(--blue); }
+.analysis-type-badge.daily_habit   { background: rgba(74,222,128,0.2); color: var(--green); }
+.analysis-type-badge.user_cluster  { background: rgba(124,92,255,0.2); color: var(--accent); }
+.analysis-type-badge.recommendation{ background: rgba(251,146,60,0.2); color: var(--orange); }
+.analysis-type-badge.agent_context { background: rgba(138,138,170,0.2); color: var(--text-dim); }
+.analysis-type-badge.unknown       { background: rgba(107,114,128,0.2); color: var(--text-dim); }
+
+.analysis-time {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding-top: 1px;
+}
+
+.analysis-summary {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-word;
+  padding-top: 1px;
+}
+
+.analysis-empty {
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: center;
+  padding: 12px 0;
+}
+
+/* ==================== Responsive ==================== */
+@media (max-width: 600px) {
+  .metrics-row { grid-template-columns: repeat(2, 1fr); }
+  .cluster-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="profile-panel-root">
+
+  <!-- ==================== Header Bar ==================== -->
+  <div class="panel-header-bar">
+    <span class="panel-header-title" data-i18n="profileSystem">Profile System</span>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button id="langToggle" onclick="toggleLang()" style="padding:3px 10px;border-radius:4px;background:var(--panel-light);border:1px solid var(--border);color:var(--text);font-size:11px;cursor:pointer;font-weight:600;">中 / EN</button>
+      <div class="conn-pill" id="connPill">
+        <span class="conn-dot"></span>
+        <span class="conn-text" data-i18n="connecting">Connecting...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Scrollable Body ==================== -->
+  <div class="panel-body">
+
+    <!-- Metric Cards -->
+    <div class="metrics-row">
+      <div class="metric-card">
+        <span class="metric-label" data-i18n="totalTags">Total Tags</span>
+        <span class="metric-value dim" id="metricTotalTags">0</span>
+        <span class="metric-sub" id="metricTotalTagsSub">-- dimensions</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label" data-i18n="snapshots">Snapshots</span>
+        <span class="metric-value dim" id="metricSnapshots">0</span>
+        <span class="metric-sub" id="metricSnapshotsSub">-- last: never</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label" data-i18n="collections">Collections</span>
+        <span class="metric-value dim" id="metricCollections">0</span>
+        <span class="metric-sub" id="metricCollectionsSub">-- runs</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label" data-i18n="enrichments">Enrichments</span>
+        <span class="metric-value dim" id="metricEnrichments">0</span>
+        <span class="metric-sub" id="metricEnrichmentsSub">-- analyses</span>
+      </div>
+    </div>
+
+    <!-- Tag Distribution -->
+    <div class="section-card">
+      <div class="section-header">
+        <span class="section-title" data-i18n="tagDistribution">Tag Distribution</span>
+        <span class="section-badge" id="tagDistBadge">top 5 per dimension</span>
+      </div>
+      <div class="section-body" id="tagDistribution">
+        <div class="tag-empty" data-i18n="waitingForProfile">Waiting for profile data...</div>
+      </div>
+    </div>
+
+    <!-- Cluster Info -->
+    <div class="section-card">
+      <div class="section-header">
+        <span class="section-title" data-i18n="clusterInfo">Cluster Info</span>
+        <span class="section-badge" id="clusterBadge">-- clusters</span>
+      </div>
+      <div class="section-body" id="clusterInfo">
+        <div class="cluster-empty" data-i18n="noClusterData">No cluster data yet</div>
+      </div>
+    </div>
+
+    <!-- Recent Analysis Log -->
+    <div class="section-card">
+      <div class="section-header">
+        <span class="section-title" data-i18n="recentAnalysis">Recent Analysis</span>
+        <span class="section-badge" id="analysisLogBadge">0 entries</span>
+      </div>
+      <div class="section-body" id="analysisLog">
+        <div class="analysis-empty" data-i18n="noAnalysisResults">No analysis results yet</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.8.0/socket.io.min.js"></script>
+<script>
+(function() {
+'use strict';
+
+/* ==================== i18n ==================== */
+var LANG_KEY = 'qclaudio-dashboard-lang';
+var currentLang = 'zh-CN';
+try { var saved = localStorage.getItem(LANG_KEY); if (saved === 'en' || saved === 'zh-CN') currentLang = saved; } catch(e) {}
+
+var i18n = {
+  'zh-CN': {
+    // Dashboard specific
+    monitoringDashboard: '监控面板',
+    connecting: '连接中...',
+    connected: '已连接',
+    disconnected: '已断开',
+    connectionError: '连接错误',
+    reconnecting: '重新连接中...',
+    uptime: '运行时间',
+    clients: '客户端',
+    queue: '队列',
+    nowPlaying: '正在播放',
+    health: '健康状态',
+    profilePanel: '画像面板 →',
+    logStream: '日志流',
+    all: '全部',
+    debug: '调试',
+    info: '信息',
+    warn: '警告',
+    error: '错误',
+    searchLogs: '搜索日志...',
+    waitingForConnection: '等待连接...',
+    noLogsYet: '暂无日志',
+    waitingForLogs: '等待日志...',
+    noLogsMatch: '没有匹配当前筛选的日志',
+    metrics: '指标',
+    eventTimeline: '事件时间线',
+    noEventsYet: '暂无事件',
+    healthChecks: '健康检查',
+    unknown: '未知',
+    healthy: '健康',
+    degraded: '降级',
+    unhealthy: '不健康',
+    up: '正常',
+    down: '宕机',
+    // Metric labels
+    songsPlayed: '已播歌曲',
+    djSpeech: 'DJ 语音',
+    chatMessages: '聊天消息',
+    toolCalls: '工具调用',
+    llmCalls: 'LLM 调用',
+    queueSize: '队列大小',
+    connectedClients: '客户端数',
+    memoryUsage: '内存 (MB)',
+    eventLoopLag: '事件循环 (ms)',
+    // Event types
+    eventSong: '歌曲',
+    eventDJ: 'DJ',
+    eventChat: '聊天',
+    eventTool: '工具',
+    eventDefault: '事件',
+    // Profile panel specific
+    profileSystem: '画像系统',
+    totalTags: '标签总数',
+    snapshots: '快照',
+    collections: '采集',
+    enrichments: '分析',
+    dimensions: '维度',
+    last: '上次',
+    never: '从未',
+    runs: '次',
+    analyses: '次',
+    tagDistribution: '标签分布',
+    topPerDimension: '每维度前',
+    perDimension: '个',
+    waitingForProfile: '等待画像数据...',
+    noTagsInProfile: '画像中暂无标签',
+    clusterInfo: '聚类信息',
+    clusters: '个聚类',
+    noClusterData: '暂无聚类数据',
+    clusterLabel: '聚类标签',
+    clusterId: '聚类 ID',
+    members: '成员数',
+    totalClusters: '总聚类数',
+    features: '特征维度',
+    recentAnalysis: '最近分析',
+    entries: '条记录',
+    entry: '条记录',
+    noAnalysisResults: '暂无分析结果',
+  },
+  en: {
+    monitoringDashboard: 'Monitoring Dashboard',
+    connecting: 'Connecting...',
+    connected: 'Connected',
+    disconnected: 'Disconnected',
+    connectionError: 'Connection Error',
+    reconnecting: 'Reconnecting...',
+    uptime: 'Uptime',
+    clients: 'Clients',
+    queue: 'Queue',
+    nowPlaying: 'Now Playing',
+    health: 'Health',
+    profilePanel: 'Profile Panel →',
+    logStream: 'Log Stream',
+    all: 'All',
+    debug: 'Debug',
+    info: 'Info',
+    warn: 'Warn',
+    error: 'Error',
+    searchLogs: 'Search logs...',
+    waitingForConnection: 'Waiting for connection...',
+    noLogsYet: 'No logs yet',
+    waitingForLogs: 'Waiting for logs...',
+    noLogsMatch: 'No logs match current filter',
+    metrics: 'Metrics',
+    eventTimeline: 'Event Timeline',
+    noEventsYet: 'No events yet',
+    healthChecks: 'Health Checks',
+    unknown: 'Unknown',
+    healthy: 'Healthy',
+    degraded: 'Degraded',
+    unhealthy: 'Unhealthy',
+    up: 'UP',
+    down: 'DOWN',
+    songsPlayed: 'Songs Played',
+    djSpeech: 'DJ Speech',
+    chatMessages: 'Chat Messages',
+    toolCalls: 'Tool Calls',
+    llmCalls: 'LLM Calls',
+    queueSize: 'Queue Size',
+    connectedClients: 'Clients',
+    memoryUsage: 'Memory (MB)',
+    eventLoopLag: 'Event Loop (ms)',
+    eventSong: 'Song',
+    eventDJ: 'DJ',
+    eventChat: 'Chat',
+    eventTool: 'Tool',
+    eventDefault: 'Event',
+    profileSystem: 'Profile System',
+    totalTags: 'Total Tags',
+    snapshots: 'Snapshots',
+    collections: 'Collections',
+    enrichments: 'Enrichments',
+    dimensions: 'dimensions',
+    last: 'last',
+    never: 'never',
+    runs: 'runs',
+    analyses: 'analyses',
+    tagDistribution: 'Tag Distribution',
+    topPerDimension: 'top',
+    perDimension: 'per dimension',
+    waitingForProfile: 'Waiting for profile data...',
+    noTagsInProfile: 'No tags in profile yet',
+    clusterInfo: 'Cluster Info',
+    clusters: 'clusters',
+    noClusterData: 'No cluster data yet',
+    clusterLabel: 'Cluster Label',
+    clusterId: 'Cluster ID',
+    members: 'Members',
+    totalClusters: 'Total Clusters',
+    features: 'Features',
+    recentAnalysis: 'Recent Analysis',
+    entries: 'entries',
+    entry: 'entry',
+    noAnalysisResults: 'No analysis results yet',
+  }
+};
+
+function tr(key) {
+  var dict = i18n[currentLang] || i18n['zh-CN'];
+  return dict[key] !== undefined ? dict[key] : key;
+}
+
+function toggleLang() {
+  currentLang = currentLang === 'zh-CN' ? 'en' : 'zh-CN';
+  try { localStorage.setItem(LANG_KEY, currentLang); } catch(e) {}
+  applyLang();
+  // Re-render dynamic content
+  if (typeof renderTimeline === 'function') renderTimeline();
+  if (typeof initMetricCards === 'function') initMetricCards();
+  if (typeof initHealthChecks === 'function') initHealthChecks();
+  if (typeof updateMetricCards === 'function') updateMetricCards();
+  if (typeof renderTagDistribution === 'function') renderTagDistribution();
+  if (typeof renderClusterInfo === 'function') renderClusterInfo();
+  if (typeof renderAnalysisLog === 'function') renderAnalysisLog();
+  if (typeof applyLogFilters === 'function') applyLogFilters();
+}
+
+function applyLang() {
+  // Update all elements with data-i18n attribute
+  var els = document.querySelectorAll('[data-i18n]');
+  for (var i = 0; i < els.length; i++) {
+    var key = els[i].getAttribute('data-i18n');
+    els[i].textContent = tr(key);
+  }
+  // Update elements with data-i18n-placeholder
+  var phEls = document.querySelectorAll('[data-i18n-placeholder]');
+  for (var j = 0; j < phEls.length; j++) {
+    var pkey = phEls[j].getAttribute('data-i18n-placeholder');
+    phEls[j].placeholder = tr(pkey);
+  }
+  // Update html lang
+  document.documentElement.lang = currentLang === 'zh-CN' ? 'zh' : 'en';
+  // Update toggle button text
+  var btn = document.getElementById('langToggle');
+  if (btn) btn.textContent = currentLang === 'zh-CN' ? '中 / EN' : 'EN / 中';
+}
+
+// Expose toggleLang to global scope for onclick attribute
+window.toggleLang = toggleLang;
+
+/* ==================== Configuration ==================== */
+var MAX_ANALYSIS_ENTRIES = 5;
+var TOP_TAGS_PER_DIMENSION = 5;
+
+/* Dimension gradient colors (per spec: genre=purple, mood=blue, region=green, behavior=orange, chat=yellow) */
+var DIMENSION_COLORS = {
+  genre:    { bar: 'linear-gradient(90deg, #6d28d9, #a78bfa)', dot: '#8b5cf6' },
+  mood:     { bar: 'linear-gradient(90deg, #1d4ed8, #60a5fa)', dot: '#3b82f6' },
+  region:   { bar: 'linear-gradient(90deg, #15803d, #4ade80)', dot: '#22c55e' },
+  behavior: { bar: 'linear-gradient(90deg, #c2410c, #fb923c)', dot: '#f97316' },
+  chat:     { bar: 'linear-gradient(90deg, #a16207, #facc15)', dot: '#eab308' },
+};
+
+var DIMENSION_ORDER = ['genre', 'mood', 'region', 'behavior', 'chat'];
+
+/* ==================== State ==================== */
+var currentProfile = null;
+var currentCluster = null;
+var snapshotCount = 0;
+var collectionCount = 0;
+var enrichmentCount = 0;
+var analysisEntries = [];
+var lastSnapshotTime = null;
+var socket = null;
+
+/* ==================== DOM References ==================== */
+var connPill = document.getElementById('connPill');
+var metricTotalTags = document.getElementById('metricTotalTags');
+var metricTotalTagsSub = document.getElementById('metricTotalTagsSub');
+var metricSnapshots = document.getElementById('metricSnapshots');
+var metricSnapshotsSub = document.getElementById('metricSnapshotsSub');
+var metricCollections = document.getElementById('metricCollections');
+var metricCollectionsSub = document.getElementById('metricCollectionsSub');
+var metricEnrichments = document.getElementById('metricEnrichments');
+var metricEnrichmentsSub = document.getElementById('metricEnrichmentsSub');
+var tagDistribution = document.getElementById('tagDistribution');
+var tagDistBadge = document.getElementById('tagDistBadge');
+var clusterInfo = document.getElementById('clusterInfo');
+var clusterBadge = document.getElementById('clusterBadge');
+var analysisLog = document.getElementById('analysisLog');
+var analysisLogBadge = document.getElementById('analysisLogBadge');
+
+/* ==================== Utility Functions ==================== */
+
+function escapeHtml(text) {
+  if (text == null) return '';
+  var div = document.createElement('div');
+  div.textContent = String(text);
+  return div.innerHTML;
+}
+
+function formatTimeShort(timestamp) {
+  if (!timestamp) return '--:--:--';
+  var d;
+  if (typeof timestamp === 'number') {
+    d = new Date(timestamp > 1e12 ? timestamp : timestamp * 1000);
+  } else if (typeof timestamp === 'string') {
+    d = new Date(timestamp);
+  } else {
+    d = new Date();
+  }
+  if (isNaN(d.getTime())) d = new Date();
+  var h = String(d.getHours()).padStart(2, '0');
+  var m = String(d.getMinutes()).padStart(2, '0');
+  var s = String(d.getSeconds()).padStart(2, '0');
+  return h + ':' + m + ':' + s;
+}
+
+function getDimensionColor(dimension) {
+  return DIMENSION_COLORS[dimension] || { bar: 'var(--accent)', dot: 'var(--accent)' };
+}
+
+/* ==================== Connection Status ==================== */
+
+function setConnStatus(state, text) {
+  connPill.className = 'conn-pill ' + state;
+  var textEl = connPill.querySelector('.conn-text');
+  if (textEl) textEl.textContent = text;
+}
+
+/* ==================== Metric Cards ==================== */
+
+function countTotalTags(profile) {
+  if (!profile || !profile.tags) return { total: 0, dimensions: 0 };
+  var total = 0;
+  var dimensions = 0;
+  for (var dim in profile.tags) {
+    if (profile.tags.hasOwnProperty(dim) && profile.tags[dim]) {
+      var count = Object.keys(profile.tags[dim]).length;
+      if (count > 0) dimensions++;
+      total += count;
+    }
+  }
+  return { total: total, dimensions: dimensions };
+}
+
+function updateMetricCards() {
+  var tagInfo = countTotalTags(currentProfile);
+  if (tagInfo.total > 0) {
+    metricTotalTags.textContent = tagInfo.total;
+    metricTotalTags.classList.remove('dim');
+    metricTotalTagsSub.textContent = tagInfo.dimensions + ' ' + tr('dimensions');
+  } else {
+    metricTotalTags.textContent = '0';
+    metricTotalTags.classList.add('dim');
+    metricTotalTagsSub.textContent = '-- ' + tr('dimensions');
+  }
+
+  if (snapshotCount > 0) {
+    metricSnapshots.textContent = snapshotCount;
+    metricSnapshots.classList.remove('dim');
+    if (lastSnapshotTime) {
+      metricSnapshotsSub.textContent = tr('last') + ': ' + formatTimeShort(lastSnapshotTime);
+    } else {
+      metricSnapshotsSub.textContent = '-- ' + tr('last') + ': ' + tr('never');
+    }
+  } else {
+    metricSnapshots.textContent = '0';
+    metricSnapshots.classList.add('dim');
+    metricSnapshotsSub.textContent = '-- ' + tr('last') + ': ' + tr('never');
+  }
+
+  if (collectionCount > 0) {
+    metricCollections.textContent = collectionCount;
+    metricCollections.classList.remove('dim');
+    metricCollectionsSub.textContent = collectionCount + ' ' + tr('runs');
+  } else {
+    metricCollections.textContent = '0';
+    metricCollections.classList.add('dim');
+    metricCollectionsSub.textContent = '-- ' + tr('runs');
+  }
+
+  if (enrichmentCount > 0) {
+    metricEnrichments.textContent = enrichmentCount;
+    metricEnrichments.classList.remove('dim');
+    metricEnrichmentsSub.textContent = enrichmentCount + ' ' + tr('analyses');
+  } else {
+    metricEnrichments.textContent = '0';
+    metricEnrichments.classList.add('dim');
+    metricEnrichmentsSub.textContent = '-- ' + tr('analyses');
+  }
+}
+
+/* ==================== Tag Distribution ==================== */
+
+function getTopTagsByDimension(profile, dimension, limit) {
+  if (!profile || !profile.tags || !profile.tags[dimension]) return [];
+  var entries = Object.entries(profile.tags[dimension]);
+  return entries
+    .map(function(entry) {
+      return { name: entry[0], weight: (entry[1] && entry[1].weight) || 0, evidenceCount: (entry[1] && entry[1].evidenceCount) || 0 };
+    })
+    .sort(function(a, b) { return b.weight - a.weight; })
+    .slice(0, limit);
+}
+
+function renderTagDistribution() {
+  if (!currentProfile || !currentProfile.tags) {
+    tagDistribution.innerHTML = '<div class="tag-empty">' + tr('waitingForProfile') + '</div>';
+    tagDistBadge.textContent = tr('topPerDimension') + ' ' + TOP_TAGS_PER_DIMENSION + ' ' + tr('perDimension');
+    return;
+  }
+
+  var html = '';
+  var hasAnyTags = false;
+
+  for (var i = 0; i < DIMENSION_ORDER.length; i++) {
+    var dimension = DIMENSION_ORDER[i];
+    var tags = getTopTagsByDimension(currentProfile, dimension, TOP_TAGS_PER_DIMENSION);
+    if (tags.length === 0) continue;
+
+    hasAnyTags = true;
+    var color = getDimensionColor(dimension);
+
+    html += '<div class="dimension-group">';
+    html += '<div class="dimension-label">';
+    html += '<span class="dimension-swatch" style="background:' + color.dot + '"></span>';
+    html += '<span>' + escapeHtml(dimension) + '</span>';
+    html += '</div>';
+
+    // Find max weight for relative scaling within this dimension
+    var maxWeight = tags[0].weight || 1;
+
+    for (var j = 0; j < tags.length; j++) {
+      var tag = tags[j];
+      var pct = maxWeight > 0 ? Math.round((tag.weight / maxWeight) * 100) : 0;
+      if (pct < 2) pct = 2; // min visible width
+
+      html += '<div class="tag-bar-row">';
+      html += '<span class="tag-bar-name" title="' + escapeHtml(tag.name) + '">' + escapeHtml(tag.name) + '</span>';
+      html += '<div class="tag-bar-track">';
+      html += '<div class="tag-bar-fill" style="width:' + pct + '%;background:' + color.bar + '"></div>';
+      html += '</div>';
+      html += '<span class="tag-bar-weight">' + (Math.round(tag.weight * 100) / 100) + '</span>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+  }
+
+  if (!hasAnyTags) {
+    tagDistribution.innerHTML = '<div class="tag-empty">' + tr('noTagsInProfile') + '</div>';
+  } else {
+    tagDistribution.innerHTML = html;
+  }
+
+  tagDistBadge.textContent = tr('topPerDimension') + ' ' + TOP_TAGS_PER_DIMENSION + ' ' + tr('perDimension');
+}
+
+/* ==================== Cluster Info ==================== */
+
+function renderClusterInfo() {
+  if (!currentCluster) {
+    clusterInfo.innerHTML = '<div class="cluster-empty">' + tr('noClusterData') + '</div>';
+    clusterBadge.textContent = '-- ' + tr('clusters');
+    return;
+  }
+
+  var totalClusters = currentCluster.totalClusters || '--';
+  var featureDimensions = currentCluster.featureDimensions || 33;
+  var clusterLabel = currentCluster.clusterLabel || 'unknown';
+  var memberCount = currentCluster.memberCount != null ? currentCluster.memberCount : '--';
+  var clusterId = currentCluster.clusterId != null ? currentCluster.clusterId : '--';
+
+  var html = '';
+
+  // Highlighted label row
+  html += '<div class="cluster-label-row">';
+  html += '<span class="cluster-item-label">' + tr('clusterLabel') + '</span>';
+  html += '<span class="cluster-item-value accent">' + escapeHtml(clusterLabel) + '</span>';
+  html += '</div>';
+
+  // Grid of cluster metrics
+  html += '<div class="cluster-grid">';
+  html += '<div class="cluster-item"><span class="cluster-item-label">' + tr('clusterId') + '</span><span class="cluster-item-value">' + escapeHtml(clusterId) + '</span></div>';
+  html += '<div class="cluster-item"><span class="cluster-item-label">' + tr('members') + '</span><span class="cluster-item-value">' + escapeHtml(memberCount) + '</span></div>';
+  html += '<div class="cluster-item"><span class="cluster-item-label">' + tr('totalClusters') + '</span><span class="cluster-item-value">' + escapeHtml(totalClusters) + '</span></div>';
+  html += '<div class="cluster-item"><span class="cluster-item-label">' + tr('features') + '</span><span class="cluster-item-value">' + escapeHtml(featureDimensions) + 'd</span></div>';
+  html += '</div>';
+
+  clusterInfo.innerHTML = html;
+  clusterBadge.textContent = totalClusters + ' ' + tr('clusters') + ' / ' + featureDimensions + 'd';
+}
+
+/* ==================== Analysis Log ==================== */
+
+function getAnalysisType(data) {
+  if (data.type) return data.type;
+  // Infer from keys
+  if (data.currentMood !== undefined || data.moodScores !== undefined) return 'emotion';
+  if (data.peakPeriod !== undefined || data.consistency !== undefined) return 'daily_habit';
+  if (data.clusterLabel !== undefined || data.memberCount !== undefined) return 'user_cluster';
+  if (data.style !== undefined || data.metrics !== undefined) return 'chat_style';
+  return 'unknown';
+}
+
+function summarizeAnalysis(type, data) {
+  switch (type) {
+    case 'chat_style':
+      return 'style: ' + (data.style || 'unknown') + ' (confidence: ' + Math.round((data.confidence || 0) * 100) + '%)';
+    case 'emotion':
+      return 'mood: ' + (data.currentMood || 'unknown') + (data.shift && data.shift !== 'stable' ? ' (' + data.shift + ' from ' + (data.previousMood || '?') + ')' : '');
+    case 'daily_habit':
+      return 'peak: ' + (data.peakPeriod || '?') + ' @' + (data.peakHour != null ? data.peakHour + ':00' : '?') + ' | consistency: ' + Math.round((data.consistency || 0) * 100) + '%';
+    case 'user_cluster':
+      return 'cluster: ' + (data.clusterLabel || 'unknown') + ' (#' + (data.clusterId != null ? data.clusterId : '?') + ', ' + (data.memberCount || 0) + ' members)';
+    case 'recommendation':
+      return 'recommendation enrichment applied';
+    case 'agent_context':
+      return 'agent context updated';
+    default:
+      return JSON.stringify(data).slice(0, 80);
+  }
+}
+
+function addAnalysisEntry(data) {
+  var type = getAnalysisType(data);
+  var summary = summarizeAnalysis(type, data.result || data);
+  var entry = {
+    type: type,
+    summary: summary,
+    timestamp: Date.now(),
+  };
+
+  analysisEntries.unshift(entry);
+  if (analysisEntries.length > MAX_ANALYSIS_ENTRIES) {
+    analysisEntries.pop();
+  }
+
+  renderAnalysisLog();
+}
+
+function renderAnalysisLog() {
+  if (analysisEntries.length === 0) {
+    analysisLog.innerHTML = '<div class="analysis-empty">' + tr('noAnalysisResults') + '</div>';
+    analysisLogBadge.textContent = '0 ' + tr('entries');
+    return;
+  }
+
+  var html = '<div class="analysis-log-list">';
+  for (var i = 0; i < analysisEntries.length; i++) {
+    var entry = analysisEntries[i];
+    var typeClass = entry.type in {
+      chat_style: 1, emotion: 1, daily_habit: 1, user_cluster: 1,
+      recommendation: 1, agent_context: 1, unknown: 1
+    } ? entry.type : 'unknown';
+
+    html += '<div class="analysis-entry">';
+    html += '<span class="analysis-type-badge ' + typeClass + '">' + escapeHtml(entry.type.replace(/_/g, ' ')) + '</span>';
+    html += '<span class="analysis-time">' + escapeHtml(formatTimeShort(entry.timestamp)) + '</span>';
+    html += '<span class="analysis-summary">' + escapeHtml(entry.summary) + '</span>';
+    html += '</div>';
+  }
+  html += '</div>';
+
+  analysisLog.innerHTML = html;
+  analysisLogBadge.textContent = analysisEntries.length + ' ' + (analysisEntries.length === 1 ? tr('entry') : tr('entries'));
+}
+
+/* ==================== Event Handlers ==================== */
+
+function handleProfileUpdated(data) {
+  // Payload is the profile object: { tags, analysis, schemaVersion, builtAt }
+  var profile = data;
+  if (data && data.profile) profile = data.profile;
+
+  currentProfile = profile;
+  snapshotCount++;
+  collectionCount++;
+
+  // Store build time for sub-text rendering
+  if (profile && profile.builtAt) {
+    lastSnapshotTime = profile.builtAt;
+  }
+
+  updateMetricCards();
+  renderTagDistribution();
+}
+
+function handleProfileAnalysis(data) {
+  // Payload is the analysis result (sanitized)
+  enrichmentCount++;
+  addAnalysisEntry(data);
+  updateMetricCards();
+}
+
+function handleProfileCluster(data) {
+  // Payload is the cluster result (sanitized)
+  currentCluster = data;
+  renderClusterInfo();
+}
+
+/* ==================== Socket.IO Connection ==================== */
+
+function connectSocket() {
+  // Profile events are emitted on the default namespace (io.emit)
+  socket = io({
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    reconnectionAttempts: Infinity,
+  });
+
+  socket.on('connect', function() {
+    setConnStatus('connected', tr('connected'));
+  });
+
+  socket.on('disconnect', function() {
+    setConnStatus('disconnected', tr('disconnected'));
+  });
+
+  socket.on('connect_error', function() {
+    setConnStatus('disconnected', tr('connectionError'));
+  });
+
+  socket.on('reconnect_attempt', function() {
+    setConnStatus('disconnected', tr('reconnecting'));
+  });
+
+  socket.on('reconnect', function() {
+    setConnStatus('connected', tr('connected'));
+  });
+
+  // Profile system events
+  socket.on('profile:updated', handleProfileUpdated);
+  socket.on('profile:analysis', handleProfileAnalysis);
+  socket.on('profile:cluster', handleProfileCluster);
+}
+
+/* ==================== Initial Data Fetch ==================== */
+
+function fetchInitialData() {
+  fetch('/api/profile')
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.ok && data.profile) {
+        handleProfileUpdated(data.profile);
+      }
+      if (data.ok && data.cluster) {
+        handleProfileCluster(data.cluster);
+      }
+      if (data.snapshotCount != null) {
+        snapshotCount = data.snapshotCount;
+        updateMetricCards();
+      }
+    })
+    .catch(function() { /* server may not be ready yet */ });
+}
+
+/* ==================== Initialization ==================== */
+
+function init() {
+  applyLang();
+  updateMetricCards();
+  renderTagDistribution();
+  renderClusterInfo();
+  renderAnalysisLog();
+  fetchInitialData();
+  connectSocket();
+}
+
+// Start when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+
+})();
+</script>
+</body>
+</html>

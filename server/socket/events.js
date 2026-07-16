@@ -17,6 +17,12 @@ export const EVENTS = {
   SYNC_TIME: 'sync:time',
   PLAN_UPDATE: 'plan:update',
 
+  // Profile system events (Server -> Client)
+  PROFILE_UPDATED: 'profile:updated',
+  PROFILE_ANALYSIS: 'profile:analysis',
+  PROFILE_CLUSTER: 'profile:cluster',
+  PROFILE_TAGS: 'profile:tags',
+
   // Client -> Server
   PLAYER_SKIP: 'player:skip',
   PLAYER_PREVIOUS: 'player:previous',
@@ -28,9 +34,13 @@ export const EVENTS = {
   CHAT_MESSAGE: 'chat:message',
   CHAT_TYPING: 'chat:typing',
   CRAB_CLICK: 'crab:click',
+  CRAB_BUBBLE_CLICK: 'crab:bubble-click',
   AUTH_LOGIN_PHONE: 'auth:login-phone',
   AUTH_LOGIN_QR_START: 'auth:login-qr-start',
   AUTH_LOGOUT: 'auth:logout',
   SONG_LIKE: 'song:like',
   SONG_REQUEST: 'song:request',
+
+  // Bubble system (Server -> Client)
+  CRAB_BUBBLES: 'crab:bubbles',
 };

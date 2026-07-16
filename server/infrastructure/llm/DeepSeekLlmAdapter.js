@@ -79,9 +79,28 @@ export function createDeepSeekLlmAdapter({
     }
   }
 
+  async function streamRaw(messages, {
+    maxTokens = 300,
+    temperature = 0.8,
+  } = {}) {
+    if (!client) return null;
+    try {
+      return await client.chat.completions.create(completionParams({
+        model,
+        messages,
+        maxTokens,
+        temperature,
+        stream: true,
+      }));
+    } catch {
+      return null;
+    }
+  }
+
   return {
     complete,
     stream,
+    streamRaw,
     isConfigured: () => !!client,
   };
 }

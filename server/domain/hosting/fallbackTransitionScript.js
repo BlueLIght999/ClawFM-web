@@ -10,12 +10,12 @@ import { artistName } from './artistName.js';
  * @returns {{say:string, play:Array, reason:string, segue:string}}
  */
 export function fallbackTransitionScript(prev, next) {
-  const nextTitle = next?.name || next?.title || 'this track';
+  const nextTitle = next?.name || next?.title || '这首歌';
   const nextArtist = artistName(next);
   return {
-    say: `And now, ${nextTitle} by ${nextArtist}.`,
+    say: `接下来，让我们听听${nextArtist}的《${nextTitle}》。`,
     play: next ? [{ id: next.id, name: nextTitle, artist: nextArtist }] : [],
     reason: 'fallback transition',
-    segue: `Coming up: ${nextTitle}`,
+    segue: `即将播放：${nextArtist}的《${nextTitle}》`,
   };
 }

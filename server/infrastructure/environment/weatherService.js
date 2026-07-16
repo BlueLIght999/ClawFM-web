@@ -8,6 +8,7 @@ import config from '../../config.js';
 import { formatWeather } from '../../domain/environment/formatWeather.js';
 
 let weatherCache = null;
+let weatherCacheRaw = null;
 let weatherCacheTime = 0;
 const TTL = 15 * 60 * 1000;
 const HEADERS = { 'User-Agent': 'Qclaudio/1.0 (radio)' };
@@ -21,6 +22,7 @@ const geocodeCache = new Map();
 export function setClientLocation(lat, lon) {
   clientLoc = { lat, lon };
   weatherCache = null; // invalidate so next call re-fetches
+  weatherCacheRaw = null;
   console.log('[Weather] Client location updated:', lat.toFixed(4), lon.toFixed(4));
 }
 
@@ -78,8 +80,9 @@ async function tryIpipLocation() {
     if (!parsed) return null;
     const geo = await geocodeCity(parsed.city);
     if (geo) return { city: `${parsed.province}${parsed.city}`, lat: geo.lat, lon: geo.lon };
-  } catch {
+  } catch (e) {
     // Falling back to IP lookup is expected when reverse geocoding is unavailable.
+    console.debug('[Weather] Reverse geocode failed, falling back to IP:', e.message);
   }
   return null;
 }
@@ -135,11 +138,32 @@ export async function getWeather() {
     const w = await fetchWeather(loc.lat, loc.lon);
     const result = formatWeather(loc, w);
     weatherCache = result;
+    weatherCacheRaw = w;
     weatherCacheTime = now;
     console.log('[Weather]', result);
     return result;
   } catch (e) {
     console.error('[Weather] fetch failed:', e.message);
     return weatherCache || '';
+  }
+}
+
+/**
+ * Returns raw weather data for bubble generation.
+ * @returns {Promise<{temp: number, code: number, humidity: number}|null>}
+ */
+export async function getWeatherRaw() {
+  const now = Date.now();
+  if (weatherCacheRaw && now - weatherCacheTime < TTL) return weatherCacheRaw;
+
+  try {
+    const loc = await resolveLocation();
+    const w = await fetchWeather(loc.lat, loc.lon);
+    weatherCacheRaw = w;
+    weatherCacheTime = now;
+    return w;
+  } catch (e) {
+    console.error('[Weather] raw fetch failed:', e.message);
+    return weatherCacheRaw || null;
   }
 }

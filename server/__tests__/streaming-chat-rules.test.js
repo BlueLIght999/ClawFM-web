@@ -5,7 +5,7 @@ import {
   fallbackStreamEndText,
   shouldAnnounceChatSpeech,
   streamTokenFromChunk,
-} from '../domain/hosting/streamingChatRules.js';
+} from '../agent/domain/streamingChatRules.js';
 
 describe('streaming chat rules', () => {
   it('streamTokenFromChunk_deltaContentExists_returnsToken', () => {

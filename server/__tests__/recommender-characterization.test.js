@@ -13,6 +13,22 @@ vi.mock('../infrastructure/netease/neteaseApi.js', () => ({
   getSongUrl: vi.fn(() => { throw new Error('legacy'); }),
   getLyric: vi.fn(() => { throw new Error('legacy'); }),
   scrobbleSong: vi.fn(() => { throw new Error('legacy'); }),
+  getArtistDetail: vi.fn(() => { throw new Error('legacy'); }),
+  getArtistDesc: vi.fn(() => { throw new Error('legacy'); }),
+  getArtistSongs: vi.fn(() => { throw new Error('legacy'); }),
+  getStyleList: vi.fn(() => { throw new Error('legacy'); }),
+  getStyleSongs: vi.fn(() => { throw new Error('legacy'); }),
+  getStyleArtists: vi.fn(() => { throw new Error('legacy'); }),
+  getSongWikiSummary: vi.fn(() => { throw new Error('legacy'); }),
+  getSongCreators: vi.fn(() => { throw new Error('legacy'); }),
+  getSimilarArtists: vi.fn(() => { throw new Error('legacy'); }),
+  getPlaymodeIntelligenceList: vi.fn(() => { throw new Error('legacy'); }),
+  getRecommendResource: vi.fn(() => { throw new Error('legacy'); }),
+  getPersonalized: vi.fn(() => { throw new Error('legacy'); }),
+  getSearchSuggest: vi.fn(() => { throw new Error('legacy'); }),
+  getSearchHotDetail: vi.fn(() => { throw new Error('legacy'); }),
+  getPlaylistCatlist: vi.fn(() => { throw new Error('legacy'); }),
+  getPlaylistHot: vi.fn(() => { throw new Error('legacy'); }),
 }));
 
 vi.mock('../db/history.js', () => ({
@@ -42,6 +58,10 @@ function makeDeps(overrides = {}) {
       dailyRecommend: vi.fn(async () => []),
       search: vi.fn(async () => []),
       details: vi.fn(async () => []),
+      searchPlaylists: vi.fn(async () => []),
+      searchArtists: vi.fn(async () => []),
+      getPlaylistTracks: vi.fn(async () => []),
+      artistHotSongs: vi.fn(async () => []),
     },
     listenHistory: {
       recentSongIds: vi.fn(() => []),
@@ -105,12 +125,13 @@ describe('fillQueue characterization', () => {
 
   it('uses strategies [genreHints, personalFm, similarSongs, dailyRecs, genreSearch] with hints', async () => {
     const deps = makeDeps();
-    deps.music.search.mockResolvedValue([makeSong('99')]); // genre hints search
+    deps.music.search.mockResolvedValue([makeSong('99')]); // genre hints search (via GenreSearchEngine seedArtists + enhancedQuery)
     const r = new Recommender(deps);
     r.initialized = true;
     const hints = [{ genreHints: ['jazz'], targetCount: 5 }];
     await r.fillQueue(1, hints);
-    expect(deps.music.search).toHaveBeenCalledWith('jazz', 5);
+    // GenreSearchEngine uses search() for seed artist search and enhanced query fallback
+    expect(deps.music.search).toHaveBeenCalled();
   });
 
   it('deduplicates songs by id', async () => {
@@ -481,16 +502,17 @@ describe('fetch helpers characterization', () => {
 
   it('_fetchByGenreHints searches by genre hint and filters by recentIds', async () => {
     const deps = makeDeps();
+    // GenreSearchEngine calls search() for seedArtists + enhancedQuery fallback
     deps.music.search.mockResolvedValue([makeSong('1'), makeSong('2')]);
     const r = new Recommender(deps);
     const recentIds = new Set(['1']);
     const hints = [{ genreHints: ['jazz', 'blues'] }];
     const result = await r._fetchByGenreHints(recentIds, new Set(), hints);
-    expect(deps.music.search).toHaveBeenCalledWith('jazz', 5);
-    // NOTE: _fetchByGenreHints does NOT deduplicate within itself across genres.
-    // Song '2' appears twice because both 'jazz' and 'blues' return it and
-    // it's not in the initial recentIds set.
-    expect(result.map(s => s.id)).toEqual(['2', '2']);
+    // search is called (seedArtists like "Miles Davis" + enhancedQuery "jazz 爵士")
+    expect(deps.music.search).toHaveBeenCalled();
+    // Song '1' is in recentIds, so only song '2' from each genre search passes
+    // Result may contain duplicates since dedup is at fillQueue level, not strategy level
+    expect(result.every(s => s.id !== '1')).toBe(true);
   });
 
   it('_fetchByGenreHints limits to 20 songs', async () => {

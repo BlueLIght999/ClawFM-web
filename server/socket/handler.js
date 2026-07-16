@@ -1,97 +1,61 @@
 import { EVENTS } from './events.js';
+import { ERROR_CODES } from '../domain/errors/error-codes.js';
+import { wireQrLoginHandler } from './qrLoginHandler.js';
+import {
+  emitPlaybackResult,
+  emitSongRequestResult,
+  emitConversationResult,
+  emitColdStartResult,
+  emitStreamingConversationResult,
+  emitAuthenticationResult,
+  emitDjSpeechResult,
+  emitPlanBlockResult,
+  emitCrabInteractionResult,
+  emitDashboardEvent,
+  recordSongChange,
+  recordDjSpeech,
+} from './emitHelpers.js';
+import { startRecurringTasks } from './recurringTasks.js';
+import { wireProfileEvents } from './profileEvents.js';
+import { onNewConnection } from './connectionHandler.js';
+import { wireBubbleEvents } from './bubbleHandler.js';
+
+// Logger is injected via deps parameter, not imported directly (D8 rule)
+let logger = {
+  info: (...args) => console.log('[handler]', ...args),
+  warn: (...args) => console.warn('[handler]', ...args),
+  error: (...args) => console.error('[handler]', ...args),
+  debug: () => {},
+  child: () => logger,
+};
 
 let preRecommendSnapshot = null; // { future: [...], current: {...} } for rejection rollback
-
-function emitPlaybackResult(io, result) {
-  if (!result) return;
-  if (result.state) io.emit(EVENTS.RADIO_STATE, result.state);
-  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
-  if (result.playbackPosition) io.emit(EVENTS.PLAYBACK_POSITION, result.playbackPosition);
-  if (result.crabAnimation) io.emit(EVENTS.CRAB_ANIMATION, result.crabAnimation);
-  if (result.resume) io.emit(EVENTS.RESUME, result.resume);
-}
-
-function emitSongRequestResult(io, socket, result) {
-  if (!result) return;
-  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
-  if (result.djMessage) socket.emit(EVENTS.DJ_MESSAGE, result.djMessage);
-  if (result.error) socket.emit(EVENTS.ERROR, result.error);
-}
-
-function emitConversationResult(io, socket, result) {
-  if (!result) return;
-  if (result.state) io.emit(EVENTS.RADIO_STATE, result.state);
-  if (result.pause) io.emit(EVENTS.PAUSE);
-  if (result.resume) io.emit(EVENTS.RESUME, result.resume);
-  if (result.toClient?.state) socket.emit(EVENTS.RADIO_STATE, result.toClient.state);
-  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
-  if (result.planUpdate) io.emit(EVENTS.PLAN_UPDATE, result.planUpdate);
-}
-
-function emitColdStartResult(io, result) {
-  if (!result) return;
-  if (result.speechStart) io.emit(EVENTS.DJ_SPEECH_START, result.speechStart);
-  if (result.textOnlyPhase) io.emit('cold-start:phase', result.textOnlyPhase);
-  if (result.radioState) io.emit(EVENTS.RADIO_STATE, result.radioState);
-  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
-}
-
-function emitStreamingConversationResult(socket, result) {
-  if (!result) return;
-  if (result.unavailableMessage) socket.emit(EVENTS.DJ_MESSAGE, result.unavailableMessage);
-  if (result.streamEnd) socket.emit(EVENTS.DJ_STREAM_END, result.streamEnd);
-}
-
-function emitAuthenticationResult(socket, result) {
-  if (!result) return;
-  if (result.loginSuccess) socket.emit('auth:login-success', result.loginSuccess);
-  if (result.qrCreated) socket.emit('auth:qr-created', result.qrCreated);
-  if (result.qrStatus) socket.emit('auth:qr-status', result.qrStatus);
-  if (result.qrExpired) socket.emit('auth:qr-expired');
-  if (result.queueUpdate) socket.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
-}
-
-function emitDjSpeechResult(io, result, resetLastSpeechTime) {
-  if (!result) return;
-  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
-  if (result.djMessage) io.emit(EVENTS.DJ_MESSAGE, { ...result.djMessage, timestamp: Date.now() });
-  if (result.speechStart) {
-    io.emit(EVENTS.DJ_SPEECH_START, result.speechStart);
-  }
-  if (result.resetLastSpeechTime) resetLastSpeechTime();
-}
-
-function emitPlanBlockResult(io, result) {
-  if (!result) return;
-  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
-  if (result.planUpdate) io.emit(EVENTS.PLAN_UPDATE, result.planUpdate);
-}
-
-function emitCrabInteractionResult(io, result) {
-  if (!result) return;
-  if (result.radioState) io.emit(EVENTS.RADIO_STATE, result.radioState);
-  if (result.animation) io.emit(EVENTS.CRAB_ANIMATION, result.animation);
-  if (result.delayedAnimation) {
-    setTimeout(() => io.emit(EVENTS.CRAB_ANIMATION, result.delayedAnimation.animation), result.delayedAnimation.delayMs);
-  }
-}
 
 // ─── Scheduler callbacks ─────────────────────────────────────────
 
 function wireSchedulerCallbacks(io, deps) {
-  const { scheduler, djSpeechService, getPlan, buildSongChangePayload, resetLastSpeechTime } = deps;
+  const { scheduler, djSpeechService, getPlan, buildSongChangePayload, resetLastSpeechTime, metricsCollector } = deps;
 
   scheduler.onSongChange = async (song) => {
+    recordSongChange(metricsCollector, deps.queue);
     try {
+      // Send song info immediately (without audio URL) so client can update UI
+      io.emit(EVENTS.SONG_CHANGE, buildSongChangePayload(song, scheduler.playhead.startedAt, null));
+      emitDashboardEvent(io, 'song_change', (song?.artist || '?') + ' - ' + (song?.name || song?.title || '?'));
+
+      // Fetch audio URL asynchronously and补发 via RADIO_STATE
       const audioUrl = await scheduler.getAudioUrl(song);
-      console.log('[Scheduler] onSongChange:', song?.name || song?.title, '| audioUrl:', audioUrl ? 'YES' : 'NULL');
-      io.emit(EVENTS.SONG_CHANGE, buildSongChangePayload(song, scheduler.playhead.startedAt, audioUrl));
+      if (audioUrl) {
+        io.emit(EVENTS.RADIO_STATE, { ...scheduler.getState(), audioUrl });
+      }
     } catch (e) {
-      console.error('[Scheduler] onSongChange error:', e.message);
+      logger.error({ component: 'scheduler', err: e }, 'onSongChange error');
     }
   };
 
   scheduler.onDjSpeechNeeded = async (prevSong, nextSong, transitionId) => {
+    recordDjSpeech(metricsCollector, nextSong);
+    emitDashboardEvent(io, 'dj_speech', nextSong ? 'Transition speech' : 'Refill speech');
     let speechHandled = false;
     try {
       if (!nextSong) {
@@ -102,14 +66,21 @@ function wireSchedulerCallbacks(io, deps) {
         });
         emitDjSpeechResult(io, refillResult, resetLastSpeechTime);
         speechHandled = refillResult?.speechHandled === true;
+        if (!speechHandled) {
+          scheduler.speechComplete();
+        }
         return;
       }
 
       const transitionResult = await djSpeechService.handleTransitionSpeech({ prevSong, nextSong, transitionId });
       emitDjSpeechResult(io, transitionResult, resetLastSpeechTime);
       speechHandled = transitionResult?.speechHandled === true;
+      if (!speechHandled) {
+        // Speech was skipped or stale — advance scheduler immediately instead of waiting for timeout
+        scheduler.speechComplete();
+      }
     } catch (err) {
-      console.error('[Scheduler] onDjSpeechNeeded error:', err.message);
+      logger.error({ component: 'scheduler', err }, 'onDjSpeechNeeded error');
       if (!speechHandled) scheduler.speechComplete();
     }
   };
@@ -148,14 +119,14 @@ async function triggerColdStart(io, deps) {
         setTimeout(async () => {
           const safetyResult = await coldStartService.startMusicIfStillInProgress();
           if (safetyResult) {
-            console.log('[Socket] Cold start safety timeout - starting music');
+            logger.info({ component: 'cold-start' }, 'safety timeout - starting music');
             emitColdStartResult(io, safetyResult);
           }
         }, 30000);
       }
     } else { throw new Error('Cold open returned empty text'); }
   } catch (e) {
-    console.log(`[Socket] Cold start failed (${e.message}), starting music directly`);
+    logger.warn({ component: 'cold-start', err: e }, 'cold start failed, starting music directly');
     emitColdStartResult(io, await coldStartService.startMusicDirectly());
   }
 }
@@ -170,12 +141,12 @@ function startChatAnnouncement(io, result, deps) {
       io.emit(EVENTS.DJ_SPEECH_START, speechStart);
       resetLastSpeechTime();
     }
-  }).catch(() => {});
+  }).catch(e => console.warn('[Handler] Proactive speech failed (degraded):', e.message));
 }
 
 function logChatRoute(routing) {
   const r = routing || {};
-  console.log('[Chat] Route result:', r.route, r.action, r.params);
+  logger.info({ component: 'chat', route: r.route, action: r.action, params: r.params }, 'route result');
 }
 
 function emitChatTurnResults(io, socket, turnResult) {
@@ -186,11 +157,14 @@ function emitChatTurnResults(io, socket, turnResult) {
 }
 
 async function handleChatMessage(text, io, socket, deps) {
-  const { agentTurnService, streamingConversationService, llmAdapter } = deps;
-  console.log('[Chat] Received:', text?.slice(0, 80));
-  console.log('[Chat] DJ configured:', llmAdapter.isConfigured());
+  const { agentLoopService, streamingConversationService, llmAdapter, metricsCollector } = deps;
+  logger.info({ component: 'chat', text: text?.slice(0, 80) }, 'received');
+  logger.debug({ component: 'chat', configured: llmAdapter.isConfigured() }, 'DJ configured');
+  emitDashboardEvent(io, 'user_chat', (text || '').slice(0, 60));
 
-  const turnResult = await agentTurnService.handleMessage({ text, snapshot: preRecommendSnapshot });
+  if (metricsCollector) metricsCollector.chatMessages.inc({ role: 'user' });
+
+  const turnResult = await agentLoopService.handleMessage({ text, snapshot: preRecommendSnapshot });
   if (turnResult.unavailableMessage) {
     socket.emit(EVENTS.DJ_MESSAGE, turnResult.unavailableMessage);
     preRecommendSnapshot = turnResult.snapshot;
@@ -200,54 +174,25 @@ async function handleChatMessage(text, io, socket, deps) {
   logChatRoute(turnResult.routing);
   emitChatTurnResults(io, socket, turnResult);
   preRecommendSnapshot = turnResult.snapshot;
-  if (turnResult.handled || !turnResult.streamRequest) return;
+  if ((turnResult.handled || !turnResult.streamRequest) && !turnResult.mergedStream) return;
 
   const streamingResult = await streamingConversationService.streamReply({
     ...turnResult.streamRequest,
+    mergedStream: turnResult.mergedStream || null,
     onChunk: payload => socket.emit(EVENTS.DJ_STREAM_CHUNK, payload),
   });
   if (streamingResult.streamError) {
-    console.error('[Socket] Stream error:', streamingResult.streamError.message);
+    logger.error({ component: 'chat', err: streamingResult.streamError }, 'stream error');
   }
   emitStreamingConversationResult(socket, streamingResult);
   startChatAnnouncement(io, streamingResult, deps);
-}
-
-// ─── Connection handler ──────────────────────────────────────────
-
-async function onNewConnection(io, socket, deps) {
-  const { scheduler, getPlan, speechSynthAdapter } = deps;
-  const count = deps.getConnectedClients() + 1;
-  deps.setConnectedClients(count);
-  console.log(`[Socket] Client connected: ${socket.id} (total: ${count})`);
-
-  if (count === 1) {
-    console.log('[Socket] First client - resetting for fresh session');
-    scheduler.coldStartState = 'pending';
-    if (scheduler.isPlaying) {
-      scheduler.pause();
-      scheduler.playhead.currentSong = null;
-      scheduler.playhead.isPlaying = false;
-    }
-  }
-
-  const state = scheduler.getState();
-  if (state.currentSong && !state.audioUrl) {
-    const url = await scheduler.getAudioUrl(state.currentSong);
-    if (url) state.audioUrl = url;
-  }
-  socket.emit(EVENTS.RADIO_STATE, state);
-
-  const currentPlan = getPlan();
-  if (currentPlan) socket.emit(EVENTS.PLAN_UPDATE, currentPlan.plan);
-  socket.emit('tts:status', speechSynthAdapter.health());
 }
 
 // ─── Socket event wiring ─────────────────────────────────────────
 
 function wireClientReady(socket, io, deps) {
   socket.on('client:ready', () => {
-    console.log(`[Socket] Client ${socket.id} ready - triggering cold start`);
+    logger.info({ component: 'socket', socketId: socket.id }, 'client ready - triggering cold start');
     triggerColdStart(io, deps);
   });
 }
@@ -255,55 +200,52 @@ function wireClientReady(socket, io, deps) {
 function wireAuthEvents(socket, deps) {
   const { authenticationService } = deps;
 
+  // Clean up QR polling on disconnect — registered ONCE per socket, not per QR attempt
+  socket.on('disconnect', () => {
+    if (socket._qrPollInterval) {
+      clearInterval(socket._qrPollInterval);
+      socket._qrPollInterval = null;
+    }
+  });
+
   socket.on(EVENTS.AUTH_LOGIN_PHONE, async ({ phone, password }) => {
     try {
-      emitAuthenticationResult(socket, await authenticationService.loginWithPhone({ phone, password }));
-    } catch (e) {
-      socket.emit(EVENTS.ERROR, { code: 'AUTH_FAILED', message: e.message });
-    }
-  });
-
-  socket.on(EVENTS.AUTH_LOGIN_QR_START, async () => {
-    try {
-      const qrResult = await authenticationService.createQrLogin();
-      emitAuthenticationResult(socket, qrResult);
-      const key = qrResult.qrCreated.key;
-
-      if (socket._qrPollInterval) clearInterval(socket._qrPollInterval);
-
-      socket._qrPollInterval = setInterval(async () => {
+      // Retry on transient connection errors (not on auth failures like wrong password)
+      let result = null;
+      let lastError = null;
+      for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-          const result = await authenticationService.checkQrLogin(key);
-          emitAuthenticationResult(socket, result);
-          if (result.done) {
-            clearInterval(socket._qrPollInterval);
-            socket._qrPollInterval = null;
-          }
-        } catch { /* keep polling */ }
-      }, 2000);
-
-      socket.on('disconnect', () => {
-        if (socket._qrPollInterval) {
-          clearInterval(socket._qrPollInterval);
-          socket._qrPollInterval = null;
+          result = await authenticationService.loginWithPhone({ phone, password });
+          break;
+        } catch (e) {
+          lastError = e;
+          if (e.isAuthError) break; // Don't retry wrong password
+        if (attempt < 2) await new Promise(r => setTimeout(r, 500));
         }
-      });
+      }
+      if (!result) throw lastError;
+      emitAuthenticationResult(socket, result);
     } catch (e) {
-      socket.emit(EVENTS.ERROR, { code: 'QR_FAILED', message: e.message });
+      socket.emit(EVENTS.ERROR, { code: ERROR_CODES.AUTH_LOGIN_FAILED, message: e.message });
     }
   });
+
+  // QR login handled by extracted module (single-responsibility)
+  wireQrLoginHandler(socket, authenticationService, emitAuthenticationResult);
 }
 
 function wirePlayerControls(socket, io, deps) {
-  const { playbackService, queue } = deps;
+  const { playbackService, queue, metricsCollector } = deps;
 
   socket.on('player:skip-to-index', async ({ index }) => {
     emitPlaybackResult(io, await playbackService.skipToIndex(index));
   });
 
   socket.on(EVENTS.PLAYER_SKIP, async () => {
+    if (metricsCollector) metricsCollector.songSkips.inc();
     const result = await playbackService.skip();
     emitPlaybackResult(io, result);
+    if (metricsCollector) metricsCollector.queueSize.set(queue.length);
     result?.refill?.then(() => {
       io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs, mode: queue.mode });
     });
@@ -385,75 +327,28 @@ function wireSpeechAndPlanEvents(socket, io, deps) {
 }
 
 function wireLifecycleEvents(socket, io, deps) {
-  const { clientLifecycleService } = deps;
+  const { clientLifecycleService, metricsCollector } = deps;
 
   socket.on('disconnect', () => {
     const remaining = deps.getConnectedClients() - 1;
     deps.setConnectedClients(remaining);
-    console.log(`[Socket] Client disconnected: ${socket.id} (remaining: ${remaining})`);
+    logger.info({ component: 'socket', socketId: socket.id, remaining }, 'client disconnected');
+    if (metricsCollector) metricsCollector.connectedClients.set(remaining);
     const result = clientLifecycleService.handleDisconnect(remaining);
     if (result.stoppedMusic) {
-      console.log('[Socket] All clients gone - stopping music for next session');
+      logger.info({ component: 'socket' }, 'all clients gone - stopping music');
     }
   });
 }
 
-// ─── Recurring tasks ─────────────────────────────────────────────
-
-function startRecurringTasks(io, deps) {
-  const { scheduler, queue, recommender, getPlan, generatePlan,
-    getTimeOfDayMood, maybeProactiveSpeech, eventPublisher } = deps;
-
-  setInterval(() => {
-    io.emit(EVENTS.PLAYBACK_POSITION, scheduler.getPlaybackPosition());
-    io.emit(EVENTS.SYNC_TIME, { serverTime: Date.now() });
-  }, 5000);
-
-  setInterval(async () => {
-    if (queue.needsMore(10)) {
-      const cachedPlan = getPlan();
-      await recommender.fillQueue(12, cachedPlan?.plan?.blocks || null);
-      io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs });
-    }
-  }, 30000);
-
-  let lastMood = '';
-  setInterval(async () => {
-    const currentMood = getTimeOfDayMood();
-    const hour = new Date().getHours();
-    const shouldRefresh = (hour === 7 || hour === 9 || hour === 17 || hour === 22) && lastMood !== currentMood;
-
-    if (shouldRefresh) {
-      console.log(`[Scheduler] Mood shift: ${lastMood || 'init'} -> ${currentMood}, refreshing...`);
-      lastMood = currentMood;
-      try {
-        const newPlan = await generatePlan(true);
-        io.emit(EVENTS.PLAN_UPDATE, newPlan);
-        recommender.setPlanBlocks(newPlan.blocks);
-        await recommender.fillQueue(15, newPlan.blocks);
-        io.emit(EVENTS.QUEUE_UPDATE, { upcomingSongs: queue.upcomingSongs });
-        io.emit(EVENTS.DJ_MESSAGE, {
-          text: `The clock strikes ${hour}:00. Shifting the vibe for ${currentMood}...`,
-        });
-      } catch (e) {
-        console.error('[Scheduler] Mood refresh failed:', e.message);
-      }
-    }
-  }, 60000);
-
-  setInterval(async () => {
-    try {
-      await maybeProactiveSpeech({ events: eventPublisher, scheduler, queue, getPlan });
-    } catch (e) {
-      console.error('[Proactive] Error:', e.message);
-    }
-  }, 60000);
-}
+// ─── Recurring tasks (extracted to recurringTasks.js) ────────────
 
 // ─── Entry point ─────────────────────────────────────────────────
 
 export function setupSocketHandler(io, services) {
   const deps = { ...services };
+  // Inject logger from services into module scope
+  if (deps.logger) logger = deps.logger;
   let connectedClients = 0;
   deps.getConnectedClients = () => connectedClients;
   deps.setConnectedClients = n => { connectedClients = Math.max(0, n); };
@@ -462,14 +357,25 @@ export function setupSocketHandler(io, services) {
   deps.queue.init();
 
   io.on('connection', async (socket) => {
-    await onNewConnection(io, socket, deps);
+    // Register all event handlers FIRST (synchronous, non-blocking).
+    // This ensures auth/login events are listening before any async
+    // work in onNewConnection (e.g. getAudioUrl) which can delay
+    // event registration and cause client login failures.
     wireClientReady(socket, io, deps);
     wireAuthEvents(socket, deps);
     wirePlayerControls(socket, io, deps);
     wireChatAndCrabEvents(socket, io, deps);
     wireSpeechAndPlanEvents(socket, io, deps);
     wireLifecycleEvents(socket, io, deps);
+
+    // Bubble events + periodic bubble push
+    const cleanupBubbles = wireBubbleEvents(io, socket, deps);
+    socket.on('disconnect', () => { if (cleanupBubbles) cleanupBubbles(); });
+
+    // Then do async connection work (may involve network calls).
+    await onNewConnection(io, socket, deps);
   });
 
   startRecurringTasks(io, deps);
+  wireProfileEvents(io, deps);
 }

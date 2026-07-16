@@ -12,13 +12,13 @@ import { firstTruthy } from '../curation/firstTruthy.js';
  * @returns {string} the user-role transition prompt
  */
 export function buildTransitionPrompt(prevSong, nextSong, timeOfDay) {
-  const prevTitle = firstTruthy(prevSong?.name, prevSong?.title, 'the last track');
+  const prevTitle = firstTruthy(prevSong?.name, prevSong?.title, '上一首');
   const prevArtist = artistName(prevSong);
-  const nextTitle = firstTruthy(nextSong?.name, nextSong?.title, 'this next track');
+  const nextTitle = firstTruthy(nextSong?.name, nextSong?.title, '下一首');
   const nextArtist = artistName(nextSong);
   const album = firstTruthy(nextSong?.al?.name, nextSong?.album, '');
-  const timeStr = firstTruthy(timeOfDay, 'this moment');
-  const albumPart = album ? ` (${album})` : '';
+  const timeStr = firstTruthy(timeOfDay, '此刻');
+  const albumPart = album ? `（专辑：${album}）` : '';
 
-  return `Previous: "${prevTitle}" by ${prevArtist}\nNext: "${nextTitle}" by ${nextArtist}${albumPart}\nTime: ${timeStr}\n\nGenerate a DJ transition.`;
+  return `上一首：${prevArtist}的《${prevTitle}》\n下一首：${nextArtist}的《${nextTitle}》${albumPart}\n时段：${timeStr}\n\n请用中文生成一段 DJ 过渡词。`;
 }

@@ -211,3 +211,15 @@
   50%  { opacity: 1; }
   100% { opacity: 0; transform: translateY(100%); }
 }
+
+/* === BLOWING STATE — claw micro-movement when blowing bubbles === */
+
+@keyframes clawBlow {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-2px) rotate(-2deg); }
+}
+
+.crab-state-play.blowing .claw-left,
+.crab-state-play.blowing .claw-right {
+  animation: clawBlow 0.4s ease-in-out;
+}
