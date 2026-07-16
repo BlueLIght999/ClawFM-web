@@ -1,48 +1,78 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './dj-dialog.css';
 
-const LINE_DELAY = 120; // ms per line reveal
-const AUTO_HIDE_MS = 8000; // auto-hide after all lines shown
+const CHAR_SPEED_NO_TTS = 50; // ms per char when no TTS
+const AUTO_HIDE_MS = 8000;
 
-export default function DJDialog({ text, streaming, visible, messageId, onReply, onHide }) {
-  const [visibleLines, setVisibleLines] = useState(0);
+export default function DJDialog({ text, streaming, visible, messageId, onReply, onHide, speechAudioRef }) {
+  const [displayedLen, setDisplayedLen] = useState(0);
   const [showReply, setShowReply] = useState(false);
+  const [ttsDuration, setTtsDuration] = useState(0);
   const hideTimerRef = useRef(null);
+  const charTimerRef = useRef(null);
   const onReplyRef = useRef(onReply);
   const onHideRef = useRef(onHide);
   onReplyRef.current = onReply;
   onHideRef.current = onHide;
 
-  // Split text into lines
-  const lines = text ? text.split('\n').filter(l => l.length > 0) : [];
-  const allLinesShown = visibleLines >= lines.length;
+  const fullLen = text ? text.length : 0;
+  const allShown = displayedLen >= fullLen && fullLen > 0;
 
-  // Reset when a new message arrives
+  // Reset when new message
   useEffect(() => {
-    setVisibleLines(0);
+    setDisplayedLen(0);
     setShowReply(false);
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = null;
-    }
+    setTtsDuration(0);
+    if (hideTimerRef.current) { clearTimeout(hideTimerRef.current); hideTimerRef.current = null; }
+    if (charTimerRef.current) { clearTimeout(charTimerRef.current); charTimerRef.current = null; }
   }, [messageId]);
 
-  // Line-by-line reveal
+  // Try to read TTS audio duration for pacing
   useEffect(() => {
-    if (!visible || lines.length === 0) return;
-    if (visibleLines >= lines.length) return;
+    if (!visible || !text) return;
+    const audio = speechAudioRef?.current;
+    if (!audio) return;
 
-    const id = setTimeout(() => {
-      setVisibleLines(prev => prev + 1);
-    }, LINE_DELAY);
-    return () => clearTimeout(id);
-  }, [visible, visibleLines, lines.length]);
+    const checkDuration = () => {
+      if (audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
+        setTtsDuration(audio.duration * 1000); // in ms
+      }
+    };
 
-  // When all lines shown and streaming done, show reply + schedule auto-hide
+    checkDuration();
+    audio.addEventListener('durationchange', checkDuration);
+    audio.addEventListener('loadedmetadata', checkDuration);
+    return () => {
+      audio.removeEventListener('durationchange', checkDuration);
+      audio.removeEventListener('loadedmetadata', checkDuration);
+    };
+  }, [visible, text, speechAudioRef]);
+
+  // Left-to-right character reveal, paced by TTS if available
   useEffect(() => {
-    if (!visible || lines.length === 0) return;
+    if (!visible || !text) return;
+    if (displayedLen >= fullLen) return;
 
-    if (allLinesShown && !streaming) {
+    // If TTS is playing, pace chars across the audio duration
+    let delay = CHAR_SPEED_NO_TTS;
+    if (ttsDuration > 0 && fullLen > 0) {
+      // Distribute chars across TTS duration, leave 500ms tail
+      delay = Math.max(30, (ttsDuration - 500) / fullLen);
+    }
+
+    charTimerRef.current = setTimeout(() => {
+      setDisplayedLen(prev => prev + 1);
+    }, delay);
+
+    return () => {
+      if (charTimerRef.current) clearTimeout(charTimerRef.current);
+    };
+  }, [visible, text, displayedLen, fullLen, ttsDuration]);
+
+  // Show reply + auto-hide when done
+  useEffect(() => {
+    if (!visible || fullLen === 0) return;
+    if (allShown && !streaming) {
       setShowReply(true);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
       hideTimerRef.current = setTimeout(() => {
@@ -51,24 +81,23 @@ export default function DJDialog({ text, streaming, visible, messageId, onReply,
     } else {
       setShowReply(false);
     }
-  }, [allLinesShown, streaming, visible, lines.length]);
+  }, [allShown, streaming, visible, fullLen]);
 
   // Reset when hidden
   useEffect(() => {
     if (!visible) {
-      setVisibleLines(0);
+      setDisplayedLen(0);
       setShowReply(false);
-      if (hideTimerRef.current) {
-        clearTimeout(hideTimerRef.current);
-        hideTimerRef.current = null;
-      }
+      setTtsDuration(0);
+      if (hideTimerRef.current) { clearTimeout(hideTimerRef.current); hideTimerRef.current = null; }
+      if (charTimerRef.current) { clearTimeout(charTimerRef.current); charTimerRef.current = null; }
     }
   }, [visible]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      if (charTimerRef.current) clearTimeout(charTimerRef.current);
     };
   }, []);
 
@@ -79,20 +108,19 @@ export default function DJDialog({ text, streaming, visible, messageId, onReply,
 
   if (!visible || !text) return null;
 
+  const isTyping = displayedLen < fullLen;
+  const displayedText = text.slice(0, displayedLen);
+
   return (
     <div className="dj-dialog-container">
       <div className="dj-dialog-bubble">
         <div className="dj-dialog-header">
           <span className="dj-dialog-label">DJ CLAW</span>
-          <span className={`dj-dialog-indicator ${!allLinesShown || streaming ? 'typing' : 'idle'}`} />
+          <span className={`dj-dialog-indicator ${isTyping || streaming ? 'typing' : 'idle'}`} />
         </div>
-        <div className="dj-dialog-body">
-          {lines.slice(0, visibleLines).map((line, i) => (
-            <p key={i} className="dj-dialog-line" style={{ animationDelay: `${i * 20}ms` }}>
-              {line}
-            </p>
-          ))}
-          {!allLinesShown && <span className="dj-dialog-cursor" />}
+        <div className="dj-dialog-text-wrap">
+          <span className="dj-dialog-text">{displayedText}</span>
+          {isTyping && <span className="dj-dialog-cursor" />}
         </div>
         {showReply && (
           <div className="dj-dialog-reply-row">

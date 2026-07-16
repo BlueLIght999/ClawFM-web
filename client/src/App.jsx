@@ -581,6 +581,7 @@ export default function App() {
               messageId={djDialogMsgId}
               onReply={handleDJDialogReply}
               onHide={handleDJDialogHide}
+              speechAudioRef={speechAudioRef}
             />
           }
           djDialogVisible={djDialogVisible}
