@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "analysisIntervalHours": 1,
+  "analysisIntervalHours": 6,
   "firstRunMode": "full",
   "conditionalTriggers": {
     "chatStyleRerun": { "newMessagesThreshold": 10 },

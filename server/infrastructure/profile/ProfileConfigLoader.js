@@ -16,7 +16,7 @@ const DEFAULTS = {
   enrichmentChain: { version: 1, songChain: [], fallback: 'mark_unknown' },
   schedule: {
     version: 1,
-    analysisIntervalHours: 100,
+    analysisIntervalHours: 6,
     firstRunMode: 'full',
     conditionalTriggers: {},
     snapshotRetention: 30,

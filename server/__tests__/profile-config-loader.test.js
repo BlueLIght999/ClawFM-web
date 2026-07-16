@@ -27,9 +27,9 @@ describe('ProfileConfigLoader', () => {
     expect(dims.length).toBe(5);
   });
 
-  it('loadConfig_scheduleHas1HourInterval', () => {
+  it('loadConfig_scheduleHas6HourInterval', () => {
     const config = loadConfig(configDir);
-    expect(config.schedule.analysisIntervalHours).toBe(1);
+    expect(config.schedule.analysisIntervalHours).toBe(6);
     expect(config.schedule.firstRunMode).toBe('full');
   });
 
@@ -42,7 +42,7 @@ describe('ProfileConfigLoader', () => {
 
   it('loadConfigByName_returnsSpecificConfig', () => {
     const schedule = loadConfigByName('schedule', configDir);
-    expect(schedule.analysisIntervalHours).toBe(1);
+    expect(schedule.analysisIntervalHours).toBe(6);
   });
 
   it('loadConfigByName_unknownName_throws', () => {
