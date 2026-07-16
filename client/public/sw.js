@@ -1,4 +1,4 @@
-const CACHE = 'qclaudio-v4';
+const CACHE = 'qclaudio-v5';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
