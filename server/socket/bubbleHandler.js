@@ -29,34 +29,44 @@ function currentTimeOfDay() {
  * @param {object} deps — { profileOrchestrator, getWeatherRaw }
  */
 export async function pushBubbles(io, deps) {
-  try {
-    const { profileOrchestrator, getWeatherRaw } = deps;
-    const timeOfDay = currentTimeOfDay();
+  const { profileOrchestrator, getWeatherRaw } = deps;
+  const timeOfDay = currentTimeOfDay();
 
-    // Get profile snapshot — use facade methods, not raw orchestrator methods
-    let profile = null;
+  // Get profile snapshot — independent try/catch so profile failure
+  // doesn't block bubble generation (generateBubbles has fallback defaults)
+  let profile = null;
+  try {
     if (profileOrchestrator?.getCurrentProfile) {
       profile = await profileOrchestrator.getCurrentProfile();
     } else if (profileOrchestrator?.getSnapshots) {
       const snaps = profileOrchestrator.getSnapshots(1);
       profile = snaps?.[0] || null;
     }
+  } catch (e) {
+    console.warn('[Bubbles] profile fetch failed, using defaults:', e.message);
+  }
 
-    // Get weather data
-    let weatherMood = null;
+  // Get weather data — independent try/catch
+  let weatherMood = null;
+  try {
     if (getWeatherRaw) {
       const raw = await getWeatherRaw();
       if (raw) {
         weatherMood = inferWeatherMood(raw.code, raw.temp, timeOfDay);
       }
     }
+  } catch (e) {
+    console.warn('[Bubbles] weather fetch failed, using defaults:', e.message);
+  }
 
+  // Generate bubbles — always runs, has fallback when both profile and weather are null
+  try {
     const bubbles = generateBubbles(profile, weatherMood, timeOfDay);
     if (bubbles.length > 0) {
       io.emit(EVENTS.CRAB_BUBBLES, { bubbles });
     }
   } catch (e) {
-    console.error('[Bubbles] push failed:', e.message);
+    console.error('[Bubbles] generateBubbles failed:', e.message);
   }
 }
 
