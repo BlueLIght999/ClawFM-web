@@ -12,7 +12,8 @@ import { createGenreSearchEngine } from '../domain/routing/GenreSearchEngine.js'
 import { moodToQuery } from '../domain/routing/moodToQuery.js';
 import { getTimeOfDayMood } from '../domain/hosting/getTimeOfDayMood.js';
 
-const BUBBLE_PUSH_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+const BUBBLE_PUSH_INTERVAL_MS = 90 * 1000; // 90 seconds
+const BUBBLE_SONG_CHANGE_PROBABILITY = 0.55; // 55% chance on each song change
 
 /**
  * Get the current time of day as a string.
@@ -27,7 +28,7 @@ function currentTimeOfDay() {
  * @param {object} io — socket.io server
  * @param {object} deps — { profileOrchestrator, getWeatherRaw }
  */
-async function pushBubbles(io, deps) {
+export async function pushBubbles(io, deps) {
   try {
     const { profileOrchestrator, getWeatherRaw } = deps;
     const timeOfDay = currentTimeOfDay();
@@ -53,6 +54,18 @@ async function pushBubbles(io, deps) {
     }
   } catch (e) {
     console.error('[Bubbles] push failed:', e.message);
+  }
+}
+
+/**
+ * Probabilistically push bubbles (used on song-change events).
+ * @param {object} io — socket.io server
+ * @param {object} deps — dependencies
+ * @param {number} probability — chance to push (0-1)
+ */
+export async function maybePushBubbles(io, deps, probability = BUBBLE_SONG_CHANGE_PROBABILITY) {
+  if (Math.random() < probability) {
+    await pushBubbles(io, deps);
   }
 }
 
@@ -118,10 +131,8 @@ export function wireBubbleEvents(io, socket, deps) {
     pushBubbles(io, deps);
   }, BUBBLE_PUSH_INTERVAL_MS);
 
-  // Push initial bubbles after 5 seconds (let client settle)
-  setTimeout(() => {
-    pushBubbles(io, deps);
-  }, 5000);
+  // Note: initial push is triggered by cold start in handler.js
+  // and on song-change via maybePushBubbles, not here.
 
   // Return cleanup function
   return () => {

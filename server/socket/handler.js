@@ -18,7 +18,7 @@ import {
 import { startRecurringTasks } from './recurringTasks.js';
 import { wireProfileEvents } from './profileEvents.js';
 import { onNewConnection } from './connectionHandler.js';
-import { wireBubbleEvents } from './bubbleHandler.js';
+import { wireBubbleEvents, pushBubbles, maybePushBubbles } from './bubbleHandler.js';
 
 // Logger is injected via deps parameter, not imported directly (D8 rule)
 let logger = {
@@ -48,6 +48,9 @@ function wireSchedulerCallbacks(io, deps) {
       if (audioUrl) {
         io.emit(EVENTS.RADIO_STATE, { ...scheduler.getState(), audioUrl });
       }
+
+      // Probabilistically push bubbles on song change (55% chance)
+      maybePushBubbles(io, deps);
     } catch (e) {
       logger.error({ component: 'scheduler', err: e }, 'onSongChange error');
     }
@@ -124,10 +127,16 @@ async function triggerColdStart(io, deps) {
           }
         }, 30000);
       }
+
+      // Cold-start bubble: push bubbles 8s after music starts
+      setTimeout(() => pushBubbles(io, deps), 8000);
     } else { throw new Error('Cold open returned empty text'); }
   } catch (e) {
     logger.warn({ component: 'cold-start', err: e }, 'cold start failed, starting music directly');
     emitColdStartResult(io, await coldStartService.startMusicDirectly());
+
+    // Cold-start bubble (fallback path): push bubbles 8s after direct music start
+    setTimeout(() => pushBubbles(io, deps), 8000);
   }
 }
 
