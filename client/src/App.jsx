@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useSocket } from './hooks/useSocket.js';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense, useTransition } from 'react';
 import { useTheme } from './theme/useTheme.js';
-import { THEME_NAMES } from './theme/themes.js';
+import { useAuth } from './contexts/AuthContext.jsx';
 import { RADIO_NAME, RADIO_FREQ } from './config.js';
 import Layout from './components/Layout.jsx';
 import TopBar from './components/TopBar.jsx';
@@ -12,8 +11,24 @@ import Spectrum from './components/Spectrum.jsx';
 import PlaylistList from './components/PlaylistList.jsx';
 import LyricsDisplay from './components/LyricsDisplay.jsx';
 import LoginOverlay from './components/LoginOverlay.jsx';
-import DJSchedule from './components/DJSchedule.jsx';
 import DJDialog from './components/DJDialog.jsx';
+import { useSpeechPlayback } from './hooks/useSpeechPlayback.js';
+import { useChatHistory } from './hooks/useChatHistory.js';
+
+// Lazy-loaded non-first-screen views (code splitting)
+const ProfileView = lazy(() => import('./components/ProfileView.jsx'));
+const SettingsView = lazy(() => import('./components/SettingsView.jsx'));
+
+function ViewFallback() {
+  return (
+    <div style={{
+      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'var(--font-pixel)', fontSize: 10, color: 'var(--text-dim)', letterSpacing: '2px',
+    }}>
+      <span className="cursor-blink">LOADING...</span>
+    </div>
+  );
+}
 
 const E = {
   RADIO_STATE: 'radio:state',
@@ -36,10 +51,9 @@ const E = {
   PLAN_UPDATE: 'plan:update',
 };
 
-export default function App() {
-  const { socket, connected } = useSocket();
+export default function App({ socket, connected }) {
   const { theme, override, setThemeOverride, clearOverride } = useTheme();
-  const [loggedIn, setLoggedIn] = useState(false);
+  const { loggedIn, setLoggedIn, loginPhone: handleLoginPhone, loginQr: handleLoginQr, speechAudioRef: authSpeechAudioRef } = useAuth();
   const [radioState, setRadioState] = useState({
     currentSong: null,
     startedAt: null,
@@ -50,7 +64,7 @@ export default function App() {
     duration: 0,
     audioUrl: null,
   });
-  const [chatMessages, setChatMessages] = useState([]);
+  const [chatMessages, setChatMessages] = useChatHistory(socket);
   const [djSpeechUrl, setDjSpeechUrl] = useState(null);
   const djSpeechUrlRef = useRef(null);
   const pendingSongChangeRef = useRef(null);
@@ -64,7 +78,6 @@ export default function App() {
   isPlayingRef.current = radioState.isPlaying;
   const musicAudioRef = useRef(null);
   const musicRetryRef = useRef(0);
-  const speechAudioRef = useRef(null);
   const speechTypeRef = useRef('transition');
   const [audioEl, setAudioEl] = useState(null);
 
@@ -78,6 +91,7 @@ export default function App() {
   const djDialogTextRef = useRef('');
   const djStreamIdRef = useRef(null);
   const [view, setView] = useState('player');
+  const [isViewTransitionPending, startViewTransition] = useTransition();
   const [profileData, setProfileData] = useState(null);
   const [error, setError] = useState(null);
   const [plan, setPlan] = useState(null);
@@ -128,124 +142,31 @@ export default function App() {
   useEffect(() => {
     if (connected) return;
     const music = musicAudioRef.current;
-    const speech = speechAudioRef.current;
+    const speech = authSpeechAudioRef.current;
     if (music) { music.pause(); }
     if (speech) { speech.pause(); }
   }, [connected]);
 
-  // DJ speech
-  useEffect(() => {
-    if (!djSpeechUrl || !speechAudioRef.current) return;
-    // Chat is text-only — never pause music for chat speech (safety guard)
-    if (speechTypeRef.current === 'chat') {
-      setDjSpeechUrl(null);
-      return;
-    }
-    const curType = speechTypeRef.current;
-    const isAnnounce = curType === 'chat-announce' || curType === 'proactive';
-
-    const music = musicAudioRef.current;
-    const prevVolume = music?.volume;
-    if (music) {
-      if (curType === 'proactive') {
-        music.volume = 0.1; // Proactive: barely audible music
-      } else if (isAnnounce) {
-        music.volume = 0.2; // Chat announce: quiet music
-      } else {
-        music.pause();
-      }
-    }
-
-    const speech = speechAudioRef.current;
-    // Preload before playing — fixes gap between music pause and speech start (Bug 4)
-    const preloadAndPlay = () => {
-      speech.src = djSpeechUrl;
-      // Set DJ voice volume per type
-      if (curType === 'proactive') speech.volume = 0.6;
-      else if (curType === 'chat-announce') speech.volume = 0.85;
-      else speech.volume = 1.0;
-
-      let resolved = false;
-      const finish = () => {
-        if (resolved) return;
-        resolved = true;
-        setDjSpeechUrl(null);
-        djSpeechUrlRef.current = null;
-        if (music && isAnnounce && prevVolume !== undefined) {
-          music.volume = prevVolume;
-        }
-        if (socket) socket.emit('dj-speech-finished', { type: curType });
-        if (music && !isAnnounce && radioState.isPlaying) {
-          music.play().catch(() => {});
-        }
-        // Apply deferred song change if one was waiting
-        if (pendingSongChangeRef.current) {
-          const pending = pendingSongChangeRef.current;
-          pendingSongChangeRef.current = null;
-          setRadioState(prev => ({ ...prev, ...pending }));
-        }
-      };
-
-      speech.onended = finish;
-      speech.onerror = () => {
-        // Retry once with reload (not just replay)
-        if (resolved) return;
-        speech.load();
-        setTimeout(() => {
-          if (resolved) return;
-          speech.play().catch(() => { finish(); });
-        }, 800);
-      };
-
-      // Wait for audio to be loadable, then play (Bug 4: preload)
-      const doPlay = () => {
-        speech.play().then(() => {
-          // Success — speech playing
-        }).catch(() => {
-          // Autoplay blocked — immediately finish, don't wait 8s (Bug 3)
-          finish();
-        });
-      };
-
-      const loadTimeout = setTimeout(() => {
-        // Load took too long — attempt play anyway
-        doPlay();
-      }, 2000);
-
-      speech.addEventListener('canplay', () => {
-        clearTimeout(loadTimeout);
-        doPlay();
-      }, { once: true });
-
-      // Start loading
-      speech.load();
-    };
-
-    preloadAndPlay();
-
-    // Safety: force-finish if speech hangs (shorter for cold-start to unblock loading screen)
-    const safety = setTimeout(() => {
-      if (speech && !speech.ended && !speech.paused) return; // still playing
+  // DJ speech — managed by useSpeechPlayback hook (comprehensive cleanup on URL change)
+  useSpeechPlayback({
+    djSpeechUrl,
+    speechAudioRef: authSpeechAudioRef,
+    musicAudioRef,
+    speechTypeRef,
+    socket,
+    isPlaying: radioState.isPlaying,
+    onSpeechEnd: () => {
       setDjSpeechUrl(null);
       djSpeechUrlRef.current = null;
-      if (music && isAnnounce && prevVolume !== undefined) {
-        music.volume = prevVolume;
-      }
-      if (socket) socket.emit('dj-speech-finished', { type: curType });
-      if (music && !isAnnounce && radioState.isPlaying) {
-        music.play().catch(() => {});
-      }
-      // Apply deferred song change if one was waiting
+    },
+    onDeferredSongChange: () => {
       if (pendingSongChangeRef.current) {
         const pending = pendingSongChangeRef.current;
         pendingSongChangeRef.current = null;
         setRadioState(prev => ({ ...prev, ...pending }));
       }
-    }, curType === 'cold-start' ? 15000 : 30000);
-    return () => {
-      clearTimeout(safety);
-    };
-  }, [djSpeechUrl]);
+    },
+  });
 
   useEffect(() => {
     if (!socket) return;
@@ -351,7 +272,6 @@ export default function App() {
       bubbleTimeoutRef.current = setTimeout(() => setBubblesVisible(false), 30000);
     });
     socket.on('auth:login-success', () => setLoggedIn(true));
-    fetch('/api/auth/status').then(r => r.json()).then(data => setLoggedIn(data.loggedIn)).catch(() => {});
     // Fetch initial plan
     fetch('/api/plan/today').then(r => r.json()).then(data => {
       if (data.blocks) setPlan(data);
@@ -451,16 +371,6 @@ export default function App() {
   useEffect(() => {
     if (chatOpen) setDjDialogVisible(false);
   }, [chatOpen]);
-  const handleLoginPhone = useCallback((phone, password) => {
-    // Unlock audio for autoplay — this runs during a user click gesture
-    if (speechAudioRef.current) speechAudioRef.current.play().catch(() => {});
-    if (socket) socket.emit('auth:login-phone', { phone, password });
-  }, [socket]);
-  const handleLoginQr = useCallback(() => {
-    // Unlock audio for autoplay — this runs during a user click gesture
-    if (speechAudioRef.current) speechAudioRef.current.play().catch(() => {});
-    if (socket) socket.emit('auth:login-qr-start');
-  }, [socket]);
   const handleProactiveToggle = useCallback(() => {
     const next = !proactiveEnabled;
     setProactiveEnabled(next);
@@ -526,7 +436,7 @@ export default function App() {
           }, retryDelay);
         }}
       />
-      <audio ref={speechAudioRef} preload="auto" />
+      <audio ref={authSpeechAudioRef} preload="auto" />
 
       {/* Cold-start loading overlay */}
       {isColdLoading && (
@@ -559,7 +469,17 @@ export default function App() {
         </div>
       )}
 
-      <TopBar radioName={RADIO_NAME} freq={RADIO_FREQ} connected={connected} view={view} onViewChange={setView} weather={weather} ttsStatus={ttsStatus} />
+      <TopBar radioName={RADIO_NAME} freq={RADIO_FREQ} connected={connected} view={view} onViewChange={(newView) => startViewTransition(() => setView(newView))} weather={weather} ttsStatus={ttsStatus} />
+
+      {isViewTransitionPending && (
+        <div style={{
+          position: 'fixed', top: 24, left: '50%', transform: 'translateX(-50%)',
+          fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'var(--accent)',
+          letterSpacing: '2px', zIndex: 100, pointerEvents: 'none',
+        }}>
+          <span className="cursor-blink">SWITCHING...</span>
+        </div>
+      )}
 
       {/* Player — always mounted, hidden when not active */}
       <div style={{ display: view === 'player' ? 'flex' : 'none', flexDirection: 'column', flex: 1 }}>
@@ -581,7 +501,7 @@ export default function App() {
               messageId={djDialogMsgId}
               onReply={handleDJDialogReply}
               onHide={handleDJDialogHide}
-              speechAudioRef={speechAudioRef}
+              speechAudioRef={authSpeechAudioRef}
             />
           }
           djDialogVisible={djDialogVisible}
@@ -614,95 +534,38 @@ export default function App() {
         />
       </div>
 
-      {/* Profile — always mounted, hidden when not active */}
-      <div style={{ display: view === 'profile' ? 'block' : 'none', flex: 1, overflow: 'auto', padding: 10 }}>
-        <h2 className="pixel-title" style={{ marginBottom: 10, fontSize: 12 }}>PROFILE & SCHEDULE</h2>
-        <div className="pixel-border" style={{
-          background: 'var(--bg-secondary)', padding: '8px 12px', marginBottom: 8,
-        }}>
-          {profileData ? (
-            <div style={{ display: 'flex', gap: 20, fontFamily: 'var(--font-mono)', fontSize: 16 }}>
-              <div>
-                <span style={{ color: 'var(--text-dim)' }}>Mood: </span>
-                <span style={{ color: 'var(--accent-glow)' }}>{profileData.currentMood}</span>
-              </div>
-              <div>
-                <span style={{ color: 'var(--text-dim)' }}>Songs played: </span>
-                <span style={{ color: 'var(--text-primary)' }}>{profileData.totalSongs || 0}</span>
-              </div>
-              {profileData.topArtists?.length > 0 && (
-                <div style={{ flex: 1 }}>
-                  <span style={{ color: 'var(--text-dim)' }}>Top: </span>
-                  <span style={{ color: 'var(--text-secondary)' }}>
-                    {profileData.topArtists.slice(0, 5).map(a => a.name).join(', ')}
-                  </span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, color: 'var(--text-dim)' }}>Loading taste data...</p>
-          )}
-        </div>
-        <DJSchedule plan={plan} socket={socket} activeBlockIndex={plan?.activeBlockIndex} onRefresh={() => {
-          fetch('/api/plan/today?force=true').then(r => r.json()).then(data => {
-            if (data.blocks) setPlan(data);
-          }).catch(() => {});
-        }} />
-      </div>
+      {/* Profile — lazy loaded, conditionally rendered */}
+      {view === 'profile' && (
+        <Suspense fallback={<ViewFallback />}>
+          <ProfileView
+            profileData={profileData}
+            plan={plan}
+            socket={socket}
+            onRefreshPlan={() => {
+              fetch('/api/plan/today?force=true').then(r => r.json()).then(data => {
+                if (data.blocks) setPlan(data);
+              }).catch(() => {});
+            }}
+          />
+        </Suspense>
+      )}
 
-      {/* Settings — always mounted, hidden when not active */}
-      <div style={{ display: view === 'settings' ? 'block' : 'none', flex: 1, overflow: 'auto', padding: 10 }}>
-        <h2 className="pixel-title" style={{ marginBottom: 8, fontSize: 12 }}>SETTINGS</h2>
-        <div className="pixel-border" style={{ background: 'var(--bg-secondary)', padding: '8px 12px', marginBottom: 8 }}>
-          <p style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: 'var(--text-dim)', marginBottom: 6 }}>QUEUE MODE</p>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {['sequential', 'shuffle', 'fm'].map(m => (
-              <button key={m} className={`pixel-btn ${radioState.queueMode === m ? 'accent' : ''}`}
-                onClick={() => handleSetMode(m)} style={{ fontSize: 9 }}>{m.toUpperCase()}</button>
-            ))}
-          </div>
-        </div>
-        <div className="pixel-border" style={{ background: 'var(--bg-secondary)', padding: '8px 12px', marginBottom: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <p style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: 'var(--text-dim)', margin: '0 0 2px 0' }}>DJ PROACTIVE SPEECH</p>
-              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--text-dim)', margin: 0 }}>Autonomous DJ chat messages (~40% spoken aloud)</p>
-            </div>
-            <button
-              className={`pixel-btn ${proactiveEnabled ? 'accent' : ''}`}
-              onClick={handleProactiveToggle}
-              style={{ fontSize: 9, minWidth: 50 }}
-            >{proactiveEnabled ? 'ON' : 'OFF'}</button>
-          </div>
-        </div>
-        <div className="pixel-border" style={{ background: 'var(--bg-secondary)', padding: '8px 12px', marginBottom: 8 }}>
-          <p style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: 'var(--text-dim)', marginBottom: 6 }}>THEME</p>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-            {THEME_NAMES.map(t => (
-              <button key={t} className={`pixel-btn ${theme === t ? 'accent' : ''}`}
-                onClick={() => override === t ? clearOverride() : setThemeOverride(t)}
-                style={{ fontSize: 9 }}>
-                {t.toUpperCase()}{override === t ? ' *' : ''}
-              </button>
-            ))}
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--text-dim)', marginLeft: 4 }}>
-              {override ? `Locked: ${override}` : `Auto (${theme})`}
-            </span>
-          </div>
-        </div>
-        <div className="pixel-border" style={{ background: 'var(--bg-secondary)', padding: '8px 12px' }}>
-          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, color: 'var(--text-secondary)', margin: 0 }}>
-            TTS: {ttsStatus.available === false
-              ? 'Offline (text-only)'
-              : ttsStatus.provider === 'edge'
-                ? 'Edge TTS (fallback)'
-                : ttsStatus.provider === 'dashscope'
-                  ? 'DashScope (Ethan)'
-                  : 'Checking...'}
-          </p>
-          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>AI: DeepSeek V4 Pro</p>
-        </div>
-      </div>
+      {/* Settings — lazy loaded, conditionally rendered */}
+      {view === 'settings' && (
+        <Suspense fallback={<ViewFallback />}>
+          <SettingsView
+            queueMode={radioState.queueMode}
+            onSetMode={handleSetMode}
+            proactiveEnabled={proactiveEnabled}
+            onProactiveToggle={handleProactiveToggle}
+            theme={theme}
+            override={override}
+            setThemeOverride={setThemeOverride}
+            clearOverride={clearOverride}
+            ttsStatus={ttsStatus}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
