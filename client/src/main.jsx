@@ -4,6 +4,7 @@ import App from './App.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { AuthProvider } from './contexts/AuthContext.jsx';
 import { RadioProvider } from './contexts/RadioContext.jsx';
+import { ChatProvider } from './contexts/ChatContext.jsx';
 import { useSocket } from './hooks/useSocket.js';
 import './styles/global.css';
 
@@ -17,7 +18,9 @@ function AppWithProviders() {
   return (
     <AuthProvider socket={socket}>
       <RadioProvider socket={socket}>
-        <App socket={socket} connected={connected} />
+        <ChatProvider socket={socket}>
+          <App socket={socket} connected={connected} />
+        </ChatProvider>
       </RadioProvider>
     </AuthProvider>
   );

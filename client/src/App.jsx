@@ -13,8 +13,8 @@ import LyricsDisplay from './components/LyricsDisplay.jsx';
 import LoginOverlay from './components/LoginOverlay.jsx';
 import DJDialog from './components/DJDialog.jsx';
 import { useSpeechPlayback } from './hooks/useSpeechPlayback.js';
-import { useChatHistory } from './hooks/useChatHistory.js';
 import { useRadio } from './contexts/RadioContext.jsx';
+import { useChat } from './contexts/ChatContext.jsx';
 import { useAudioController } from './hooks/useAudioController.js';
 
 // Lazy-loaded non-first-screen views (code splitting)
@@ -57,7 +57,6 @@ export default function App({ socket, connected }) {
   const { theme, override, setThemeOverride, clearOverride } = useTheme();
   const { loggedIn, setLoggedIn, loginPhone: handleLoginPhone, loginQr: handleLoginQr, speechAudioRef: authSpeechAudioRef } = useAuth();
   const { radioState, setRadioState, updateRadioState, skip: handleSkip, previous: handlePrevious, pause: handlePause, resume: handleResume, setMode: handleSetMode, musicAudioRef, musicRetryRef, isPlayingRef } = useRadio();
-  const [chatMessages, setChatMessages] = useChatHistory(socket);
   const [djSpeechUrl, setDjSpeechUrl] = useState(null);
   const djSpeechUrlRef = useRef(null);
   const pendingSongChangeRef = useRef(null);
@@ -70,15 +69,12 @@ export default function App({ socket, connected }) {
   const speechTypeRef = useRef('transition');
   const [audioEl, setAudioEl] = useState(null);
 
-  const [chatOpen, setChatOpen] = useState(false);
-  const chatOpenRef = useRef(false);
-  chatOpenRef.current = chatOpen;
-  const [djDialogText, setDjDialogText] = useState('');
-  const [djDialogStreaming, setDjDialogStreaming] = useState(false);
-  const [djDialogVisible, setDjDialogVisible] = useState(false);
-  const [djDialogMsgId, setDjDialogMsgId] = useState('');
-  const djDialogTextRef = useRef('');
-  const djStreamIdRef = useRef(null);
+  const {
+    chatMessages, setChatMessages, chatOpen, setChatOpen,
+    djDialogText, djDialogStreaming, djDialogVisible, djDialogMsgId,
+    sendMessage: handleChatMessage, hideDJDialog: handleDJDialogHide,
+    showDJMessage, appendDJStreamChunk, endDJStream, addDJMessage, chatOpenRef,
+  } = useChat();
   const [view, setView] = useState('player');
   const [isViewTransitionPending, startViewTransition] = useTransition();
   const [profileData, setProfileData] = useState(null);
@@ -159,20 +155,8 @@ export default function App({ socket, connected }) {
       else setColdPhase('done');
     });
     socket.on(E.DJ_MESSAGE, (data) => {
-      setChatMessages(prev => [...prev, {
-        id: `dj-msg-${Date.now()}`,
-        role: 'assistant',
-        content: data.text,
-        isTransition: true,
-      }]);
-      // Show DJ dialog (only when chat panel is closed)
-      if (!chatOpenRef.current && data.text) {
-        djDialogTextRef.current = data.text;
-        setDjDialogText(data.text);
-        setDjDialogStreaming(false);
-        setDjDialogVisible(true);
-        setDjDialogMsgId(`dj-msg-${Date.now()}`);
-      }
+      addDJMessage(data.text);
+      showDJMessage(data.text);
     });
     socket.on(E.DJ_SPEECH_START, (data) => {
       speechTypeRef.current = data.type || 'transition';
@@ -187,30 +171,10 @@ export default function App({ socket, connected }) {
     });
     socket.on(E.DJ_SPEECH_END, () => { setDjSpeechUrl(null); djSpeechUrlRef.current = null; setCrabState(isPlayingRef.current ? 'listening' : 'idle'); });
     socket.on(E.DJ_STREAM_CHUNK, (data) => {
-      setChatMessages(prev => {
-        const last = prev[prev.length - 1];
-        if (last && last.id === data.messageId && last.role === 'assistant') {
-          return [...prev.slice(0, -1), { ...last, content: last.content + data.token }];
-        }
-        return [...prev, { id: data.messageId, role: 'assistant', content: data.token }];
-      });
-      // Accumulate text for DJ dialog
-      if (!chatOpenRef.current) {
-        if (djStreamIdRef.current !== data.messageId) {
-          djStreamIdRef.current = data.messageId;
-          djDialogTextRef.current = data.token || '';
-          setDjDialogMsgId(data.messageId);
-        } else {
-          djDialogTextRef.current += data.token || '';
-        }
-        setDjDialogText(djDialogTextRef.current);
-        setDjDialogStreaming(true);
-        setDjDialogVisible(true);
-      }
+      appendDJStreamChunk(data.messageId, data.token);
     });
     socket.on(E.DJ_STREAM_END, () => {
-      setDjDialogStreaming(false);
-      djStreamIdRef.current = null;
+      endDJStream();
     });
     socket.on('cold-start:phase', (data) => {
       if (data.phase === 'writing') { setColdPhaseText('CLAWED is writing the opening...'); setColdOpenText(''); }
@@ -313,11 +277,6 @@ export default function App({ socket, connected }) {
     }
   }, [view]);
 
-  const handleChatMessage = useCallback((text) => {
-    if (!socket) return;
-    setChatMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: text }]);
-    socket.emit('chat:message', { text });
-  }, [socket]);
   const handleCrabClick = useCallback(() => {
     setChatOpen(prev => !prev);
     if (socket) socket.emit('crab:click', { interaction: 'chat' });
@@ -330,14 +289,7 @@ export default function App({ socket, connected }) {
   }, [socket]);
   const handleDJDialogReply = useCallback(() => {
     setChatOpen(true);
-  }, []);
-  const handleDJDialogHide = useCallback(() => {
-    setDjDialogVisible(false);
-  }, []);
-  // Hide DJ dialog when chat panel opens
-  useEffect(() => {
-    if (chatOpen) setDjDialogVisible(false);
-  }, [chatOpen]);
+  }, [setChatOpen]);
   const handleProactiveToggle = useCallback(() => {
     const next = !proactiveEnabled;
     setProactiveEnabled(next);
