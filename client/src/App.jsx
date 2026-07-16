@@ -16,6 +16,9 @@ import { useSpeechPlayback } from './hooks/useSpeechPlayback.js';
 import { useRadio } from './contexts/RadioContext.jsx';
 import { useChat } from './contexts/ChatContext.jsx';
 import { useAudioController } from './hooks/useAudioController.js';
+import { useColdStart } from './contexts/ColdStartContext.jsx';
+import { useCrab } from './contexts/CrabContext.jsx';
+import { useUI } from './contexts/UIContext.jsx';
 
 // Lazy-loaded non-first-screen views (code splitting)
 const ProfileView = lazy(() => import('./components/ProfileView.jsx'));
@@ -60,12 +63,6 @@ export default function App({ socket, connected }) {
   const [djSpeechUrl, setDjSpeechUrl] = useState(null);
   const djSpeechUrlRef = useRef(null);
   const pendingSongChangeRef = useRef(null);
-  const [crabState, setCrabState] = useState('idle');
-  const crabStateRef = useRef(crabState);
-  const [bubbles, setBubbles] = useState([]);
-  const [bubblesVisible, setBubblesVisible] = useState(false);
-  const bubbleTimeoutRef = useRef(null);
-  crabStateRef.current = crabState;
   const speechTypeRef = useRef('transition');
   const [audioEl, setAudioEl] = useState(null);
 
@@ -75,20 +72,20 @@ export default function App({ socket, connected }) {
     sendMessage: handleChatMessage, hideDJDialog: handleDJDialogHide,
     showDJMessage, appendDJStreamChunk, endDJStream, addDJMessage, chatOpenRef,
   } = useChat();
-  const [view, setView] = useState('player');
-  const [isViewTransitionPending, startViewTransition] = useTransition();
-  const [profileData, setProfileData] = useState(null);
-  const [error, setError] = useState(null);
-  const [plan, setPlan] = useState(null);
-  const [weather, setWeather] = useState('');
-  const [proactiveEnabled, setProactiveEnabled] = useState(true);
-  const [coldPhase, setColdPhase] = useState('loading'); // 'loading' | 'exit' | 'done'
-  const [coldPhaseText, setColdPhaseText] = useState('');
-  const [coldOpenText, setColdOpenText] = useState('');
-  const [ttsStatus, setTtsStatus] = useState({ available: null, provider: null, reason: '' });
-  const coldPhaseRef = useRef(coldPhase);
-  coldPhaseRef.current = coldPhase;
-  const pendingSpeechRef = useRef(null); // cold-start speech URL, played after exit animation
+  const {
+    coldPhase, setColdPhase, coldPhaseRef, coldPhaseText, setColdPhaseText,
+    coldOpenText, setColdOpenText, pendingSpeechRef, isColdLoading,
+  } = useColdStart();
+  const {
+    crabState, setCrabState, crabStateRef, bubbles, setBubbles,
+    bubblesVisible, setBubblesVisible, bubbleTimeoutRef,
+  } = useCrab();
+  const {
+    view, setView, isViewTransitionPending, startViewTransition,
+    profileData, setProfileData, plan, setPlan, weather,
+    proactiveEnabled, toggleProactive: handleProactiveToggle,
+    ttsStatus, setTtsStatus, error, setError,
+  } = useUI();
 
   // Expose audio element for Spectrum
   useEffect(() => {
@@ -208,10 +205,6 @@ export default function App({ socket, connected }) {
       bubbleTimeoutRef.current = setTimeout(() => setBubblesVisible(false), 30000);
     });
     socket.on('auth:login-success', () => setLoggedIn(true));
-    // Fetch initial plan
-    fetch('/api/plan/today').then(r => r.json()).then(data => {
-      if (data.blocks) setPlan(data);
-    }).catch(() => {});
     return () => {
       socket.off(E.RADIO_STATE);
       socket.off(E.SONG_CHANGE);
@@ -239,44 +232,6 @@ export default function App({ socket, connected }) {
     );
   }, [socket, connected]);
 
-  // Fetch weather on mount and refresh every 15min
-  useEffect(() => {
-    const fetchWeather = () => {
-      fetch('/api/weather').then(r => r.json()).then(data => {
-        if (data.text) setWeather(data.text);
-      }).catch(() => {});
-    };
-    fetchWeather();
-    const t = setInterval(fetchWeather, 15 * 60 * 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  // Random idle ↔ listening toggle during music playback
-  useEffect(() => {
-    if (!radioState.isPlaying) return;
-
-    const scheduleNext = () => {
-      const delay = 10000 + Math.random() * 20000; // 10-30s random
-      return setTimeout(() => {
-        const cur = crabStateRef.current;
-        if (cur === 'idle') setCrabState('listening');
-        else if (cur === 'listening') setCrabState('idle');
-        // If talking/bouncing/loading, skip this cycle and reschedule
-        scheduleNextRef.current = scheduleNext();
-      }, delay);
-    };
-
-    const scheduleNextRef = { current: null };
-    scheduleNextRef.current = scheduleNext();
-    return () => clearTimeout(scheduleNextRef.current);
-  }, [radioState.isPlaying]);
-
-  useEffect(() => {
-    if (view === 'profile') {
-      fetch('/api/taste').then(r => r.json()).then(setProfileData).catch(() => {});
-    }
-  }, [view]);
-
   const handleCrabClick = useCallback(() => {
     setChatOpen(prev => !prev);
     if (socket) socket.emit('crab:click', { interaction: 'chat' });
@@ -290,19 +245,6 @@ export default function App({ socket, connected }) {
   const handleDJDialogReply = useCallback(() => {
     setChatOpen(true);
   }, [setChatOpen]);
-  const handleProactiveToggle = useCallback(() => {
-    const next = !proactiveEnabled;
-    setProactiveEnabled(next);
-    if (socket) socket.emit('proactive:toggle', { enabled: next });
-  }, [socket, proactiveEnabled]);
-
-  // Exit animation timer: fades out overlay when first song arrives
-  useEffect(() => {
-    if (coldPhase !== 'exit') return;
-    const timer = setTimeout(() => setColdPhase('done'), 900);
-    return () => clearTimeout(timer);
-  }, [coldPhase]);
-
   // Play deferred cold-start speech after exit animation completes
   useEffect(() => {
     if (coldPhase !== 'done') return;
@@ -326,8 +268,6 @@ export default function App({ socket, connected }) {
       </div>
     );
   }
-
-  const isColdLoading = coldPhase !== 'done';
 
   return (
     <div className="app-container" style={{ background: 'var(--bg-primary)', minHeight: '100vh' }}>
