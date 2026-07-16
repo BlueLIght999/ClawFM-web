@@ -13,6 +13,7 @@ import PlaylistList from './components/PlaylistList.jsx';
 import LyricsDisplay from './components/LyricsDisplay.jsx';
 import LoginOverlay from './components/LoginOverlay.jsx';
 import DJSchedule from './components/DJSchedule.jsx';
+import DJDialog from './components/DJDialog.jsx';
 
 const E = {
   RADIO_STATE: 'radio:state',
@@ -68,6 +69,14 @@ export default function App() {
   const [audioEl, setAudioEl] = useState(null);
 
   const [chatOpen, setChatOpen] = useState(false);
+  const chatOpenRef = useRef(false);
+  chatOpenRef.current = chatOpen;
+  const [djDialogText, setDjDialogText] = useState('');
+  const [djDialogStreaming, setDjDialogStreaming] = useState(false);
+  const [djDialogVisible, setDjDialogVisible] = useState(false);
+  const [djDialogMsgId, setDjDialogMsgId] = useState('');
+  const djDialogTextRef = useRef('');
+  const djStreamIdRef = useRef(null);
   const [view, setView] = useState('player');
   const [profileData, setProfileData] = useState(null);
   const [error, setError] = useState(null);
@@ -263,6 +272,14 @@ export default function App() {
         content: data.text,
         isTransition: true,
       }]);
+      // Show DJ dialog (only when chat panel is closed)
+      if (!chatOpenRef.current && data.text) {
+        djDialogTextRef.current = data.text;
+        setDjDialogText(data.text);
+        setDjDialogStreaming(false);
+        setDjDialogVisible(true);
+        setDjDialogMsgId(`dj-msg-${Date.now()}`);
+      }
     });
     socket.on(E.DJ_SPEECH_START, (data) => {
       speechTypeRef.current = data.type || 'transition';
@@ -284,8 +301,24 @@ export default function App() {
         }
         return [...prev, { id: data.messageId, role: 'assistant', content: data.token }];
       });
+      // Accumulate text for DJ dialog
+      if (!chatOpenRef.current) {
+        if (djStreamIdRef.current !== data.messageId) {
+          djStreamIdRef.current = data.messageId;
+          djDialogTextRef.current = data.token || '';
+          setDjDialogMsgId(data.messageId);
+        } else {
+          djDialogTextRef.current += data.token || '';
+        }
+        setDjDialogText(djDialogTextRef.current);
+        setDjDialogStreaming(true);
+        setDjDialogVisible(true);
+      }
     });
-    socket.on(E.DJ_STREAM_END, () => {});
+    socket.on(E.DJ_STREAM_END, () => {
+      setDjDialogStreaming(false);
+      djStreamIdRef.current = null;
+    });
     socket.on('cold-start:phase', (data) => {
       if (data.phase === 'writing') { setColdPhaseText('CLAWED is writing the opening...'); setColdOpenText(''); }
       else if (data.phase === 'speaking') { setColdPhaseText('CLAWED is about to speak...'); setColdOpenText(''); }
@@ -408,6 +441,16 @@ export default function App() {
     setCrabState('bouncing');
     setTimeout(() => setCrabState(isPlayingRef.current ? 'listening' : 'idle'), 2000);
   }, [socket]);
+  const handleDJDialogReply = useCallback(() => {
+    setChatOpen(true);
+  }, []);
+  const handleDJDialogHide = useCallback(() => {
+    setDjDialogVisible(false);
+  }, []);
+  // Hide DJ dialog when chat panel opens
+  useEffect(() => {
+    if (chatOpen) setDjDialogVisible(false);
+  }, [chatOpen]);
   const handleLoginPhone = useCallback((phone, password) => {
     // Unlock audio for autoplay — this runs during a user click gesture
     if (speechAudioRef.current) speechAudioRef.current.play().catch(() => {});
@@ -528,6 +571,16 @@ export default function App() {
               bubbles={bubbles}
               onBubbleClick={handleBubbleClick}
               bubblesVisible={bubblesVisible}
+            />
+          }
+          djDialog={
+            <DJDialog
+              text={djDialogText}
+              streaming={djDialogStreaming}
+              visible={djDialogVisible}
+              messageId={djDialogMsgId}
+              onReply={handleDJDialogReply}
+              onHide={handleDJDialogHide}
             />
           }
           spectrum={<Spectrum audioElement={audioEl} isPlaying={radioState.isPlaying} theme={theme} songKey={radioState.currentSong?.id} />}

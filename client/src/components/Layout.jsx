@@ -1,4 +1,4 @@
-export default function Layout({ crab, spectrum, chat, chatOpen, error }) {
+export default function Layout({ crab, djDialog, spectrum, chat, chatOpen, error }) {
   return (
     <div style={{
       flex: '0 0 auto',
@@ -29,6 +29,7 @@ export default function Layout({ crab, spectrum, chat, chatOpen, error }) {
           transition: 'left 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
           zIndex: 2, willChange: 'left, transform', marginTop: 2,
         }}>
+          {djDialog}
           {crab}
         </div>
         {chatOpen && (
