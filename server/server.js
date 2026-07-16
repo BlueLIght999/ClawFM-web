@@ -228,13 +228,11 @@ app.get('/api/profile', async (req, res) => {
       return res.json({ ok: false, error: 'Profile system not initialized', profile: null });
     }
     const port = services.profileSystem;
-    const orchestrator = port.orchestrator;
-    if (!orchestrator) {
-      return res.json({ ok: false, error: 'Orchestrator not available', profile: null });
-    }
-    const snapshots = orchestrator.getSnapshots ? orchestrator.getSnapshots(1) : [];
-    const cluster = orchestrator.getCurrentCluster ? orchestrator.getCurrentCluster() : null;
-    const profile = snapshots[0] || null;
+    // Use facade methods (getSnapshots, getCurrentCluster, getCurrentProfile)
+    // directly on profileSystem — NOT on the raw orchestrator
+    const snapshots = port.getSnapshots ? port.getSnapshots(1) : [];
+    const cluster = port.getCurrentCluster ? port.getCurrentCluster() : null;
+    const profile = snapshots[0] || (await port.getCurrentProfile?.()) || null;
     res.json({ ok: true, profile, cluster, snapshotCount: snapshots.length });
   } catch (e) {
     res.json({ ok: false, error: e.message, profile: null });
@@ -371,6 +369,29 @@ async function start() {
   initProfileDb();
   setupSocketHandler(io, services);
   logger.info({ component: 'server' }, 'socket handler set up, callbacks wired');
+
+  // Start profile pipeline: first run after 10s, then periodic
+  if (services.profileSystem?.triggerCollection) {
+    const pipelineSources = services.profileSystem.pipelineSources || {};
+    setTimeout(async () => {
+      try {
+        logger.info({ component: 'profile' }, 'first pipeline run');
+        await services.profileSystem.triggerCollection(pipelineSources);
+      } catch (e) {
+        logger.error({ component: 'profile', err: e }, 'first pipeline run failed');
+      }
+    }, 10000);
+
+    const intervalMs = (services.profileSystem.config?.schedule?.analysisIntervalHours || 1) * 60 * 60 * 1000;
+    setInterval(async () => {
+      try {
+        await services.profileSystem.triggerCollection(pipelineSources);
+      } catch (e) {
+        logger.error({ component: 'profile', err: e }, 'periodic pipeline run failed');
+      }
+    }, intervalMs);
+    logger.info({ component: 'profile', intervalHours: services.profileSystem.config?.schedule?.analysisIntervalHours || 1 }, 'profile pipeline scheduled');
+  }
 
   const ttsHealth = await checkTtsHealth();
   displayTtsHealthBanner(ttsHealth);

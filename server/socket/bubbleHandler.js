@@ -33,10 +33,13 @@ export async function pushBubbles(io, deps) {
     const { profileOrchestrator, getWeatherRaw } = deps;
     const timeOfDay = currentTimeOfDay();
 
-    // Get profile snapshot
+    // Get profile snapshot — use facade methods, not raw orchestrator methods
     let profile = null;
-    if (profileOrchestrator?.getLatestSnapshot) {
-      profile = profileOrchestrator.getLatestSnapshot();
+    if (profileOrchestrator?.getCurrentProfile) {
+      profile = await profileOrchestrator.getCurrentProfile();
+    } else if (profileOrchestrator?.getSnapshots) {
+      const snaps = profileOrchestrator.getSnapshots(1);
+      profile = snaps?.[0] || null;
     }
 
     // Get weather data
