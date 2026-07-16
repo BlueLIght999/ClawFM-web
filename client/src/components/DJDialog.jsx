@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './dj-dialog.css';
 
-const TYPE_SPEED = 45; // ms per character
-const AUTO_HIDE_MS = 8000; // auto-hide after typing completes
+const LINE_DELAY = 120; // ms per line reveal
+const AUTO_HIDE_MS = 8000; // auto-hide after all lines shown
 
 export default function DJDialog({ text, streaming, visible, messageId, onReply, onHide }) {
-  const [displayedLen, setDisplayedLen] = useState(0);
+  const [visibleLines, setVisibleLines] = useState(0);
   const [showReply, setShowReply] = useState(false);
   const hideTimerRef = useRef(null);
   const onReplyRef = useRef(onReply);
@@ -13,9 +13,13 @@ export default function DJDialog({ text, streaming, visible, messageId, onReply,
   onReplyRef.current = onReply;
   onHideRef.current = onHide;
 
+  // Split text into lines
+  const lines = text ? text.split('\n').filter(l => l.length > 0) : [];
+  const allLinesShown = visibleLines >= lines.length;
+
   // Reset when a new message arrives
   useEffect(() => {
-    setDisplayedLen(0);
+    setVisibleLines(0);
     setShowReply(false);
     if (hideTimerRef.current) {
       clearTimeout(hideTimerRef.current);
@@ -23,22 +27,22 @@ export default function DJDialog({ text, streaming, visible, messageId, onReply,
     }
   }, [messageId]);
 
-  // Typewriter: advance one character at a time
+  // Line-by-line reveal
   useEffect(() => {
-    if (!visible || !text) return;
-    if (displayedLen >= text.length) return;
+    if (!visible || lines.length === 0) return;
+    if (visibleLines >= lines.length) return;
 
     const id = setTimeout(() => {
-      setDisplayedLen(prev => prev + 1);
-    }, TYPE_SPEED);
+      setVisibleLines(prev => prev + 1);
+    }, LINE_DELAY);
     return () => clearTimeout(id);
-  }, [visible, text, displayedLen]);
+  }, [visible, visibleLines, lines.length]);
 
-  // When typing catches up and streaming is done, show reply + schedule auto-hide
+  // When all lines shown and streaming done, show reply + schedule auto-hide
   useEffect(() => {
-    if (!visible || !text) return;
+    if (!visible || lines.length === 0) return;
 
-    if (displayedLen >= text.length && text.length > 0 && !streaming) {
+    if (allLinesShown && !streaming) {
       setShowReply(true);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
       hideTimerRef.current = setTimeout(() => {
@@ -47,12 +51,12 @@ export default function DJDialog({ text, streaming, visible, messageId, onReply,
     } else {
       setShowReply(false);
     }
-  }, [displayedLen, text, streaming, visible]);
+  }, [allLinesShown, streaming, visible, lines.length]);
 
   // Reset when hidden
   useEffect(() => {
     if (!visible) {
-      setDisplayedLen(0);
+      setVisibleLines(0);
       setShowReply(false);
       if (hideTimerRef.current) {
         clearTimeout(hideTimerRef.current);
@@ -75,19 +79,20 @@ export default function DJDialog({ text, streaming, visible, messageId, onReply,
 
   if (!visible || !text) return null;
 
-  const isTyping = displayedLen < text.length;
-  const displayedText = text.slice(0, displayedLen);
-
   return (
     <div className="dj-dialog-container">
       <div className="dj-dialog-bubble">
         <div className="dj-dialog-header">
           <span className="dj-dialog-label">DJ CLAW</span>
-          <span className={`dj-dialog-indicator ${isTyping ? 'typing' : 'idle'}`} />
+          <span className={`dj-dialog-indicator ${!allLinesShown || streaming ? 'typing' : 'idle'}`} />
         </div>
-        <div className="dj-dialog-text">
-          {displayedText}
-          {isTyping && <span className="dj-dialog-cursor" />}
+        <div className="dj-dialog-body">
+          {lines.slice(0, visibleLines).map((line, i) => (
+            <p key={i} className="dj-dialog-line" style={{ animationDelay: `${i * 20}ms` }}>
+              {line}
+            </p>
+          ))}
+          {!allLinesShown && <span className="dj-dialog-cursor" />}
         </div>
         {showReply && (
           <div className="dj-dialog-reply-row">
@@ -98,7 +103,6 @@ export default function DJDialog({ text, streaming, visible, messageId, onReply,
           </div>
         )}
       </div>
-      <div className="dj-dialog-tail" />
     </div>
   );
 }

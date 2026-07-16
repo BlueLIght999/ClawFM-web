@@ -583,6 +583,7 @@ export default function App() {
               onHide={handleDJDialogHide}
             />
           }
+          djDialogVisible={djDialogVisible}
           spectrum={<Spectrum audioElement={audioEl} isPlaying={radioState.isPlaying} theme={theme} songKey={radioState.currentSong?.id} />}
           chat={<ChatBox messages={chatMessages} onSend={handleChatMessage} isOpen={chatOpen} onToggle={setChatOpen} />}
           chatOpen={chatOpen}

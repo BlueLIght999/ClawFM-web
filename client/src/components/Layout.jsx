@@ -1,4 +1,7 @@
-export default function Layout({ crab, djDialog, spectrum, chat, chatOpen, error }) {
+export default function Layout({ crab, djDialog, djDialogVisible, spectrum, chat, chatOpen, error }) {
+  // When dialog is visible (and chat closed), crab slides left to make room
+  const crabSlideLeft = djDialogVisible && !chatOpen;
+
   return (
     <div style={{
       flex: '0 0 auto',
@@ -24,13 +27,14 @@ export default function Layout({ crab, djDialog, spectrum, chat, chatOpen, error
       }}>
         <div style={{
           position: 'absolute',
-          left: chatOpen ? '0px' : '50%',
-          transform: chatOpen ? 'translateX(0)' : 'translateX(-50%)',
-          transition: 'left 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+          left: chatOpen ? '0px' : (crabSlideLeft ? '10px' : '50%'),
+          transform: chatOpen ? 'translateX(0)' : (crabSlideLeft ? 'translateX(0)' : 'translateX(-50%)'),
+          transition: 'left 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)',
           zIndex: 2, willChange: 'left, transform', marginTop: 2,
+          display: 'flex', alignItems: 'center',
         }}>
-          {djDialog}
           {crab}
+          {djDialog}
         </div>
         {chatOpen && (
           <div className="chat-panel-enter" style={{
