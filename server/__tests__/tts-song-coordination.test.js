@@ -245,7 +245,7 @@ describe('Bug #2: client defers SONG_CHANGE during speech', () => {
 
   it('appjsx_finishClearsDjSpeechUrlRef', () => {
     const source = fs.readFileSync(
-      path.resolve(__dirname, '../../client/src/App.jsx'), 'utf-8',
+      path.resolve(__dirname, '../../client/src/hooks/useSpeechPlayback.js'), 'utf-8',
     );
 
     // Find the finish function
@@ -253,7 +253,8 @@ describe('Bug #2: client defers SONG_CHANGE during speech', () => {
     expect(finishIdx).toBeGreaterThan(-1);
     const finishBlock = source.slice(finishIdx, finishIdx + 800);
 
-    expect(finishBlock).toContain('djSpeechUrlRef.current = null');
-    expect(finishBlock).toContain('pendingSongChangeRef');
+    // finish should call onSpeechEnd (which clears djSpeechUrlRef in App.jsx)
+    expect(finishBlock).toContain('onSpeechEnd');
+    expect(finishBlock).toContain('onDeferredSongChange');
   });
 });

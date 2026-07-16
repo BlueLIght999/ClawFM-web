@@ -3,6 +3,7 @@
  * Extracted from handler.js for single-responsibility.
  */
 import { EVENTS } from './events.js';
+import { filterRecentConversations } from './chatHistoryFilter.js';
 
 /**
  * Handle a new socket connection: count clients, reset for fresh session
@@ -14,7 +15,7 @@ import { EVENTS } from './events.js';
  * @param {object} deps.logger — pino-style logger
  */
 export async function onNewConnection(io, socket, deps) {
-  const { scheduler, getPlan, speechSynthAdapter, metricsCollector, logger } = deps;
+  const { scheduler, getPlan, speechSynthAdapter, metricsCollector, logger, chatHistory } = deps;
   const count = deps.getConnectedClients() + 1;
   deps.setConnectedClients(count);
   logger?.info?.({ component: 'socket', socketId: socket.id, total: count }, 'client connected');
@@ -40,4 +41,17 @@ export async function onNewConnection(io, socket, deps) {
   const currentPlan = getPlan();
   if (currentPlan) socket.emit(EVENTS.PLAN_UPDATE, currentPlan.plan);
   socket.emit('tts:status', speechSynthAdapter.health());
+
+  // Send recent chat history (last 3 conversations) for session persistence
+  if (chatHistory?.recent) {
+    try {
+      const allHistory = chatHistory.recent(50);
+      const recentMessages = filterRecentConversations(allHistory, 3);
+      if (recentMessages.length > 0) {
+        socket.emit(EVENTS.CHAT_HISTORY, { messages: recentMessages });
+      }
+    } catch (e) {
+      logger?.warn?.({ component: 'socket', err: e }, 'failed to send chat history');
+    }
+  }
 }

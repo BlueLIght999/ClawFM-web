@@ -34,7 +34,7 @@ let preRecommendSnapshot = null; // { future: [...], current: {...} } for reject
 // ─── Scheduler callbacks ─────────────────────────────────────────
 
 function wireSchedulerCallbacks(io, deps) {
-  const { scheduler, djSpeechService, getPlan, buildSongChangePayload, resetLastSpeechTime, metricsCollector } = deps;
+  const { scheduler, djSpeechService, getPlan, buildSongChangePayload, resetLastSpeechTime, metricsCollector, chatHistory } = deps;
 
   scheduler.onSongChange = async (song) => {
     recordSongChange(metricsCollector, deps.queue);
@@ -68,6 +68,7 @@ function wireSchedulerCallbacks(io, deps) {
           planBlocks: cachedPlan?.plan?.blocks || null,
         });
         emitDjSpeechResult(io, refillResult, resetLastSpeechTime);
+        if (refillResult?.djMessage?.text && chatHistory) chatHistory.append('assistant', refillResult.djMessage.text);
         speechHandled = refillResult?.speechHandled === true;
         if (!speechHandled) {
           scheduler.speechComplete();
@@ -77,6 +78,7 @@ function wireSchedulerCallbacks(io, deps) {
 
       const transitionResult = await djSpeechService.handleTransitionSpeech({ prevSong, nextSong, transitionId });
       emitDjSpeechResult(io, transitionResult, resetLastSpeechTime);
+      if (transitionResult?.djMessage?.text && chatHistory) chatHistory.append('assistant', transitionResult.djMessage.text);
       speechHandled = transitionResult?.speechHandled === true;
       if (!speechHandled) {
         // Speech was skipped or stale — advance scheduler immediately instead of waiting for timeout
@@ -114,6 +116,7 @@ async function triggerColdStart(io, deps) {
 
     if (fullText) {
       io.emit(EVENTS.DJ_MESSAGE, { text: fullText, timestamp: Date.now() });
+      if (deps.chatHistory) deps.chatHistory.append('assistant', fullText);
       io.emit('cold-start:phase', { phase: 'speaking' });
 
       const coldStartResult = await coldStartService.handleGeneratedIntro({ fullText });
@@ -166,10 +169,13 @@ function emitChatTurnResults(io, socket, turnResult) {
 }
 
 async function handleChatMessage(text, io, socket, deps) {
-  const { agentLoopService, streamingConversationService, llmAdapter, metricsCollector } = deps;
+  const { agentLoopService, streamingConversationService, llmAdapter, metricsCollector, chatHistory } = deps;
   logger.info({ component: 'chat', text: text?.slice(0, 80) }, 'received');
   logger.debug({ component: 'chat', configured: llmAdapter.isConfigured() }, 'DJ configured');
   emitDashboardEvent(io, 'user_chat', (text || '').slice(0, 60));
+
+  // Persist user message to chat history
+  if (chatHistory && text) chatHistory.append('user', text);
 
   if (metricsCollector) metricsCollector.chatMessages.inc({ role: 'user' });
 

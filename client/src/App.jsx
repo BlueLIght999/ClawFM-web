@@ -14,6 +14,8 @@ import LoginOverlay from './components/LoginOverlay.jsx';
 import DJDialog from './components/DJDialog.jsx';
 import { useSpeechPlayback } from './hooks/useSpeechPlayback.js';
 import { useChatHistory } from './hooks/useChatHistory.js';
+import { useRadio } from './contexts/RadioContext.jsx';
+import { useAudioController } from './hooks/useAudioController.js';
 
 // Lazy-loaded non-first-screen views (code splitting)
 const ProfileView = lazy(() => import('./components/ProfileView.jsx'));
@@ -54,16 +56,7 @@ const E = {
 export default function App({ socket, connected }) {
   const { theme, override, setThemeOverride, clearOverride } = useTheme();
   const { loggedIn, setLoggedIn, loginPhone: handleLoginPhone, loginQr: handleLoginQr, speechAudioRef: authSpeechAudioRef } = useAuth();
-  const [radioState, setRadioState] = useState({
-    currentSong: null,
-    startedAt: null,
-    isPlaying: false,
-    queueMode: 'shuffle',
-    upcomingSongs: [],
-    elapsed: 0,
-    duration: 0,
-    audioUrl: null,
-  });
+  const { radioState, setRadioState, updateRadioState, skip: handleSkip, previous: handlePrevious, pause: handlePause, resume: handleResume, setMode: handleSetMode, musicAudioRef, musicRetryRef, isPlayingRef } = useRadio();
   const [chatMessages, setChatMessages] = useChatHistory(socket);
   const [djSpeechUrl, setDjSpeechUrl] = useState(null);
   const djSpeechUrlRef = useRef(null);
@@ -74,10 +67,6 @@ export default function App({ socket, connected }) {
   const [bubblesVisible, setBubblesVisible] = useState(false);
   const bubbleTimeoutRef = useRef(null);
   crabStateRef.current = crabState;
-  const isPlayingRef = useRef(false);
-  isPlayingRef.current = radioState.isPlaying;
-  const musicAudioRef = useRef(null);
-  const musicRetryRef = useRef(0);
   const speechTypeRef = useRef('transition');
   const [audioEl, setAudioEl] = useState(null);
 
@@ -114,38 +103,21 @@ export default function App({ socket, connected }) {
     }
   }, [loggedIn]);
 
-  // Play music when audioUrl arrives OR login completes
-  useEffect(() => {
-    if (!loggedIn) return;
-    const audio = musicAudioRef.current;
-    if (!audio || !radioState.audioUrl) return;
-    if (audio.src === radioState.audioUrl) return; // already loaded
-    musicRetryRef.current = 0; // reset retry counter for new song
-    audio.src = radioState.audioUrl;
-    audio.load();
-    audio.play().catch(() => {});
-  }, [radioState.audioUrl, loggedIn]);
+  // Audio playback controller (loads audio, syncs play/pause, pauses on disconnect)
+  useAudioController({
+    audioRef: musicAudioRef,
+    audioUrl: radioState.audioUrl,
+    isPlaying: radioState.isPlaying,
+    loggedIn,
+    connected,
+  });
 
-  // Sync play/pause
-  useEffect(() => {
-    const audio = musicAudioRef.current;
-    if (!audio || !radioState.audioUrl) return;
-    if (!connected) return; // Don't play when disconnected
-    if (radioState.isPlaying) {
-      audio.play().catch(() => {});
-    } else {
-      audio.pause();
-    }
-  }, [radioState.isPlaying, loggedIn, connected]);
-
-  // Pause all audio when socket disconnects (server down / killed)
+  // Pause speech audio when socket disconnects (server down / killed)
   useEffect(() => {
     if (connected) return;
-    const music = musicAudioRef.current;
     const speech = authSpeechAudioRef.current;
-    if (music) { music.pause(); }
     if (speech) { speech.pause(); }
-  }, [connected]);
+  }, [connected, authSpeechAudioRef]);
 
   // DJ speech — managed by useSpeechPlayback hook (comprehensive cleanup on URL change)
   useSpeechPlayback({
@@ -163,23 +135,23 @@ export default function App({ socket, connected }) {
       if (pendingSongChangeRef.current) {
         const pending = pendingSongChangeRef.current;
         pendingSongChangeRef.current = null;
-        setRadioState(prev => ({ ...prev, ...pending }));
+        updateRadioState(pending);
       }
     },
   });
 
   useEffect(() => {
     if (!socket) return;
-    socket.on(E.RADIO_STATE, (state) => setRadioState(prev => ({ ...prev, ...state })));
+    socket.on(E.RADIO_STATE, (state) => updateRadioState(state));
     socket.on(E.SONG_CHANGE, (data) => {
       const newSongState = { currentSong: data.song, startedAt: data.startedAt, isPlaying: true, audioUrl: data.audioUrl || null };
       // If speech is playing, defer song change until speech finishes
       if (djSpeechUrlRef.current) {
         pendingSongChangeRef.current = newSongState;
         // Update song info but don't switch audio yet
-        setRadioState(prev => ({ ...prev, currentSong: data.song, startedAt: data.startedAt, isPlaying: true }));
+        updateRadioState({ currentSong: data.song, startedAt: data.startedAt, isPlaying: true });
       } else {
-        setRadioState(prev => ({ ...prev, ...newSongState }));
+        updateRadioState(newSongState);
       }
       setCrabState('bouncing');
       setTimeout(() => setCrabState(isPlayingRef.current ? 'listening' : 'idle'), 3000);
@@ -255,9 +227,9 @@ export default function App({ socket, connected }) {
     });
     socket.on('tts:status', (data) => setTtsStatus(data));
     socket.on(E.QUEUE_UPDATE, (data) => setRadioState(prev => ({ ...prev, upcomingSongs: data.upcomingSongs, queueMode: data.mode || prev.queueMode })));
-    socket.on(E.PLAYBACK_POSITION, (pos) => setRadioState(prev => ({ ...prev, elapsed: pos.elapsed, duration: pos.duration })));
-    socket.on(E.PAUSE, () => { setRadioState(prev => ({ ...prev, isPlaying: false })); setCrabState('idle'); });
-    socket.on(E.RESUME, (data) => setRadioState(prev => ({ ...prev, isPlaying: true, startedAt: data.startedAt })));
+    socket.on(E.PLAYBACK_POSITION, (pos) => updateRadioState({ elapsed: pos.elapsed, duration: pos.duration }));
+    socket.on(E.PAUSE, () => { updateRadioState({ isPlaying: false }); setCrabState('idle'); });
+    socket.on(E.RESUME, (data) => updateRadioState({ isPlaying: true, startedAt: data.startedAt }));
     socket.on(E.LOGIN_REQUIRED, () => setLoggedIn(false));
     socket.on(E.PLAN_UPDATE, (data) => { setPlan(data); });
     socket.on(E.ERROR, (err) => { setError(err.message); setTimeout(() => setError(null), 5000); });
@@ -341,11 +313,6 @@ export default function App({ socket, connected }) {
     }
   }, [view]);
 
-  const handleSkip = useCallback(() => { if (socket) socket.emit('player:skip'); }, [socket]);
-  const handlePrevious = useCallback(() => { if (socket) socket.emit('player:previous'); }, [socket]);
-  const handlePause = useCallback(() => { if (socket) socket.emit('player:pause'); }, [socket]);
-  const handleResume = useCallback(() => { if (socket) socket.emit('player:resume'); }, [socket]);
-  const handleSetMode = useCallback((mode) => { if (socket) socket.emit('player:set-mode', { mode }); }, [socket]);
   const handleChatMessage = useCallback((text) => {
     if (!socket) return;
     setChatMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: text }]);

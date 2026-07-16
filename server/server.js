@@ -12,6 +12,7 @@ import { setupSocketHandler } from './socket/handler.js';
 import { createServices } from './bootstrap.js';
 import { httpLogger } from './infrastructure/logging/httpLogger.js';
 import { setupSocketLogger } from './infrastructure/logging/socketLogger.js';
+import { startServer, scheduleProfilePipeline } from './startup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -355,60 +356,23 @@ async function waitForNeteaseApi(timeoutMs = 15000) {
   return false;
 }
 
-// Start
-async function start() {
-  startNeteaseApi();
-  const ready = await waitForNeteaseApi();
-  if (ready) {
-    logger.info({ component: 'netease', port: config.netease.apiPort }, 'ready');
-  } else {
-    logger.warn({ component: 'netease' }, 'not ready after timeout, continuing anyway');
-  }
-
-  await initDb();
-  initProfileDb();
-  setupSocketHandler(io, services);
-  logger.info({ component: 'server' }, 'socket handler set up, callbacks wired');
-
-  // Start profile pipeline: first run after 10s, then periodic
-  if (services.profileSystem?.triggerCollection) {
-    const pipelineSources = services.profileSystem.pipelineSources || {};
-    setTimeout(async () => {
-      try {
-        logger.info({ component: 'profile' }, 'first pipeline run');
-        await services.profileSystem.triggerCollection(pipelineSources);
-      } catch (e) {
-        logger.error({ component: 'profile', err: e }, 'first pipeline run failed');
-      }
-    }, 10000);
-
-    const intervalMs = (services.profileSystem.config?.schedule?.analysisIntervalHours || 1) * 60 * 60 * 1000;
-    setInterval(async () => {
-      try {
-        await services.profileSystem.triggerCollection(pipelineSources);
-      } catch (e) {
-        logger.error({ component: 'profile', err: e }, 'periodic pipeline run failed');
-      }
-    }, intervalMs);
-    logger.info({ component: 'profile', intervalHours: services.profileSystem.config?.schedule?.analysisIntervalHours || 1 }, 'profile pipeline scheduled');
-  }
-
-  const ttsHealth = await checkTtsHealth();
-  displayTtsHealthBanner(ttsHealth);
-
-  // Start listening FIRST so the client can connect immediately.
-  // Session restoration runs in the background — if a stored cookie
-  // exists, the queue will be ready by the time the user interacts.
-  httpServer.listen(config.port, () => {
-    logger.info({ component: 'server', port: config.port }, 'Qclaudio is ON AIR');
-    console.log(`\n  \u{1F980}  Qclaudio 88.7 — http://localhost:${config.port}  |  Dashboard: http://localhost:${config.port}/dashboard\n`);
-  });
-
-  // Restore stored NetEase session in the background (non-blocking)
-  restoreNeteaseSession().catch(e => {
-    logger.error({ component: 'server', err: e }, 'restoreNeteaseSession failed');
-  });
-}
+// Start — delegates to startup.js for testable startup sequence
+startServer({
+  startNeteaseApi,
+  waitForNeteaseApi,
+  initDb,
+  initProfileDb,
+  setupSocketHandler,
+  scheduleProfilePipeline,
+  httpServer,
+  checkTtsHealth,
+  displayTtsHealthBanner,
+  restoreNeteaseSession,
+  config,
+  services,
+  io,
+  logger,
+});
 
 function displayTtsHealthBanner(ttsHealth) {
   if (!ttsHealth.available) {
@@ -492,5 +456,3 @@ function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-start();

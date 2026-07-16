@@ -16,6 +16,7 @@ export const EVENTS = {
   CRAB_ANIMATION: 'crab:animation',
   SYNC_TIME: 'sync:time',
   PLAN_UPDATE: 'plan:update',
+  CHAT_HISTORY: 'chat:history',
 
   // Profile system events (Server -> Client)
   PROFILE_UPDATED: 'profile:updated',

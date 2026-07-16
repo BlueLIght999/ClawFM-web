@@ -192,6 +192,8 @@ export function createServices(io) {
     profileOrchestrator: profileSystem.orchestrator,
     // Weather (raw data for bubble generation)
     getWeatherRaw,
+    // Chat history (for session persistence)
+    chatHistory: legacyChatHistoryRepository,
   };
 }
 
