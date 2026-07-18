@@ -7,3 +7,10 @@ data/
 .trae/
 .trae-html-share-packages/
 arch-audit-report/
+# Debug/design scratch files
+.design/
+debug-no-playback/
+agent-radio-hero.jpg
+agent-radio.html
+community-hero.jpg
+community.html

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ROUTER.JS — Intent routing
  * Blueprint Layer 2: 简单指令直连 · 音乐走 ncm · 自然语言走 claude
  *
@@ -8,31 +8,11 @@
 
 import { extractIntent } from './claude.js';
 import { isGenreQuery } from '../domain/routing/isGenreQuery.js';
+import { filterLiveVersions } from '../domain/routing/liveVersionFilter.js';
 import { matchFastRoute } from '../domain/routing/matchFastRoute.js';
 import { moodToQuery } from '../domain/routing/moodToQuery.js';
 import { pickStartSong } from '../domain/routing/pickStartSong.js';
 import { createGenreSearchEngine } from '../domain/routing/GenreSearchEngine.js';
-
-// Keywords that indicate a live/concert version (case-insensitive)
-const LIVE_PATTERNS = [
-  /live/i, /现场/, /演唱会/, /音乐会/, /音乐节/, /巡演/, /公演/,
-  /\(\s*live\s*\)/i, /\[\s*live\s*\]/i, /acoustic/i, /unplugged/i,
-  /remix/i, /混音/, /伴奏/, /instrumental/i, /demo/i,
-];
-
-function isLiveVersion(song) {
-  const titleOrig = song.name || song.title || '';
-  for (const pattern of LIVE_PATTERNS) {
-    if (pattern.test(titleOrig)) return true;
-  }
-  // Also check for (live) suffixes in any case
-  if (/[([]\s*live(\s+version)?\s*[)\]]/i.test(titleOrig)) return true;
-  return false;
-}
-
-function filterLive(songs) {
-  return songs.filter(s => !isLiveVersion(s));
-}
 
 /**
  * Route a user message to the appropriate handler.
@@ -66,7 +46,7 @@ export async function routeIntentWithDependencies(text, {
           route: 'hybrid',
           action: 'play_mood',
           params: fast.params,
-          results: filterLive(await searchSongsViaMusic(music, query, 5)).slice(0, 5),
+          results: filterLiveVersions(await searchSongsViaMusic(music, query, 5)).slice(0, 5),
         };
       } catch (e) {
         console.warn('[Router] Mood search failed (degraded to chat):', e.message);
@@ -76,8 +56,10 @@ export async function routeIntentWithDependencies(text, {
     return fast;
   }
 
-  // Search direct: "play <query>", "放 <query>", "来点 <query>", "我想听 <query>"
-  const searchMatch = msg.match(/^(?:play|放|播放|搜索|搜|点播|来点|来一首|点一首|我想听|播|来些|来几首|帮我找|找一首|放一首)\s+(.+)/i);
+  // Search direct: "play <query>", "放<query>", "来点<query>", "我想听<query>"
+  // P0-2: \s* allows Chinese no-space input like "来点爵士" "播周杰伦"
+  // Note: "帮我找" / "找一首" are conversational and stay on AI path for better intent extraction
+  const searchMatch = msg.match(/^(?:play|放|播放|搜索|搜|点播|来点|来一首|点一首|我想听|播|来些|来几首|放一首)\s*(.+)/i);
   if (searchMatch) {
     const query = searchMatch[1].trim();
     // If query is a genre/instrument/style, route to personalized recommendation
@@ -103,7 +85,7 @@ export async function routeIntentWithDependencies(text, {
     }
     if (music) {
       try {
-        const songs = filterLive(await searchSongsViaMusic(music, query, 5));
+        const songs = filterLiveVersions(await searchSongsViaMusic(music, query, 5));
         return {
           route: 'ncm',
           action: 'play_search',
@@ -143,7 +125,7 @@ async function handlePlayMood(intent, _text, { music = null } = {}) {
       route: 'hybrid',
       action: 'play_mood',
       params: intent.params,
-      results: filterLive(await searchSongsViaMusic(music, query, 5)).slice(0, 5),
+      results: filterLiveVersions(await searchSongsViaMusic(music, query, 5)).slice(0, 5),
     };
   } catch (e) {
     console.warn('[Router] Mood search failed (degraded to chat):', e.message);
@@ -156,7 +138,7 @@ async function handlePlayArtist(intent, _text, { music = null } = {}) {
   try {
     const artistName = intent.params?.artist || '';
     const startSong = intent.params?.song || '';
-    let songs = filterLive(await searchSongsViaMusic(music, artistName, 15)).slice(0, 10);
+    let songs = filterLiveVersions(await searchSongsViaMusic(music, artistName, 15)).slice(0, 10);
     if (startSong && songs.length > 0) {
       songs = await orderByStartSong(songs, artistName, startSong, music);
     }
@@ -174,7 +156,7 @@ async function orderByStartSong(songs, artistName, startSong, music = null) {
   const inList = songs.some(s => (s.name || s.title || '').toLowerCase().includes(needle));
   if (inList) return pickStartSong(songs, startSong);
 
-  const specificSongs = filterLive(await searchSongsViaMusic(music, `${artistName} ${startSong}`, 5));
+  const specificSongs = filterLiveVersions(await searchSongsViaMusic(music, `${artistName} ${startSong}`, 5));
   const bestMatch = specificSongs.find(s =>
     (s.name || s.title || '').toLowerCase().includes(needle)
   ) || specificSongs[0];
@@ -189,7 +171,7 @@ async function handlePlaySong(intent, _text, { music = null } = {}) {
       route: 'hybrid',
       action: 'play_song',
       params: intent.params,
-      results: filterLive(await searchSongsViaMusic(music, intent.params?.song || '', 5)).slice(0, 3),
+      results: filterLiveVersions(await searchSongsViaMusic(music, intent.params?.song || '', 5)).slice(0, 3),
     };
   } catch (e) {
     console.warn('[Router] Song search failed (degraded to chat):', e.message);

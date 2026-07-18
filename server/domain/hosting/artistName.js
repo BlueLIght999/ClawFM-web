@@ -9,8 +9,19 @@
  */
 export function artistName(song) {
   if (!song) return '';
-  if (Array.isArray(song.ar)) return song.ar.map((a) => a.name).join(', ');
-  if (song.artist) return song.artist;
-  if (Array.isArray(song.artists)) return song.artists.map((a) => a.name || a).join(', ');
+  const modernArtists = joinArtistNames(song.ar);
+  if (modernArtists) return modernArtists;
+  if (typeof song.artist === 'string') return song.artist;
+  if (typeof song.artist?.name === 'string') return song.artist.name;
+  const legacyArtists = joinArtistNames(song.artists);
+  if (legacyArtists) return legacyArtists;
   return '';
+}
+
+function joinArtistNames(artists) {
+  if (!Array.isArray(artists)) return '';
+  return artists
+    .map(artist => typeof artist === 'string' ? artist : artist?.name)
+    .filter(name => typeof name === 'string' && name.length > 0)
+    .join(', ');
 }

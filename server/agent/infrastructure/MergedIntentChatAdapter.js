@@ -17,7 +17,7 @@ import { createIntentStreamParser } from '../domain/intentStreamParser.js';
  */
 export function createMergedIntentChatAdapter({ llm = deepSeekLlmAdapter } = {}) {
   return {
-    async streamWithIntent(messages, { maxTokens = 300, temperature = 0.8 } = {}) {
+    async streamWithIntent(messages, { maxTokens = 300, temperature = 0.3 } = {}) {
       const parser = createIntentStreamParser();
       let intentResolve;
       const intentPromise = new Promise(resolve => { intentResolve = resolve; });

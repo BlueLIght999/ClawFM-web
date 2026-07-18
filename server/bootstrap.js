@@ -237,7 +237,8 @@ function createApplicationServices({ legacy, adapters, repositories, eventPublis
     speech, ttsAvailability: isTtsAvailable,
   });
 
-  const intentRouter = createLegacyIntentRouterAdapter(routeIntent, { mergedChat: mergedIntentChatAdapter });
+  // P0-1: inject music so router.js can execute music search paths (not CHAT_FALLBACK)
+  const intentRouter = createLegacyIntentRouterAdapter(routeIntent, { mergedChat: mergedIntentChatAdapter, music });
 
   const agentTurnService = createAgentTurnService({
     intentRouter, conversation: conversationService,

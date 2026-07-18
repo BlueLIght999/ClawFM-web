@@ -69,7 +69,7 @@ export function generateBubbles(profile, weatherMood, _timeOfDay) {
     // 2. Weather genre bubble (type: 'genre')
     addBubble(
       'weather-genre',
-      weatherMood.genre + '时光',
+      `${weatherMood.genre  }时光`,
       'genre',
       weatherMood.genre,
       weatherMood.genre,

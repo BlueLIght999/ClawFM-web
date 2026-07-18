@@ -81,8 +81,8 @@ async function handleTransitionSpeech({
 
   if (shouldDropStaleSpeech({
     expectedTransitionId: transitionId,
-    currentTransitionId: scheduler._transitionId,
-    isPlaying: scheduler.isPlaying,
+    currentTransitionId: scheduler._transitionOrch?._transitionId ?? scheduler._transitionId,
+    isAdvancing: scheduler._transitionOrch?.playhead?._advancing ?? scheduler.isAdvancing,
   })) {
     return staleSpeech({ djMessage });
   }
@@ -139,8 +139,8 @@ async function handleRefillSpeech({
 
   if (shouldDropStaleSpeech({
     expectedTransitionId: transitionId,
-    currentTransitionId: scheduler._transitionId,
-    isPlaying: scheduler.isPlaying,
+    currentTransitionId: scheduler._transitionOrch?._transitionId ?? scheduler._transitionId,
+    isAdvancing: scheduler._transitionOrch?.playhead?._advancing ?? scheduler.isAdvancing,
   })) {
     return staleSpeech({ queueUpdate: update, djMessage });
   }

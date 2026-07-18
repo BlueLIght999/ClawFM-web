@@ -1,4 +1,5 @@
 import { artistName } from '../hosting/artistName.js';
+import { albumName } from './toSongDTO.js';
 
 function firstValue(...values) {
   return values.find(value => value !== undefined && value !== null) ?? '';
@@ -9,12 +10,12 @@ function lower(value) {
 }
 
 export function toSeedSongFromTrack(track, source = '') {
-  const { id, songId, song_id, name, title, al = {}, album, dt, durationMs, duration, genres, playCount, play_count } = track || {};
+  const { id, songId, song_id, name, title, dt, durationMs, duration, genres, playCount, play_count } = track || {};
   return {
     songId: String(firstValue(id, songId, song_id)),
     title: firstValue(name, title),
     artist: artistName(track),
-    album: firstValue(al.name, album),
+    album: albumName(track),
     durationMs: firstValue(dt, durationMs, duration, 0),
     source,
     genreTags: Array.isArray(genres) ? genres : [],

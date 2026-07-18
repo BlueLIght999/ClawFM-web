@@ -2,9 +2,14 @@ import initSqlJs from 'sql.js';
 import fs from 'fs';
 import path from 'path';
 import config from '../config.js';
+import { createSaveDebouncer } from '../domain/db/saveDebouncer.js';
+import { loadDatabaseWithRecovery } from '../domain/db/dbRecovery.js';
+import { historyRetentionSql } from '../domain/db/historyRetention.js';
 
 let db = null;
 let saveTimer = null;
+let saveDebouncer = null;
+let cleanupTimer = null;
 
 const DB_PATH = config.db.path;
 
@@ -16,22 +21,28 @@ function ensureDir(p) {
 export async function initDb() {
   const SQL = await initSqlJs();
 
-  if (fs.existsSync(DB_PATH)) {
-    const buf = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(buf);
-  } else {
-    db = new SQL.Database();
-  }
+  // H7: Load with corruption recovery — corrupted file no longer crashes the server
+  const buf = fs.existsSync(DB_PATH) ? fs.readFileSync(DB_PATH) : null;
+  db = loadDatabaseWithRecovery({ SQL, buffer: buf });
 
   db.run('PRAGMA journal_mode = MEMORY');
   db.run('PRAGMA foreign_keys = ON');
 
   createTables(db);
 
+  // H8: Trim history on startup to cap table size
+  cleanupHistory();
+
   saveDb();
+
+  // Initialize debounced save for execute() calls (H4: avoid blocking event loop on every write)
+  saveDebouncer = createSaveDebouncer(saveDb, 100);
 
   // Auto-save every 30 seconds
   saveTimer = setInterval(saveDb, 30000);
+
+  // H8: Periodic history cleanup every hour
+  cleanupTimer = setInterval(cleanupHistory, 3600000);
 
   console.log('[DB] Initialized (sql.js)');
   return db;
@@ -158,11 +169,31 @@ export function execute(sql, params = []) {
   } catch (e) {
     console.error('[DB] execute error:', e.message, 'sql:', sql.slice(0, 80));
   }
-  saveDb();
+  // H4: debounce saveDb to avoid blocking event loop on every write
+  if (saveDebouncer) saveDebouncer.schedule();
+  else saveDb();
+}
+
+// Force immediate save of any pending debounced writes (use before shutdown)
+export function flushDb() {
+  if (saveDebouncer) saveDebouncer.flush();
+}
+
+// H8: Trim listen_history to the most recent MAX_HISTORY_ROWS entries
+export function cleanupHistory() {
+  if (!db) return;
+  try {
+    const { sql, params } = historyRetentionSql();
+    db.run(sql, params);
+  } catch (e) {
+    console.error('[DB] History cleanup failed:', e.message);
+  }
 }
 
 export function closeDb() {
   if (saveTimer) clearInterval(saveTimer);
+  if (cleanupTimer) clearInterval(cleanupTimer);
+  if (saveDebouncer) saveDebouncer.flush();
   if (db) {
     saveDb();
     db.close();

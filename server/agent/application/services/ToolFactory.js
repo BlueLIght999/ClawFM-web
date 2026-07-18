@@ -1,4 +1,5 @@
 import { createToolDefinition } from '../../domain/toolDefinition.js';
+import { createGenreSearchEngine } from '../../../domain/routing/GenreSearchEngine.js';
 
 /**
  * Factory that creates and registers all agent tools onto a ToolRegistry.
@@ -87,6 +88,66 @@ export function createToolFactory({ registry, scheduler, queue, recommender, mus
 
       try {
         const songs = await music.search(query, limit);
+        const filtered = filterLiveVersions(songs);
+        const results = filtered.slice(0, limit);
+
+        for (let i = results.length - 1; i >= 0; i--) {
+          queue.insertNext(results[i]);
+        }
+
+        return {
+          handled: true,
+          results,
+          addedCount: results.length,
+          queueUpdate: {
+            upcomingSongs: queue.upcomingSongs,
+            mode: queue.mode,
+          },
+        };
+      } catch (err) {
+        return { handled: false, error: err.message };
+      }
+    },
+  }));
+
+  // P1-5: search_by_genre — uses GenreSearchEngine for multi-source genre search
+  // (playlists + artists + songs fusion), falling back to plain search
+  registry.register(createToolDefinition({
+    name: 'search_by_genre',
+    description: '按音乐风格/流派搜索歌曲（如 jazz、rock、lofi、古典、电子等），使用多源融合搜索提高命中率',
+    parameters: {
+      type: 'object',
+      properties: {
+        genre: {
+          type: 'string',
+          description: '音乐风格或流派关键词（如 jazz、rock、lofi、古典、jpop 等）',
+        },
+        limit: {
+          type: 'number',
+          description: '搜索结果数量上限，默认5',
+        },
+      },
+      required: ['genre'],
+    },
+    execute: async (args) => {
+      const { genre, limit = 5 } = args;
+      if (!genre) return { handled: false, error: 'genre is required' };
+
+      try {
+        // Try GenreSearchEngine first (multi-source: playlists + artists + songs)
+        let songs = [];
+        try {
+          const genreEngine = createGenreSearchEngine(music);
+          songs = await genreEngine.search(genre, { limit: limit + 5 });
+        } catch {
+          // GenreSearchEngine failed or genre not in dict — fall back to plain search
+        }
+
+        // Fallback: if genre engine returned nothing, use plain search
+        if (!songs || songs.length === 0) {
+          songs = await music.search(genre, limit + 5);
+        }
+
         const filtered = filterLiveVersions(songs);
         const results = filtered.slice(0, limit);
 

@@ -11,6 +11,7 @@ import { isGenreQuery } from '../domain/routing/isGenreQuery.js';
 import { createGenreSearchEngine } from '../domain/routing/GenreSearchEngine.js';
 import { moodToQuery } from '../domain/routing/moodToQuery.js';
 import { getTimeOfDayMood } from '../domain/hosting/getTimeOfDayMood.js';
+import { emitQueueUpdate } from './versionedRadioEmitter.js';
 
 const BUBBLE_PUSH_INTERVAL_MS = 90 * 1000; // 90 seconds
 const BUBBLE_SONG_CHANGE_PROBABILITY = 0.55; // 55% chance on each song change
@@ -127,7 +128,7 @@ export function wireBubbleEvents(io, socket, deps) {
       queue.insertNext(songs[0]);
 
       // Notify all clients
-      io.emit(EVENTS.QUEUE_UPDATE, {
+      emitQueueUpdate(io, {
         upcomingSongs: queue.upcomingSongs,
         mode: queue.mode,
       });

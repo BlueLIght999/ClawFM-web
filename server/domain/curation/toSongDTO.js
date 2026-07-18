@@ -1,6 +1,29 @@
 import { artistName } from '../hosting/artistName.js';
 import { firstTruthy } from './firstTruthy.js';
 
+function firstString(...values) {
+  return values.find(value => typeof value === 'string' && value.length > 0) || '';
+}
+
+/** Resolve both modern `al` and legacy `album` shapes to a scalar name. */
+export function albumName(song) {
+  return firstString(
+    song?.al?.name,
+    song?.album?.name,
+    song?.album,
+  );
+}
+
+function albumCoverUrl(song) {
+  return firstString(
+    song?.al?.picUrl,
+    song?.album?.picUrl,
+    song?.album?.blurPicUrl,
+    song?.coverUrl,
+    song?.picUrl,
+  );
+}
+
 /**
  * Pure Song DTO mapper — converts a raw NetEase song object
  * {id, name, ar, al, dt} into a clean, stable DTO
@@ -17,10 +40,10 @@ export function toSongDTO(song) {
   if (!song) return null;
   return {
     id: String(song.id),
-    title: firstTruthy(song.name, song.title, 'Unknown Track'),
+    title: firstString(song.name, song.title) || 'Unknown Track',
     artist: artistName(song),
-    album: firstTruthy(song.al?.name, song.album, ''),
-    durationMs: firstTruthy(song.dt, song.duration, 0),
-    coverUrl: firstTruthy(song.al?.picUrl, song.coverUrl, ''),
+    album: albumName(song),
+    durationMs: firstTruthy(song.dt, song.durationMs, song.duration, 0),
+    coverUrl: albumCoverUrl(song),
   };
 }

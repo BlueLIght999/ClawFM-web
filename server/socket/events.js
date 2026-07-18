@@ -1,13 +1,16 @@
 export const EVENTS = {
   // Server -> Client
   RADIO_STATE: 'radio:state',
+  RADIO_STATE_V2: 'radio:state-v2',
   SONG_CHANGE: 'radio:song-change',
+  SONG_CHANGE_V2: 'radio:song-change-v2',
   DJ_MESSAGE: 'radio:dj-message',
   DJ_SPEECH_START: 'radio:dj-speech-start',
   DJ_SPEECH_END: 'radio:dj-speech-end',
   DJ_STREAM_CHUNK: 'radio:dj-stream-chunk',
   DJ_STREAM_END: 'radio:dj-stream-end',
   QUEUE_UPDATE: 'radio:queue-update',
+  QUEUE_UPDATE_V2: 'radio:queue-update-v2',
   PLAYBACK_POSITION: 'radio:playback-position',
   PAUSE: 'radio:pause',
   RESUME: 'radio:resume',

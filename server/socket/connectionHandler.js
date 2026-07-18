@@ -4,6 +4,7 @@
  */
 import { EVENTS } from './events.js';
 import { filterRecentConversations } from './chatHistoryFilter.js';
+import { emitRadioState } from './versionedRadioEmitter.js';
 
 /**
  * Handle a new socket connection: count clients, reset for fresh session
@@ -36,7 +37,7 @@ export async function onNewConnection(io, socket, deps) {
     const url = await scheduler.getAudioUrl(state.currentSong);
     if (url) state.audioUrl = url;
   }
-  socket.emit(EVENTS.RADIO_STATE, state);
+  emitRadioState(socket, state);
 
   const currentPlan = getPlan();
   if (currentPlan) socket.emit(EVENTS.PLAN_UPDATE, currentPlan.plan);

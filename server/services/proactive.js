@@ -6,6 +6,9 @@
 
 import { decideProactiveSpeech } from './claude.js';
 import { getTimeOfDayMood } from './context.js';
+import { canAttemptProactiveSpeech as _canAttemptProactiveSpeech } from '../domain/hosting/proactiveGuardRules.js';
+import { buildProactiveContext, computeHourChanged } from '../domain/hosting/proactiveContextRules.js';
+import { isValidSpeechDecision, shouldSynthesizeSpeech } from '../domain/hosting/proactiveDecisionRules.js';
 
 let lastSpeechTime = Date.now();
 let lastHour = -1;
@@ -34,9 +37,21 @@ export async function maybeProactiveSpeech({
   decideProactiveSpeech: decide = decideProactiveSpeech,
   tokenDelayMs = null,
 }) {
-  if (!canAttemptProactiveSpeech(scheduler)) return;
+  if (!_canAttemptProactiveSpeech(scheduler, { enabled: _enabled, nowMs: Date.now(), lastSpeechMs: lastSpeechTime })) return;
 
-  const context = buildProactiveContext(scheduler, queue, getPlan);
+  const hour = new Date().getHours();
+  const hourChanged = computeHourChanged(lastHour, hour);
+  lastHour = hour;
+
+  const context = buildProactiveContext({
+    scheduler,
+    queue,
+    getPlan,
+    timeOfDay: getTimeOfDayMood(),
+    nowMs: Date.now(),
+    lastSpeechMs: lastSpeechTime,
+    hourChanged,
+  });
   const weatherText = weather ? await weather.current() : '';
   const chatMsg = consumeLastUserChat();
 
@@ -58,49 +73,10 @@ export async function maybeProactiveSpeech({
   maybeSynthesizeSpeech(decision.message, speech, events, scheduler);
 }
 
-function canAttemptProactiveSpeech(scheduler) {
-  if (!_enabled) return false;
-  if (scheduler.coldStartState !== 'done') return false;
-  if (!scheduler.isPlaying) return false;
-  if (scheduler.isAdvancing) return false;
-  if ((scheduler.songsSinceLastSpeech || 0) < 2) return false;
-  if (Date.now() - lastSpeechTime < 90000) return false;
-  if (!scheduler.currentSong) return false;
-  return true;
-}
-
-function buildProactiveContext(scheduler, queue, getPlan) {
-  const currentSong = scheduler.currentSong;
-  const upstream = queue.upcomingSongs || [];
-  const hour = new Date().getHours();
-  const timeOfDay = getTimeOfDayMood();
-  const hourChanged = lastHour >= 0 && hour !== lastHour;
-  lastHour = hour;
-
-  const plan = getPlan();
-  const planData = plan?.plan || plan;
-  const blocks = planData?.blocks || [];
-
-  return {
-    currentSong,
-    timeOfDay,
-    activeBlock: blocks[0] || null,
-    nextSong: upstream[0],
-    secondNext: upstream[1],
-    secondsSinceLastSpeech: Math.floor((Date.now() - lastSpeechTime) / 1000),
-    songsSinceLastSpeech: scheduler.songsSinceLastSpeech || 0,
-    hourChanged,
-  };
-}
-
 function consumeLastUserChat() {
   const chatMsg = _lastUserChat;
   _lastUserChat = null;
   return chatMsg;
-}
-
-function isValidSpeechDecision(decision) {
-  return Boolean(decision?.shouldSpeak && decision?.message);
 }
 
 async function streamMessageTokens(message, events, messageId, tokenDelayMs) {
@@ -115,8 +91,12 @@ async function streamMessageTokens(message, events, messageId, tokenDelayMs) {
 }
 
 function maybeSynthesizeSpeech(message, speech, events, scheduler) {
-  if (!speech || speech.health().available === false) return;
-  if (Math.random() >= 0.4) return;
+  const speechAvailable = speech && speech.health().available !== false;
+  if (!shouldSynthesizeSpeech({
+    speechAvailable,
+    randomValue: Math.random(),
+    isAdvancing: scheduler?.isAdvancing || false,
+  })) return;
   speech.synthesize(message).then(audioUrl => {
     if (!audioUrl) return;
     // Re-check: song transition may have started during TTS generation

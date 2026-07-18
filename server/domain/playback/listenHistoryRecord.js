@@ -1,4 +1,5 @@
 import { artistName } from '../hosting/artistName.js';
+import { albumName } from '../curation/toSongDTO.js';
 
 /**
  * Build the ListenHistoryRepository payload for a played song.
@@ -14,7 +15,7 @@ export function buildListenHistoryRecord({ song, durationMs, source = 'queue' })
     songId: String(song.id || song.song_id),
     title: song.name || song.title,
     artist: artistName(song),
-    album: song.al?.name || song.album || '',
+    album: albumName(song),
     durationSec: Math.floor((durationMs || 0) / 1000),
     source,
   };

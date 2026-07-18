@@ -24,8 +24,8 @@ export function estimatedSpeechDurationSeconds(text) {
  * @throws Does not throw.
  * Constraint: preserves the legacy race guard before emitting DJ speech audio.
  */
-export function shouldDropStaleSpeech({ expectedTransitionId, currentTransitionId, isPlaying }) {
-  return currentTransitionId !== expectedTransitionId || isPlaying === true;
+export function shouldDropStaleSpeech({ expectedTransitionId, currentTransitionId, isPlaying, isAdvancing }) {
+  return currentTransitionId !== expectedTransitionId || isAdvancing === true;
 }
 
 /**

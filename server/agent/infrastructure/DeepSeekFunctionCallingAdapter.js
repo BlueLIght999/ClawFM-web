@@ -24,7 +24,8 @@ export function createDeepSeekFunctionCallingAdapter({
     messages,
     tools,
     maxTokens = 300,
-    temperature = 0.75,
+    // P2-6: lower temperature for stable intent classification and tool selection
+    temperature = 0.3,
   }) {
     if (!client) return null;
     try {

@@ -3,11 +3,12 @@
  * Extracted from handler.js for single-responsibility.
  */
 import { EVENTS } from './events.js';
+import { emitQueueUpdate, emitRadioState } from './versionedRadioEmitter.js';
 
 export function emitPlaybackResult(io, result) {
   if (!result) return;
-  if (result.state) io.emit(EVENTS.RADIO_STATE, result.state);
-  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+  if (result.state) emitRadioState(io, result.state);
+  if (result.queueUpdate) emitQueueUpdate(io, result.queueUpdate);
   if (result.playbackPosition) io.emit(EVENTS.PLAYBACK_POSITION, result.playbackPosition);
   if (result.crabAnimation) io.emit(EVENTS.CRAB_ANIMATION, result.crabAnimation);
   if (result.resume) io.emit(EVENTS.RESUME, result.resume);
@@ -15,18 +16,18 @@ export function emitPlaybackResult(io, result) {
 
 export function emitSongRequestResult(io, socket, result) {
   if (!result) return;
-  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+  if (result.queueUpdate) emitQueueUpdate(io, result.queueUpdate);
   if (result.djMessage) socket.emit(EVENTS.DJ_MESSAGE, result.djMessage);
   if (result.error) socket.emit(EVENTS.ERROR, result.error);
 }
 
 export function emitConversationResult(io, socket, result) {
   if (!result) return;
-  if (result.state) io.emit(EVENTS.RADIO_STATE, result.state);
+  if (result.state) emitRadioState(io, result.state);
   if (result.pause) io.emit(EVENTS.PAUSE);
   if (result.resume) io.emit(EVENTS.RESUME, result.resume);
-  if (result.toClient?.state) socket.emit(EVENTS.RADIO_STATE, result.toClient.state);
-  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+  if (result.toClient?.state) emitRadioState(socket, result.toClient.state);
+  if (result.queueUpdate) emitQueueUpdate(io, result.queueUpdate);
   if (result.planUpdate) io.emit(EVENTS.PLAN_UPDATE, result.planUpdate);
 }
 
@@ -34,8 +35,8 @@ export function emitColdStartResult(io, result) {
   if (!result) return;
   if (result.speechStart) io.emit(EVENTS.DJ_SPEECH_START, result.speechStart);
   if (result.textOnlyPhase) io.emit('cold-start:phase', result.textOnlyPhase);
-  if (result.radioState) io.emit(EVENTS.RADIO_STATE, result.radioState);
-  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+  if (result.radioState) emitRadioState(io, result.radioState);
+  if (result.queueUpdate) emitQueueUpdate(io, result.queueUpdate);
 }
 
 export function emitStreamingConversationResult(socket, result) {
@@ -50,13 +51,13 @@ export function emitAuthenticationResult(socket, result) {
   if (result.qrCreated) socket.emit('auth:qr-created', result.qrCreated);
   if (result.qrStatus) socket.emit('auth:qr-status', result.qrStatus);
   if (result.qrExpired) socket.emit('auth:qr-expired');
-  if (result.queueUpdate) socket.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+  if (result.queueUpdate) emitQueueUpdate(socket, result.queueUpdate);
 
   // Background queue fill: emit queueUpdate via socket when ready (non-blocking)
   if (result.fillQueuePromise) {
     result.fillQueuePromise
       .then(queueUpdate => {
-        if (queueUpdate) socket.emit(EVENTS.QUEUE_UPDATE, queueUpdate);
+        if (queueUpdate) emitQueueUpdate(socket, queueUpdate);
       })
       .catch(() => {});
   }
@@ -64,7 +65,7 @@ export function emitAuthenticationResult(socket, result) {
 
 export function emitDjSpeechResult(io, result, resetLastSpeechTime) {
   if (!result) return;
-  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+  if (result.queueUpdate) emitQueueUpdate(io, result.queueUpdate);
   if (result.djMessage) io.emit(EVENTS.DJ_MESSAGE, { ...result.djMessage, timestamp: Date.now() });
   if (result.speechStart) {
     io.emit(EVENTS.DJ_SPEECH_START, result.speechStart);
@@ -74,13 +75,13 @@ export function emitDjSpeechResult(io, result, resetLastSpeechTime) {
 
 export function emitPlanBlockResult(io, result) {
   if (!result) return;
-  if (result.queueUpdate) io.emit(EVENTS.QUEUE_UPDATE, result.queueUpdate);
+  if (result.queueUpdate) emitQueueUpdate(io, result.queueUpdate);
   if (result.planUpdate) io.emit(EVENTS.PLAN_UPDATE, result.planUpdate);
 }
 
 export function emitCrabInteractionResult(io, result) {
   if (!result) return;
-  if (result.radioState) io.emit(EVENTS.RADIO_STATE, result.radioState);
+  if (result.radioState) emitRadioState(io, result.radioState);
   if (result.animation) io.emit(EVENTS.CRAB_ANIMATION, result.animation);
   if (result.delayedAnimation) {
     setTimeout(() => io.emit(EVENTS.CRAB_ANIMATION, result.delayedAnimation.animation), result.delayedAnimation.delayMs);

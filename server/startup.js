@@ -40,6 +40,31 @@ export function scheduleProfilePipeline(services, logger) {
 }
 
 /**
+ * Ensure NeteaseAPI is ready before attempting session restore.
+ *
+ * Called by restoreNeteaseSession() to avoid ECONNREFUSED errors when the
+ * NeteaseAPI subprocess hasn't finished booting yet.  The initial
+ * waitForNeteaseApi() in startServer() may time out (15s) if the subprocess
+ * is slow to boot; this gives a second window before the first API call.
+ *
+ * @param {function} waitForReady - neteaseManager.waitForReady(timeoutMs)
+ * @param {object} logger - Pino-style logger
+ * @returns {Promise<boolean>} true if ready, false if still not ready
+ */
+export async function ensureNeteaseReadyForRestore(waitForReady, logger) {
+  try {
+    const ready = await waitForReady(15000);
+    if (!ready) {
+      logger.warn({ component: 'server' }, 'NeteaseAPI still not ready after extended wait — session restore may fail');
+    }
+    return ready;
+  } catch (e) {
+    logger.error({ component: 'server', err: e }, 'NeteaseAPI wait failed — session restore may fail');
+    return false;
+  }
+}
+
+/**
  * Start the server with the given dependencies.
  *
  * Key optimization: checkTtsHealth() runs asynchronously AFTER httpServer.listen()
@@ -63,10 +88,11 @@ export async function startServer(deps) {
     services,
     io,
     logger,
+    notifyReady = () => {},
   } = deps;
 
-  // 1. Start NeteaseAPI subprocess (non-blocking)
-  startNeteaseApi();
+  // Port ownership must be resolved before the rest of startup proceeds.
+  await startNeteaseApi();
 
   // 2. Wait for NeteaseAPI to be ready
   const ready = await waitForNeteaseApi();
@@ -87,11 +113,18 @@ export async function startServer(deps) {
   // 5. Schedule profile pipeline
   schedulePipeline(services, logger);
 
-  // 6. Start listening — client can connect immediately
-  httpServer.listen(config.port, () => {
-    logger.info({ component: 'server', port: config.port }, 'Qclaudio is ON AIR');
-    console.log(`\n  \u{1F980}  Qclaudio 88.7 — http://localhost:${config.port}  |  Dashboard: http://localhost:${config.port}/dashboard\n`);
+  // Listen errors such as EADDRINUSE are deterministic startup failures.
+  await new Promise((resolve, reject) => {
+    const handleError = error => reject(error);
+    if (typeof httpServer.once === 'function') httpServer.once('error', handleError);
+    httpServer.listen(config.port, () => {
+      if (typeof httpServer.removeListener === 'function') httpServer.removeListener('error', handleError);
+      resolve();
+    });
   });
+  logger.info({ component: 'server', port: config.port }, 'Qclaudio is ON AIR');
+  console.log(`\n  \u{1F980}  Qclaudio 88.7 — http://localhost:${config.port}  |  Dashboard: http://localhost:${config.port}/dashboard\n`);
+  notifyReady();
 
   // 7. Check TTS health asynchronously (non-blocking — runs after listen)
   checkTtsHealth().then(ttsHealth => {
