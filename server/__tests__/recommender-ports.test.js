@@ -147,6 +147,6 @@ describe('Recommender port seams', () => {
     expect(deps.music.playlistTracks).toHaveBeenCalledWith('p1');
     expect(deps.music.likedSongs).toHaveBeenCalledWith('u1');
     expect(deps.seedPool.upsert).toHaveBeenCalledTimes(2);
-    expect(deps.profile.set).toHaveBeenCalledWith('topArtists', [{ name: '周杰伦', count: 1 }]);
+    expect(deps.profile.set).toHaveBeenCalledWith('topArtists', [{ name: '周杰伦', count: 2 }]);
   });
 });

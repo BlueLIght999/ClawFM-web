@@ -16,13 +16,11 @@ describe('QR login retry logic', () => {
       .mockResolvedValue({ qrCreated: { key: 'test-key', qrimg: 'base64...' } });
 
     let result = null;
-    let lastError = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         result = await createQrLogin();
         break;
       } catch (e) {
-        lastError = e;
         if (attempt < 3) await new Promise(r => setTimeout(r, 10));
       }
     }
@@ -295,13 +293,11 @@ describe('Phone login retry logic', () => {
       .mockResolvedValue({ loginSuccess: { profile: { userId: 1 } } });
 
     let result = null;
-    let lastError = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         result = await loginWithPhone();
         break;
       } catch (e) {
-        lastError = e;
         if (e.isAuthError) break;
         if (attempt < 2) await new Promise(r => setTimeout(r, 10));
       }

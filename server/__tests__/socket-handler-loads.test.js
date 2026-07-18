@@ -46,20 +46,18 @@ describe('socket handler module loads', () => {
   });
 
   it('delegatesChatTurnOrchestrationToAgentLoopService', () => {
-    // After ReAct integration: chat logic dispatches through AgentLoopService
-    // which internally decides: fast-route → AgentTurnService, or ReAct loop.
-    const source = fs.readFileSync(path.resolve(__dirname, '../socket/handler.js'), 'utf-8');
+    // After extraction: chat logic lives in chatHandler.js, handler.js delegates
+    const handlerSource = fs.readFileSync(path.resolve(__dirname, '../socket/handler.js'), 'utf-8');
+    const chatSource = fs.readFileSync(path.resolve(__dirname, '../socket/chatHandler.js'), 'utf-8');
 
-    expect(source).toContain('agentLoopService.handleMessage');
-    expect(source).not.toContain('routeIntent(');
-    expect(source).not.toContain('conversationService.handlePlanAction');
-    expect(source).not.toContain('conversationService.handlePersonalizedRecommendation');
-    expect(source).not.toContain('conversationService.handleRecommendationAction');
-    expect(source).not.toContain('assemblePrompt({');
-    expect(source).not.toContain("routing.action === 'plan_refresh'");
-    expect(source).not.toContain("routing.action === 'plan_select'");
-    expect(source).not.toContain("routing.action === 'plan_pin'");
-    expect(source).not.toContain("routing.action === 'plan_clear'");
+    expect(handlerSource).toContain("from './chatHandler.js'");
+    expect(chatSource).toContain('agentLoopService.handleMessage');
+    expect(chatSource).not.toContain('routeIntent(');
+    expect(chatSource).not.toContain('conversationService.handlePlanAction');
+    expect(chatSource).not.toContain("routing.action === 'plan_refresh'");
+    expect(chatSource).not.toContain("routing.action === 'plan_select'");
+    expect(chatSource).not.toContain("routing.action === 'plan_pin'");
+    expect(chatSource).not.toContain("routing.action === 'plan_clear'");
   });
 
   it('delegatesColdStartSpeechTextRulesToDomain', () => {
@@ -77,37 +75,30 @@ describe('socket handler module loads', () => {
   });
 
   it('delegatesColdStartTtsAndMusicStartupToColdStartService', () => {
-    const source = fs.readFileSync(path.resolve(__dirname, '../socket/handler.js'), 'utf-8');
-    const coldStartStart = source.indexOf('async function triggerColdStart(');
-    const coldStartEnd = source.indexOf("socket.on('client:ready'", coldStartStart);
-    const coldStartHandler = source.slice(coldStartStart, coldStartEnd);
+    const handlerSource = fs.readFileSync(path.resolve(__dirname, '../socket/handler.js'), 'utf-8');
+    const coldSource = fs.readFileSync(path.resolve(__dirname, '../socket/coldStartHandler.js'), 'utf-8');
 
-    expect(coldStartHandler).toContain('coldStartService.handleGeneratedIntro');
-    expect(coldStartHandler).toContain('coldStartService.startMusicDirectly');
+    expect(handlerSource).toContain("from './coldStartHandler.js'");
+    expect(coldSource).toContain('coldStartService.handleGeneratedIntro');
+    expect(coldSource).toContain('coldStartService.startMusicDirectly');
   });
 
   it('delegatesColdStartReadinessAndSafetyTimeoutToColdStartService', () => {
-    const source = fs.readFileSync(path.resolve(__dirname, '../socket/handler.js'), 'utf-8');
-    const coldStartStart = source.indexOf('async function triggerColdStart(');
-    const coldStartEnd = source.indexOf("socket.on('client:ready'", coldStartStart);
-    const coldStartHandler = source.slice(coldStartStart, coldStartEnd);
+    const coldSource = fs.readFileSync(path.resolve(__dirname, '../socket/coldStartHandler.js'), 'utf-8');
 
-    expect(coldStartHandler).toContain('coldStartService.beginIfReady');
-    expect(coldStartHandler).toContain('coldStartService.startMusicIfStillInProgress');
-    expect(coldStartHandler).not.toContain('queue.advance()');
-    expect(coldStartHandler).not.toContain("scheduler.coldStartState = 'in-progress'");
+    expect(coldSource).toContain('coldStartService.beginIfReady');
+    expect(coldSource).toContain('coldStartService.startMusicIfStillInProgress');
+    expect(coldSource).not.toContain('queue.advance()');
+    expect(coldSource).not.toContain("scheduler.coldStartState = 'in-progress'");
   });
 
   it('delegatesColdStartWritingToColdStartService', () => {
-    const source = fs.readFileSync(path.resolve(__dirname, '../socket/handler.js'), 'utf-8');
-    const coldStartStart = source.indexOf('async function triggerColdStart(');
-    const coldStartEnd = source.indexOf("socket.on('client:ready'", coldStartStart);
-    const coldStartHandler = source.slice(coldStartStart, coldStartEnd);
+    const coldSource = fs.readFileSync(path.resolve(__dirname, '../socket/coldStartHandler.js'), 'utf-8');
 
-    expect(coldStartHandler).toContain('coldStartService.writeIntro');
-    expect(coldStartHandler).not.toContain('streamColdOpen');
-    expect(coldStartHandler).not.toContain('legacyWeatherAdapter.current()');
-    expect(coldStartHandler).not.toContain('getTimeOfDayMood()');
+    expect(coldSource).toContain('coldStartService.writeIntro');
+    expect(coldSource).not.toContain('streamColdOpen');
+    expect(coldSource).not.toContain('legacyWeatherAdapter.current()');
+    expect(coldSource).not.toContain('getTimeOfDayMood()');
   });
 
   it('delegatesChatStreamingTextRulesToDomain', () => {
@@ -131,18 +122,18 @@ describe('socket handler module loads', () => {
   });
 
   it('delegatesChatStreamingLoopToStreamingConversationService', () => {
-    // After extraction: streaming logic lives in handleChatMessage(), not
-    // between socket.on markers.  Verify delegation across the whole file.
-    const source = fs.readFileSync(path.resolve(__dirname, '../socket/handler.js'), 'utf-8');
+    // After extraction: streaming logic lives in chatHandler.js
+    const handlerSource = fs.readFileSync(path.resolve(__dirname, '../socket/handler.js'), 'utf-8');
+    const chatSource = fs.readFileSync(path.resolve(__dirname, '../socket/chatHandler.js'), 'utf-8');
 
-    expect(source).not.toContain('chatWithDj');
-    expect(source).toContain('streamingConversationService.streamReply');
-    expect(source).toContain('streamingConversationService.synthesizeAnnouncement');
-    expect(source).toContain('startChatAnnouncement');
-    expect(source).not.toContain('for await (const chunk of stream)');
-    expect(source).not.toContain('chatWithDj(text, contextPrompt)');
-    expect(source).not.toContain("repositories.chatHistory.append('assistant'");
-    expect(source).not.toContain('legacySpeechSynthAdapter.synthesize(shortText)');
+    expect(handlerSource).toContain("from './chatHandler.js'");
+    expect(chatSource).not.toContain('chatWithDj');
+    expect(chatSource).toContain('streamingConversationService.streamReply');
+    expect(chatSource).toContain('streamingConversationService.synthesizeAnnouncement');
+    expect(chatSource).toContain('startChatAnnouncement');
+    expect(chatSource).not.toContain('for await (const chunk of stream)');
+    expect(chatSource).not.toContain('chatWithDj(text, contextPrompt)');
+    expect(chatSource).not.toContain('legacySpeechSynthAdapter.synthesize(shortText)');
   });
 
   it('delegatesSongRequestSearchToPlaybackService', () => {

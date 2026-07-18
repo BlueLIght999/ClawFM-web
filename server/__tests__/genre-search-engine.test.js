@@ -170,7 +170,7 @@ describe('GenreSearchEngine', () => {
           .mockResolvedValue([]),
       });
       const engine = createGenreSearchEngine(port);
-      const result = await engine.search('jpop');
+      await engine.search('jpop');
 
       // search called with each seed artist
       const calls = port.search.mock.calls;
@@ -230,7 +230,7 @@ describe('GenreSearchEngine', () => {
         search: vi.fn().mockResolvedValue([]),
       });
       const engine = createGenreSearchEngine(port);
-      const result = await engine.search('jpop');
+      await engine.search('jpop');
 
       expect(port.searchArtists).toHaveBeenCalledWith('jpop', expect.any(Number));
       expect(port.artistHotSongs).toHaveBeenCalledWith('a1');

@@ -23,21 +23,38 @@ describe('DJ speech rules', () => {
     expect(estimatedSpeechDurationSeconds('a'.repeat(35))).toBe(3);
   });
 
-  it('shouldDropStaleSpeech_whenTransitionChangedOrMusicStarted_returnsTrue', () => {
+  it('shouldDropStaleSpeech_whenTransitionChangedOrAdvancing_returnsTrue', () => {
+    // Transition ID changed → stale
     expect(shouldDropStaleSpeech({
       expectedTransitionId: 'old',
       currentTransitionId: 'new',
-      isPlaying: false,
+      isAdvancing: false,
     })).toBe(true);
+    // Same transition ID but advancing → stale (new song already started)
+    expect(shouldDropStaleSpeech({
+      expectedTransitionId: 'same',
+      currentTransitionId: 'same',
+      isAdvancing: true,
+    })).toBe(true);
+  });
+
+  it('shouldDropStaleSpeech_whenSameTransitionAndNotAdvancing_returnsFalse', () => {
+    // Same transition ID, not advancing → NOT stale (speech should play)
+    expect(shouldDropStaleSpeech({
+      expectedTransitionId: 'same',
+      currentTransitionId: 'same',
+      isAdvancing: false,
+    })).toBe(false);
+  });
+
+  it('shouldDropStaleSpeech_allowsSpeechDuringPlaybackWhenNotAdvancing', () => {
+    // Regression: isPlaying=true should NOT cause drop (old bug)
+    // Only isAdvancing=true should cause drop
     expect(shouldDropStaleSpeech({
       expectedTransitionId: 'same',
       currentTransitionId: 'same',
       isPlaying: true,
-    })).toBe(true);
-    expect(shouldDropStaleSpeech({
-      expectedTransitionId: 'same',
-      currentTransitionId: 'same',
-      isPlaying: false,
+      isAdvancing: false,
     })).toBe(false);
   });
 

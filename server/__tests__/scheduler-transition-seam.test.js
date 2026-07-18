@@ -8,16 +8,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 describe('RadioScheduler transition lifecycle seam', () => {
   it('delegatesSongEndingTransitionDecisionsToDomainRules', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../services/scheduler.js'), 'utf-8');
-    const start = source.indexOf('_onSongEnding()');
-    const end = source.indexOf('/** Called by handler after TTS generation succeeds', start);
-    const onSongEnding = source.slice(start, end);
 
-    expect(source).toContain("from '../domain/playback/transitionLifecycle.js'");
-    expect(onSongEnding).toContain('beginTransitionIfIdle(this.playhead');
-    expect(onSongEnding).toContain('transitionSpeechPlan(nextSong)');
-    expect(onSongEnding).toContain('shouldHonorTransition({');
-    expect(onSongEnding).not.toContain('if (this.playhead._advancing) return');
-    expect(onSongEnding).not.toContain('generationTimeoutMs: 60000');
-    expect(onSongEnding).not.toContain('generationTimeoutMs: SPEECH_GEN_TIMEOUT_MS');
+    // _onSongEnding now delegates to TransitionOrchestrator
+    expect(source).toContain('TransitionOrchestrator');
+    expect(source).toContain('this._transitionOrch.onSongEnding()');
+    // Domain lifecycle rules no longer inlined in scheduler
+    expect(source).not.toContain("from '../domain/playback/transitionLifecycle.js'");
+
+    // TransitionOrchestrator uses domain rules
+    const orchSource = fs.readFileSync(path.resolve(__dirname, '../domain/playback/TransitionOrchestrator.js'), 'utf-8');
+    expect(orchSource).toContain("from './transitionLifecycle.js'");
+    expect(orchSource).toContain('transitionSpeechPlan');
+    expect(orchSource).toContain('shouldHonorTransition');
   });
 });

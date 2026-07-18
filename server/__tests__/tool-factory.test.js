@@ -55,7 +55,8 @@ describe('ToolFactory', () => {
     expect(names).toContain('pin_plan_block');
     expect(names).toContain('clear_plan');
     expect(names).toContain('get_queue_status');
-    expect(tools).toHaveLength(11);
+    expect(names).toContain('search_by_genre');
+    expect(tools).toHaveLength(12);
   });
 
   it('skip_tool_callsScheduler', async () => {
@@ -149,5 +150,44 @@ describe('ToolFactory', () => {
       expect(desc.name).toBeTruthy();
       expect(desc.parameters).toBeTruthy();
     }
+  });
+
+  // P1-5: search_by_genre tool — uses GenreSearchEngine for multi-source genre search
+  it('registers search_by_genre tool', () => {
+    const deps = createDeps();
+    const registry = createInMemoryToolRegistry();
+    createToolFactory({ registry, ...deps });
+    const tool = registry.get('search_by_genre');
+    expect(tool).toBeDefined();
+    expect(tool.name).toBe('search_by_genre');
+    expect(tool.parameters.properties.genre).toBeDefined();
+    expect(tool.parameters.required).toContain('genre');
+  });
+
+  it('search_by_genre_callsMusicSearchAndQueuesResults', async () => {
+    const songs = [
+      { id: '1', name: 'Jazz Track 1', ar: [{ name: 'Artist A' }] },
+      { id: '2', name: 'Jazz Track 2', ar: [{ name: 'Artist B' }] },
+    ];
+    const deps = createDeps({
+      music: { search: vi.fn(async () => songs) },
+    });
+    const registry = createInMemoryToolRegistry();
+    createToolFactory({ registry, ...deps });
+    const tool = registry.get('search_by_genre');
+    const result = await tool.execute({ genre: 'jazz', limit: 5 });
+    expect(result.handled).toBe(true);
+    expect(result.addedCount).toBeGreaterThan(0);
+    expect(deps.queue.insertNext).toHaveBeenCalled();
+  });
+
+  it('search_by_genre_returnsErrorWhenGenreMissing', async () => {
+    const deps = createDeps();
+    const registry = createInMemoryToolRegistry();
+    createToolFactory({ registry, ...deps });
+    const tool = registry.get('search_by_genre');
+    const result = await tool.execute({});
+    expect(result.handled).toBe(false);
+    expect(result.error).toBeDefined();
   });
 });

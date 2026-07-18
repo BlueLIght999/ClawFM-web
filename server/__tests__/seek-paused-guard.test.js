@@ -16,7 +16,7 @@ describe('RadioScheduler seek() paused-state guard', () => {
 
   it('seek_checksIsPlayingBeforeSettingTransitionTimer', () => {
     expect(seekMethod).toContain('this.playhead.isPlaying');
-    expect(seekMethod).toContain('nextTransitionDelayMs');
+    expect(seekMethod).toContain('transitionDelayForPlayback');
   });
 
   it('seek_doesNotSetTimerWhenPaused', () => {
@@ -32,7 +32,7 @@ describe('RadioScheduler seek() paused-state guard', () => {
       isPlayingIndex,
       seekMethod.indexOf('this._notifyState()', isPlayingIndex),
     );
-    expect(guardBlock).toContain('nextTransitionDelayMs');
+    expect(guardBlock).toContain('transitionDelayForPlayback');
     expect(guardBlock).toContain('setTimeout');
   });
 });

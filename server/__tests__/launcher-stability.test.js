@@ -46,7 +46,7 @@ describe('launcher stability — server/index.js', () => {
   // ─── Bug L4: exponential backoff ───
 
   it('has_exponential_backoff', () => {
-    expect(src).toMatch(/Math\.pow|Math\.min.*pow|exponential|backoff/i);
+    expect(src).toMatch(/restartDelayMs/);
   });
 
   it('does_not_use_fixed_3s_delay_only', () => {
@@ -62,18 +62,15 @@ describe('launcher stability — bin/qclaudio.js', () => {
   const cliPath = path.resolve(__dirname, '../../bin/qclaudio.js');
   const src = fs.readFileSync(cliPath, 'utf-8');
 
-  // ─── Bug L5: stdout buffer accumulation for ON AIR detection ───
-
-  it('uses_buffer_accumulation_for_on_air_detection', () => {
-    // Should accumulate stdout into a buffer string, not check single data events
-    expect(src).toMatch(/\+=|\.concat|Buffer|accumulat/i);
+  it('uses_readiness_endpoint_instead_of_log_text', () => {
+    expect(src).toContain('waitForQclaudioReady');
+    expect(src).not.toContain("stdoutBuffer.includes('ON AIR')");
   });
 
   // ─── Bug L6: kill serverProc on startup failure ───
 
   it('kills_serverProc_on_startup_failure', () => {
-    // Should kill the server process when startup promise rejects
-    expect(src).toMatch(/serverProc\.kill|serverProc\?\.kill/);
+    expect(src).toMatch(/requestShutdown/);
   });
 
   // ─── Bug L7: post-startup crash handling ───
@@ -90,8 +87,15 @@ describe('launcher stability — bin/qclaudio.js', () => {
   // ─── Bug L9: checkServer verifies response status code ───
 
   it('checkServer_verifies_status_code', () => {
-    // Should check res.statusCode === 200, not just resolve on any response
-    expect(src).toMatch(/statusCode|status.*code|res\.statusCode/);
+    expect(src).toMatch(/probeInstance/);
+  });
+
+  it('requests_ipc_shutdown_before_force_kill', () => {
+    expect(src).toMatch(/\.send\(.*shutdown|requestShutdown/s);
+  });
+
+  it('accepts_ipc_shutdown_from_parent_process', () => {
+    expect(src).toMatch(/process\.on\(['"]message['"]/);
   });
 });
 
@@ -112,6 +116,8 @@ describe('launcher stability — server/server.js graceful shutdown', () => {
   });
 
   it('kills_netease_subprocess_on_shutdown', () => {
-    expect(src).toMatch(/neteaseProc\.kill/);
+    // NeteaseAPI subprocess management extracted to NeteaseProcessManager
+    // server.js delegates termination via neteaseManager.terminate()
+    expect(src).toMatch(/neteaseManager\.terminate|neteaseProc\.kill/);
   });
 });

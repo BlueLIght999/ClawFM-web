@@ -195,7 +195,7 @@ describe('Bug #6: onSongChange sends SONG_CHANGE immediately', () => {
     const songBlock = source.slice(songChangeStart, speechStart);
 
     // SONG_CHANGE should be emitted before getAudioUrl
-    const emitPos = songBlock.indexOf('io.emit(EVENTS.SONG_CHANGE');
+    const emitPos = songBlock.indexOf('emitSongChange(io');
     const getUrlPos = songBlock.indexOf('scheduler.getAudioUrl');
     expect(emitPos).toBeGreaterThan(-1);
     expect(getUrlPos).toBeGreaterThan(-1);
@@ -211,33 +211,51 @@ describe('Bug #6: onSongChange sends SONG_CHANGE immediately', () => {
     const speechStart = source.indexOf('scheduler.onDjSpeechNeeded');
     const songBlock = source.slice(songChangeStart, speechStart);
 
-    // Should emit RADIO_STATE with audioUrl after fetch
-    expect(songBlock).toContain('EVENTS.RADIO_STATE');
+    // Should emit the versioned radio state with audioUrl after fetch.
+    expect(songBlock).toContain('emitRadioState(io');
     expect(songBlock).toContain('audioUrl');
+  });
+
+  it('handler_logsWarning_whenGetAudioUrlReturnsNull', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../socket/handler.js'), 'utf-8',
+    );
+
+    const songChangeStart = source.indexOf('scheduler.onSongChange');
+    const speechStart = source.indexOf('scheduler.onDjSpeechNeeded');
+    const songBlock = source.slice(songChangeStart, speechStart);
+
+    // The if (audioUrl) block must have an else branch that logs a warning,
+    // so null audioUrl is not silently swallowed.
+    const ifAudioUrlPos = songBlock.indexOf('if (audioUrl)');
+    expect(ifAudioUrlPos).toBeGreaterThan(-1);
+    const afterIf = songBlock.slice(ifAudioUrlPos);
+    expect(afterIf).toContain('else');
+    expect(afterIf).toContain('logger.warn');
   });
 });
 
 // ─── Bug #2: Client SONG_CHANGE defers when speech is playing ─────────────
 
 describe('Bug #2: client defers SONG_CHANGE during speech', () => {
-  it('appjsx_hasDjSpeechUrlRef', () => {
+  it('useDjSpeech_hasDjSpeechUrlRef', () => {
     const source = fs.readFileSync(
-      path.resolve(__dirname, '../../client/src/App.jsx'), 'utf-8',
+      path.resolve(__dirname, '../../client/src/hooks/useDjSpeech.js'), 'utf-8',
     );
 
     expect(source).toContain('djSpeechUrlRef');
     expect(source).toContain('pendingSongChangeRef');
   });
 
-  it('appjsx_songChangeChecksDjSpeechUrlRef', () => {
+  it('radioSocketEvents_songChangeChecksDjSpeechUrlRef', () => {
     const source = fs.readFileSync(
-      path.resolve(__dirname, '../../client/src/App.jsx'), 'utf-8',
+      path.resolve(__dirname, '../../client/src/hooks/useRadioSocketEvents.js'), 'utf-8',
     );
 
     // SONG_CHANGE handler should check djSpeechUrlRef.current
     const songChangeIdx = source.indexOf("socket.on(E.SONG_CHANGE");
-    const djSpeechStartIdx = source.indexOf("socket.on(E.DJ_MESSAGE");
-    const songBlock = source.slice(songChangeIdx, djSpeechStartIdx);
+    expect(songChangeIdx).toBeGreaterThan(-1);
+    const songBlock = source.slice(songChangeIdx);
 
     expect(songBlock).toContain('djSpeechUrlRef.current');
     expect(songBlock).toContain('pendingSongChangeRef');

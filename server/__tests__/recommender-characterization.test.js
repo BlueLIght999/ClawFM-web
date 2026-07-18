@@ -284,10 +284,8 @@ describe('fillQueueByPreference characterization', () => {
     r.initialized = true;
     const result = await r.fillQueueByPreference('obscure', 3);
     expect(deps.music.personalFm).toHaveBeenCalled();
-    // BUG: _fillGeneric mutates recentIds, so returned songs are already
-    // in recentIds and get filtered out by fillQueueByPreference's dedup.
-    // This characterization test locks the current (buggy) behavior.
-    expect(result).toEqual([]);
+    // Bug fixed in QueueFillStrategies: generic fill songs are now returned
+    expect(result.map(s => s.id)).toEqual(['20']);
   });
 
   it('deduplicates across all steps', async () => {
@@ -433,100 +431,20 @@ describe('_buildSeedPool characterization', () => {
   });
 });
 
-// ─── fetch helpers ───────────────────────────────────────────────
+// ─── fetch helpers (moved to QueueFillStrategies) ───────────────
+// These tests verify Recommender delegates correctly to QueueFillStrategies.
+// Direct strategy tests are in queue-fill-strategies.test.js
 
-describe('fetch helpers characterization', () => {
-  it('_fetchPersonalFm filters by hourArtists', async () => {
-    const deps = makeDeps();
-    deps.music.personalFm.mockResolvedValue([
-      makeSong('1', 'Popular Artist'),
-      makeSong('2', 'New Artist'),
-    ]);
-    const r = new Recommender(deps);
-    const recentIds = new Set();
-    const hourArtists = new Set(['Popular Artist']);
-    const result = await r._fetchPersonalFm(recentIds, hourArtists);
-    expect(result.map(s => s.id)).toEqual(['2']);
-  });
-
-  it('_fetchPersonalFm returns empty on error', async () => {
-    const deps = makeDeps();
-    deps.music.personalFm.mockRejectedValue(new Error('fail'));
-    const r = new Recommender(deps);
-    const result = await r._fetchPersonalFm(new Set(), new Set());
-    expect(result).toEqual([]);
-  });
-
-  it('_fetchSimilarSongs returns empty when no queue.current', async () => {
+describe('fetch helpers via QueueFillStrategies delegation', () => {
+  it('Recommender._createFiller returns QueueFillStrategies with correct deps', () => {
     const deps = makeDeps();
     const r = new Recommender(deps);
-    const result = await r._fetchSimilarSongs(new Set(), new Set());
-    expect(result).toEqual([]);
-  });
-
-  it('_fetchSimilarSongs calls music.similar with current song id', async () => {
-    const deps = makeDeps();
-    deps.music.similar.mockResolvedValue([makeSong('10')]);
-    deps.queueStore.current = { id: '5' };
-    const r = new Recommender(deps);
-    const result = await r._fetchSimilarSongs(new Set(), new Set());
-    expect(deps.music.similar).toHaveBeenCalledWith('5');
-    expect(result.map(s => s.id)).toEqual(['10']);
-  });
-
-  it('_fetchDailyRecommendations returns up to 15 songs', async () => {
-    const deps = makeDeps();
-    const songs = Array.from({ length: 20 }, (_, i) => makeSong(String(i + 1)));
-    deps.music.dailyRecommend.mockResolvedValue(songs);
-    const r = new Recommender(deps);
-    const result = await r._fetchDailyRecommendations(new Set(), new Set());
-    expect(result).toHaveLength(15);
-  });
-
-  it('_fetchGenreSearch returns empty when no topArtists', async () => {
-    const deps = makeDeps();
-    const r = new Recommender(deps);
-    const result = await r._fetchGenreSearch(new Set(), new Set());
-    expect(result).toEqual([]);
-  });
-
-  it('_fetchGenreSearch searches by random top artist', async () => {
-    const deps = makeDeps();
-    deps.music.search.mockResolvedValue([makeSong('1')]);
-    const r = new Recommender(deps);
-    r.topArtists = [{ name: '周杰伦', count: 5 }];
-    const result = await r._fetchGenreSearch(new Set(), new Set());
-    expect(deps.music.search).toHaveBeenCalledWith('周杰伦', 10);
-    expect(result).toHaveLength(1);
-  });
-
-  it('_fetchByGenreHints searches by genre hint and filters by recentIds', async () => {
-    const deps = makeDeps();
-    // GenreSearchEngine calls search() for seedArtists + enhancedQuery fallback
-    deps.music.search.mockResolvedValue([makeSong('1'), makeSong('2')]);
-    const r = new Recommender(deps);
-    const recentIds = new Set(['1']);
-    const hints = [{ genreHints: ['jazz', 'blues'] }];
-    const result = await r._fetchByGenreHints(recentIds, new Set(), hints);
-    // search is called (seedArtists like "Miles Davis" + enhancedQuery "jazz 爵士")
-    expect(deps.music.search).toHaveBeenCalled();
-    // Song '1' is in recentIds, so only song '2' from each genre search passes
-    // Result may contain duplicates since dedup is at fillQueue level, not strategy level
-    expect(result.every(s => s.id !== '1')).toBe(true);
-  });
-
-  it('_fetchByGenreHints limits to 20 songs', async () => {
-    const deps = makeDeps();
-    const songs = Array.from({ length: 10 }, (_, i) => makeSong(String(i + 1)));
-    deps.music.search.mockResolvedValue(songs);
-    const r = new Recommender(deps);
-    const hints = [
-      { genreHints: ['jazz'] },
-      { genreHints: ['blues'] },
-      { genreHints: ['rock'] },
-    ];
-    const result = await r._fetchByGenreHints(new Set(), new Set(), hints);
-    expect(result.length).toBeLessThanOrEqual(20);
+    r.topArtists = [{ name: 'Test', count: 1 }];
+    const filler = r._createFiller();
+    expect(filler.music).toBe(deps.music);
+    expect(filler.queueStore).toBe(deps.queueStore);
+    expect(filler.listenHistory).toBe(deps.listenHistory);
+    expect(filler.topArtists).toEqual([{ name: 'Test', count: 1 }]);
   });
 });
 
@@ -550,6 +468,74 @@ describe('plan progress management', () => {
     const r = new Recommender(makeDeps());
     const block = r.getActiveBlock();
     expect(block).toBe(r._planProgress);
+  });
+});
+
+// ─── P1-3/P1-4 regression: multi-strategy mixing + preference ranking ──
+
+describe('P1-3/P1-4 regression: multi-strategy mixing and preference ranking', () => {
+  it('includes songs from multiple strategies even when genreHints returns enough to fill targetSize', async () => {
+    const deps = makeDeps();
+    // genreHints path uses GenreSearchEngine which calls music.search
+    deps.music.search.mockResolvedValue([
+      makeSong('g1', 'GenreArtist'), makeSong('g2', 'GenreArtist'),
+      makeSong('g3', 'GenreArtist'), makeSong('g4', 'GenreArtist'),
+      makeSong('g5', 'GenreArtist'), makeSong('g6', 'GenreArtist'),
+    ]);
+    // personalFm returns different songs
+    deps.music.personalFm.mockResolvedValue([
+      makeSong('p1', 'FavArtist'), makeSong('p2', 'FavArtist'),
+    ]);
+    const r = new Recommender(deps);
+    r.initialized = true;
+    r.topArtists = [{ name: 'FavArtist', count: 10 }];
+
+    const hints = [{ genreHints: ['jazz'], targetCount: 5 }];
+    const result = await r.fillQueue(8, hints);
+
+    // With perStrategyQuota, personalFm songs should be present
+    const personalFmIds = result.filter(s => s.id.startsWith('p')).map(s => s.id);
+    expect(personalFmIds.length).toBeGreaterThan(0);
+  });
+
+  it('ranks songs matching topArtists higher in fillQueue result', async () => {
+    const deps = makeDeps();
+    const favSong = makeSong('1', 'Jay Chou');
+    const randomSong = makeSong('2', 'Unknown');
+    const anotherFav = makeSong('3', 'Jay Chou');
+
+    deps.music.personalFm.mockResolvedValue([randomSong, favSong, anotherFav]);
+    const r = new Recommender(deps);
+    r.initialized = true;
+    r.topArtists = [{ name: 'Jay Chou', count: 5 }];
+
+    const result = await r.fillQueue(3);
+    // Jay Chou songs should be ranked first
+    expect(result[0].artist).toBe('Jay Chou');
+    expect(result[1].artist).toBe('Jay Chou');
+  });
+
+  it('does not let genreHints strategy dominate when other strategies have relevant songs', async () => {
+    const deps = makeDeps();
+    // genreHints returns 12 songs (enough to fill targetSize alone)
+    const genreSongs = Array.from({ length: 12 }, (_, i) => makeSong(`g${i}`, 'GenreArtist'));
+    deps.music.search.mockResolvedValue(genreSongs);
+    // personalFm returns songs from user's top artist
+    deps.music.personalFm.mockResolvedValue([
+      makeSong('p1', 'TopArtist'), makeSong('p2', 'TopArtist'),
+    ]);
+    const r = new Recommender(deps);
+    r.initialized = true;
+    r.topArtists = [{ name: 'TopArtist', count: 10 }];
+
+    const hints = [{ genreHints: ['rock'], targetCount: 5 }];
+    const result = await r.fillQueue(10, hints);
+
+    // Both genre and personal songs should be present
+    const hasGenreSongs = result.some(s => s.id.startsWith('g'));
+    const hasPersonalSongs = result.some(s => s.id.startsWith('p'));
+    expect(hasGenreSongs).toBe(true);
+    expect(hasPersonalSongs).toBe(true);
   });
 });
 
