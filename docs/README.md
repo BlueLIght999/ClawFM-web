@@ -49,6 +49,7 @@
 | 文档 | 内容 |
 |------|------|
 | [BUGFIX_LOG.md](./BUGFIX_LOG.md) | 已修复 bug 记录（原因+方案） |
+| [PROGRESS-2.0.0.md](./PROGRESS-2.0.0.md) | 当前 2.0.0 重构节点、门禁与下一步 |
 | [DESIGN.md](./DESIGN.md) | 产品设计 |
 
 > 终端用户安装指南 `SETUP.md` 保留在项目根目录（面向使用者，非开发者）。

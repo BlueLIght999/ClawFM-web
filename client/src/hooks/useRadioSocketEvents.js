@@ -2,15 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useRadio } from '../contexts/RadioContext.jsx';
 import { useColdStart } from '../contexts/ColdStartContext.jsx';
 import { useCrab } from '../contexts/CrabContext.jsx';
-
-const E = {
-  RADIO_STATE: 'radio:state',
-  SONG_CHANGE: 'radio:song-change',
-  QUEUE_UPDATE: 'radio:queue-update',
-  PLAYBACK_POSITION: 'radio:playback-position',
-  PAUSE: 'radio:pause',
-  RESUME: 'radio:resume',
-};
+import { E } from '../constants/events.js';
 
 export function useRadioSocketEvents(socket, djSpeechUrlRef) {
   const { setRadioState, updateRadioState, isPlayingRef } = useRadio();

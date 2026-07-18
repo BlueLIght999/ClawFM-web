@@ -1,4 +1,4 @@
-export const THEME_NAMES = ['morning', 'afternoon', 'night'];
+export const THEME_NAMES = ['cream', 'morning', 'afternoon', 'night'];
 
 export function getTimeTheme(hours) {
   if (hours >= 6 && hours < 14) return 'morning';
@@ -7,6 +7,45 @@ export function getTimeTheme(hours) {
 }
 
 export const THEME_PALETTES = {
+  cream: {
+    '--bg-deep': '#f0ebe4',
+    '--bg-primary': '#f6f1ea',
+    '--bg-secondary': '#f0ebe2',
+    '--bg-panel': '#ebe5dc',
+    '--bg-surface': '#ebe5dc',
+    '--bg-elevated': '#e2dbd0',
+    '--text-primary': '#1e150b',
+    '--text-secondary': '#4a3828',
+    '--text-dim': '#7a6652',
+    '--text-muted': '#9a8872',
+    '--accent': '#b85a2e',
+    '--accent-glow': '#d4683f',
+    '--accent-dark': '#8e4420',
+    '--neon-cyan': '#2e7a8a',
+    '--neon-pink': '#b84a5a',
+    '--neon-blue': '#2e6ab8',
+    '--green': '#4a8a66',
+    '--border-color': 'rgba(30, 21, 11, 0.18)',
+    '--border-dim': 'rgba(30, 21, 11, 0.10)',
+    '--border-subtle': 'rgba(30, 21, 11, 0.12)',
+    '--shadow-warm': 'rgba(184, 90, 46, 0.12)',
+    '--shadow-glow': 'rgba(212, 104, 63, 0.18)',
+    '--shadow-border-inset': 'rgba(30, 21, 11, 0.04)',
+    '--shadow-border-outer': 'rgba(30, 21, 11, 0.10)',
+    '--shadow-accent-inset': 'rgba(184, 90, 46, 0.08)',
+    '--shadow-accent-outer': 'rgba(184, 90, 46, 0.14)',
+    '--shadow-cyan-hover': 'rgba(46, 122, 138, 0.18)',
+    '--shadow-cyan-focus': 'rgba(46, 122, 138, 0.20)',
+    '--shadow-accent-hover': 'rgba(184, 90, 46, 0.12)',
+    '--shadow-accent-glow': 'rgba(184, 90, 46, 0.24)',
+    '--shadow-accent-title': 'rgba(184, 90, 46, 0.20)',
+    '--shadow-neon-cyan': 'rgba(46, 122, 138, 0.28)',
+    '--shadow-neon-cyan-dim': 'rgba(46, 122, 138, 0.14)',
+    '--shadow-neon-accent': 'rgba(184, 90, 46, 0.30)',
+    '--font-body': "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    '--font-mono': "'JetBrains Mono', 'SFMono-Regular', monospace",
+    '--scanline-opacity': '0.008',
+  },
   morning: {
     '--bg-primary': '#ffffff',
     '--bg-secondary': '#f5f5f7',
@@ -97,6 +136,10 @@ export const THEME_PALETTES = {
 };
 
 export const SPECTRUM_COLORS = {
+  cream: {
+    barR: 184, barG: 90, barB: 46,
+    highlightR: 212, highlightG: 104, highlightB: 63,
+  },
   morning: {
     barR: 30, barG: 30, barB: 30,
     highlightR: 80, highlightG: 80, highlightB: 80,

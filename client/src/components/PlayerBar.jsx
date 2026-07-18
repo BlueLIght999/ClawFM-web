@@ -1,8 +1,10 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
+import { Pause, Play, Radio, Repeat2, Shuffle, SkipBack, SkipForward } from 'lucide-react';
 
 export default function PlayerBar({
   song, isPlaying, elapsed, duration, mode,
   musicAudioRef, upcomingSongs, onSkip, onPrevious, onPause, onResume, onSetMode, socket,
+  showInlineQueue = true,
 }) {
   const barRef = useRef(null);
   const seekingRef = useRef(false);
@@ -12,8 +14,6 @@ export default function PlayerBar({
   const [seekElapsed, setSeekElapsed] = useState(null);
   const [showQueue, setShowQueue] = useState(false);
   const [waveActive, setWaveActive] = useState(false);
-
-  const modeEmoji = { sequential: '>>', shuffle: '><', fm: '~' };
 
   // Use local seek position for 2s after seeking, then revert to server sync
   const displayElapsed = seekElapsed !== null ? seekElapsed : elapsed;
@@ -101,7 +101,7 @@ export default function PlayerBar({
                 <div className="marquee-inner" style={{
                   fontFamily: 'var(--font-pixel)', fontSize: 9, color: 'var(--text-primary)',
                 }}>
-                  {song.name || song.title || 'Unknown Track'}
+                  {song.title || 'Unknown Track'}
                 </div>
               </div>
               <div style={{
@@ -129,24 +129,25 @@ export default function PlayerBar({
           </div>
         )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <button className="pixel-btn"
+        <div className="player-transport-controls">
+          <button className="pixel-btn radio-control-button"
             onClick={() => onSetMode(mode === 'sequential' ? 'shuffle' : mode === 'shuffle' ? 'fm' : 'sequential')}
+            aria-label={`Change queue mode. Current mode: ${mode}`}
             title={`Mode: ${mode}`}
-            style={{ fontSize: 9, padding: '3px 6px' }}>{modeEmoji[mode] || '>>'}</button>
-          <button className="pixel-btn" onClick={onPrevious}
-            style={{ fontSize: 10, padding: '2px 5px' }}>{'|<'}</button>
-          <button className="pixel-btn accent" onClick={isPlaying ? onPause : onResume}
-            style={{ fontSize: 12, padding: '3px 7px', minWidth: 32 }}>{isPlaying ? '||' : '>'}</button>
-          <button className="pixel-btn" onClick={onSkip}
-            style={{ fontSize: 10, padding: '2px 5px' }}>{'>|'}</button>
-          <button className="pixel-btn"
-            style={{ fontSize: 11, padding: '3px 5px', color: 'var(--neon-pink)', borderColor: 'var(--neon-pink)' }}>{'♡'}</button>
+            ><QueueModeIcon mode={mode} /></button>
+          <button className="pixel-btn radio-control-button" onClick={onPrevious}
+            aria-label="Previous track" title="Previous track"><SkipBack size={15} aria-hidden="true" /></button>
+          <button className="pixel-btn accent radio-control-button" onClick={isPlaying ? onPause : onResume}
+            aria-label={isPlaying ? 'Pause' : 'Resume'} title={isPlaying ? 'Pause' : 'Resume'}>
+            {isPlaying ? <Pause size={17} aria-hidden="true" /> : <Play size={17} aria-hidden="true" />}
+          </button>
+          <button className="pixel-btn radio-control-button" onClick={onSkip}
+            aria-label="Next track" title="Next track"><SkipForward size={15} aria-hidden="true" /></button>
         </div>
       </div>
 
       {/* Upcoming queue */}
-      {upcomingSongs && upcomingSongs.length > 0 && (
+      {showInlineQueue && upcomingSongs && upcomingSongs.length > 0 && (
         <div style={{ borderTop: '1px solid var(--border-dim)', paddingTop: 3 }}>
           <button className="pixel-btn" onClick={() => setShowQueue(!showQueue)}
             style={{ fontSize: 9, padding: '2px 6px', display: 'block', margin: '0 auto 3px' }}>
@@ -201,7 +202,7 @@ export default function PlayerBar({
                       onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                     >
                       <span style={{ color: i === 0 ? 'var(--accent)' : 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {i + 1}. {s.name || s.title || '???'}
+                        {i + 1}. {s.title || '???'}
                       </span>
                       <span style={{ marginLeft: 8, flexShrink: 0 }}>
                         {s.artist || ''}
@@ -220,4 +221,10 @@ export default function PlayerBar({
       `}</style>
     </div>
   );
+}
+
+function QueueModeIcon({ mode }) {
+  if (mode === 'shuffle') return <Shuffle size={14} aria-hidden="true" />;
+  if (mode === 'fm') return <Radio size={14} aria-hidden="true" />;
+  return <Repeat2 size={14} aria-hidden="true" />;
 }

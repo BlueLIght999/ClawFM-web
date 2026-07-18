@@ -7,8 +7,13 @@ const APP_PATH = path.resolve(__dirname, '../App.jsx');
 describe('App.jsx useTransition view switching', () => {
   const source = fs.readFileSync(APP_PATH, 'utf-8');
 
-  it('imports useTransition from react', () => {
-    expect(source).toContain('useTransition');
+  it('uses useTransition via useUI context', () => {
+    // useTransition was moved to UIContext; App.jsx delegates via useUI()
+    expect(source).toContain('useUI');
+    const ctxSource = fs.readFileSync(
+      path.resolve(__dirname, '../contexts/UIContext.jsx'), 'utf-8',
+    );
+    expect(ctxSource).toContain('useTransition');
   });
 
   it('creates isViewTransitionPending and startViewTransition', () => {
@@ -23,8 +28,13 @@ describe('App.jsx useTransition view switching', () => {
   });
 
   it('shows transition indicator when pending', () => {
-    expect(source).toContain('isViewTransitionPending');
-    // Should render something when pending (SWITCHING indicator)
-    expect(source).toMatch(/isViewTransitionPending\s*&&/);
+    // Switching indicator now lives in ViewRouter, App.jsx delegates via prop
+    const routerSource = fs.readFileSync(
+      path.resolve(__dirname, '../components/ViewRouter.jsx'), 'utf-8',
+    );
+    expect(routerSource).toContain('isViewTransitionPending');
+    expect(routerSource).toMatch(/isViewTransitionPending\s*&&/);
+    // App.jsx passes the prop to ViewRouter
+    expect(source).toMatch(/isViewTransitionPending=\{isViewTransitionPending\}/);
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "claude-fm-server",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -32,12 +32,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/supertest": "^7.2.1",
     "@vitest/coverage-v8": "^4.1.9",
     "dependency-cruiser": "^18.0.0",
     "eslint": "^10.6.0",
     "globals": "^17.7.0",
     "jscpd": "^5.0.11",
     "prettier": "^3.9.4",
+    "supertest": "^7.2.2",
     "vitest": "^4.1.9"
   }
 }

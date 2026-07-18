@@ -1,4 +1,4 @@
-import { AuthProvider } from './AuthContext.jsx';
+import { AuthProvider, useAuth } from './AuthContext.jsx';
 import { RadioProvider, useRadio } from './RadioContext.jsx';
 import { ChatProvider } from './ChatContext.jsx';
 import { ColdStartProvider } from './ColdStartContext.jsx';
@@ -15,6 +15,8 @@ import { useSocket } from '../hooks/useSocket.js';
  * Provider order matters: outer providers cannot depend on inner ones.
  * CrabProvider needs isPlaying from RadioContext, so CrabProviderWrapper
  * consumes RadioContext to bridge the dependency.
+ * ColdStartProvider needs loggedIn from AuthContext, so ColdStartBridge
+ * consumes AuthContext to bridge the dependency.
  *
  * Render-prop support: if `children` is a function, it is invoked with
  * `{ socket, connected }` so the inner App component can keep its existing
@@ -27,16 +29,26 @@ export function AppProviders({ children }) {
     <AuthProvider socket={socket}>
       <RadioProvider socket={socket}>
         <ChatProvider socket={socket}>
-          <ColdStartProvider>
+          <ColdStartBridge socket={socket} connected={connected}>
             <CrabProviderWrapper>
               <UIProvider socket={socket}>
                 {typeof children === 'function' ? children({ socket, connected }) : children}
               </UIProvider>
             </CrabProviderWrapper>
-          </ColdStartProvider>
+          </ColdStartBridge>
         </ChatProvider>
       </RadioProvider>
     </AuthProvider>
+  );
+}
+
+// Bridge: consume AuthContext to pass loggedIn to ColdStartProvider
+function ColdStartBridge({ socket, connected, children }) {
+  const { loggedIn } = useAuth();
+  return (
+    <ColdStartProvider socket={socket} connected={connected} loggedIn={loggedIn}>
+      {children}
+    </ColdStartProvider>
   );
 }
 

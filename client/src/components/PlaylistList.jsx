@@ -1,100 +1,115 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { ChevronRight, ChevronUp, Play } from 'lucide-react';
+import { E } from '../constants/events.js';
 
-export default function PlaylistList({ onPlay, socket }) {
+const SIDEBAR_PLAYLIST_LIMIT = 5;
+
+/** Playlist browser backed by the existing playlist REST endpoints. */
+export default function PlaylistList({
+  onPlay,
+  socket,
+  variant = 'collapsible',
+  defaultExpanded = false,
+}) {
   const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [showAllSidebar, setShowAllSidebar] = useState(false);
+  const sidebar = variant === 'sidebar';
+  const contentVisible = sidebar || expanded;
+  const sidebarPlaylists = showAllSidebar
+    ? playlists
+    : playlists.slice(0, SIDEBAR_PLAYLIST_LIMIT);
+  const canToggleSidebar = !loading && !error && playlists.length > SIDEBAR_PLAYLIST_LIMIT;
 
   const fetchPlaylists = useCallback(() => {
+    setLoading(true);
+    setError(null);
     fetch('/api/playlists')
-      .then(r => r.json())
-      .then(data => {
-        setPlaylists(data.playlists || []);
-        setLoading(false);
-      })
-      .catch(e => {
-        setError(e.message);
-        setLoading(false);
-      });
+      .then(response => response.json())
+      .then(data => setPlaylists(data.playlists || []))
+      .catch(requestError => setError(requestError.message))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
     fetchPlaylists();
   }, [fetchPlaylists]);
 
-  // Refresh playlists whenever queue is updated (songs added/removed)
   useEffect(() => {
-    if (!socket) return;
-    const handler = () => fetchPlaylists();
-    socket.on('radio:queue-update', handler);
-    return () => socket.off('radio:queue-update', handler);
+    if (!socket) return undefined;
+    socket.on(E.QUEUE_UPDATE, fetchPlaylists);
+    return () => socket.off(E.QUEUE_UPDATE, fetchPlaylists);
   }, [socket, fetchPlaylists]);
 
   const handlePlay = useCallback(async (playlist) => {
     try {
-      const res = await fetch(`/api/playlist/${playlist.id}/play`, { method: 'POST' });
-      const data = await res.json();
-      if (data.ok) {
-        onPlay?.(playlist);
-      }
-    } catch (e) {
-      setError(e.message);
+      const response = await fetch(`/api/playlist/${playlist.id}/play`, { method: 'POST' });
+      const data = await response.json();
+      if (data.ok) onPlay?.(playlist);
+    } catch (requestError) {
+      setError(requestError.message);
     }
   }, [onPlay]);
 
-  return (
-    <div className="pixel-border" style={{
-      margin: '0 0 4px 0', background: 'var(--bg-secondary)', overflow: 'hidden',
-    }}>
-      <button onClick={() => setExpanded(!expanded)} style={{
-        width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '5px 10px', background: 'none', border: 'none', cursor: 'pointer',
-        color: 'var(--text-primary)', fontFamily: 'var(--font-pixel)', fontSize: 10, letterSpacing: '1px',
-      }}>
-        <span style={{ color: 'var(--neon-cyan)' }}>{expanded ? '[-]' : '[+]'} {'PLAYLISTS'}</span>
-        <span style={{ color: 'var(--text-dim)', fontSize: 9 }}>{playlists.length} {'LISTS'}</span>
-      </button>
-
-      {expanded && (
-        <div style={{ maxHeight: 160, overflowY: 'auto', borderTop: '1px solid var(--border-dim)' }}>
-          {loading && (
-            <div style={{ padding: 10, textAlign: 'center', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: 16 }}>{'Loading...'}</div>
-          )}
-          {error && (
-            <div style={{ padding: 10, textAlign: 'center', color: 'var(--neon-pink)', fontFamily: 'var(--font-mono)', fontSize: 15 }}>{error}</div>
-          )}
-          {!loading && !error && playlists.length === 0 && (
-            <div style={{ padding: 10, textAlign: 'center', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: 16 }}>{'No playlists found.'}</div>
-          )}
-          {!loading && playlists.map((p) => (
-            <button key={p.id} onClick={() => handlePlay(p)}
-              title={`${p.name} — ${p.trackCount} ${'tracks'}`}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', gap: 8,
-                padding: '4px 10px', background: 'none', border: 'none',
-                borderBottom: '1px solid var(--border-dim)', cursor: 'pointer',
-                color: 'var(--text-primary)', textAlign: 'left',
-                fontFamily: 'var(--font-mono)', fontSize: 15, transition: 'background 0.15s',
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-primary)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
-            >
-              <span style={{
-                width: 22, height: 22, background: 'var(--bg-primary)',
-                border: '1px solid var(--border-dim)', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-                fontSize: 10, flexShrink: 0, color: 'var(--accent)',
-              }}>{'>'}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 9, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 1 }}>{p.trackCount} {'tracks'}</div>
-              </div>
-              <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'var(--accent)', flexShrink: 0 }}>{'PLAY'}</span>
-            </button>
-          ))}
+  if (sidebar) {
+    return (
+      <section className="radio-sidebar-section playlist-panel" aria-labelledby="playlist-title">
+        <div className="radio-sidebar-title-row">
+          <h2 className="radio-sidebar-title" id="playlist-title">PLAYLISTS</h2>
+          <span className="radio-sidebar-count">{playlists.length}</span>
         </div>
-      )}
+        <PlaylistContent playlists={sidebarPlaylists} loading={loading} error={error} onPlay={handlePlay} />
+        {canToggleSidebar && (
+          <button type="button" className="playlist-more"
+            aria-expanded={showAllSidebar}
+            aria-label={showAllSidebar ? 'Show fewer playlists' : 'Show all playlists'}
+            onClick={() => setShowAllSidebar(value => !value)}>
+            <span>{showAllSidebar ? 'LESS' : 'MORE'}</span>
+            {showAllSidebar
+              ? <ChevronUp size={13} aria-hidden="true" />
+              : <ChevronRight size={13} aria-hidden="true" />}
+          </button>
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section className="pixel-border playlist-panel playlist-panel-collapsible">
+      <button type="button" className="playlist-toggle" onClick={() => setExpanded(value => !value)}
+        aria-expanded={expanded}>
+        <span>{expanded ? '[-]' : '[+]'} PLAYLISTS</span>
+        <span>{playlists.length} LISTS</span>
+      </button>
+      {contentVisible && <PlaylistContent playlists={playlists} loading={loading} error={error} onPlay={handlePlay} />}
+    </section>
+  );
+}
+
+function PlaylistContent({ playlists, loading, error, onPlay }) {
+  if (loading) return <p className="radio-sidebar-empty">LOADING PLAYLISTS...</p>;
+  if (error) return <p className="radio-sidebar-empty playlist-error">{error}</p>;
+  if (playlists.length === 0) return <p className="radio-sidebar-empty">NO PLAYLISTS FOUND</p>;
+
+  return (
+    <div className="playlist-items">
+      {playlists.map(playlist => (
+        <button type="button" className="playlist-item" key={playlist.id}
+          aria-label={`Play ${playlist.name}`} onClick={() => onPlay(playlist)}>
+          {playlist.coverImgUrl ? (
+            <img className="playlist-cover" src={playlist.coverImgUrl} alt="" />
+          ) : (
+            <span className="playlist-cover playlist-cover-fallback"><Play size={14} aria-hidden="true" /></span>
+          )}
+          <span className="playlist-copy">
+            <span className="playlist-name">{playlist.name}</span>
+            <span className="playlist-meta">{playlist.trackCount || 0} tracks</span>
+          </span>
+          <span className="playlist-play-label">PLAY</span>
+        </button>
+      ))}
     </div>
   );
 }

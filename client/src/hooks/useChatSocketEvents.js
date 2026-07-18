@@ -3,14 +3,7 @@ import { useChat } from '../contexts/ChatContext.jsx';
 import { useCrab } from '../contexts/CrabContext.jsx';
 import { useRadio } from '../contexts/RadioContext.jsx';
 import { useColdStart } from '../contexts/ColdStartContext.jsx';
-
-const E = {
-  DJ_MESSAGE: 'radio:dj-message',
-  DJ_SPEECH_START: 'radio:dj-speech-start',
-  DJ_SPEECH_END: 'radio:dj-speech-end',
-  DJ_STREAM_CHUNK: 'radio:dj-stream-chunk',
-  DJ_STREAM_END: 'radio:dj-stream-end',
-};
+import { E } from '../constants/events.js';
 
 export function useChatSocketEvents(socket, djSpeechUrlRef, speechTypeRef, setDjSpeechUrl, pendingSpeechRef) {
   const { addDJMessage, showDJMessage, appendDJStreamChunk, endDJStream } = useChat();

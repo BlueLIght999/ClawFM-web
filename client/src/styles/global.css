@@ -1,14 +1,18 @@
-/* === Pixel Font Import === */
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+/* === Product Font Import === */
+@import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Press+Start+2P&family=VT323&display=swap');
 
 /* === CSS Variables === */
 :root {
+  --bg-deep: #050a10;
   --bg-primary: #050a10;
   --bg-secondary: #0a1018;
   --bg-panel: #0d1520;
+  --bg-surface: #0d1520;
+  --bg-elevated: #121d2a;
   --text-primary: #00ccff;
   --text-secondary: #0099cc;
   --text-dim: #004466;
+  --text-muted: #315267;
   --accent: #E07B56;
   --accent-glow: #F4A885;
   --accent-dark: #C56B3F;
@@ -17,7 +21,10 @@
   --neon-blue: #0088ff;
   --border-color: #00aaff;
   --border-dim: #003355;
+  --border-subtle: #15384d;
   --font-pixel: 'Press Start 2P', monospace;
+  --font-cjk-pixel: 'Fusion Pixel 12px', 'DotGothic16', 'Zpix', monospace;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'VT323', 'Courier New', monospace;
   --scanline-opacity: 0.03;
   --shadow-border-inset: rgba(0, 170, 255, 0.08);
@@ -48,7 +55,7 @@ html, body, #root {
 }
 
 body {
-  background: var(--bg-primary);
+  background: var(--bg-deep);
   color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: 15px;
@@ -256,7 +263,10 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  max-width: 680px;
+  height: 100dvh;
+  max-width: 1120px;
+  width: 100%;
   margin: 0 auto;
   position: relative;
+  overflow: hidden;
 }

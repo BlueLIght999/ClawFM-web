@@ -7,12 +7,15 @@ const __dirname_local = dirname(fileURLToPath(import.meta.url));
 const appContent = readFileSync(join(__dirname_local, '..', 'App.jsx'), 'utf-8');
 
 describe('App.jsx socket split', () => {
-  it('imports useRadioSocketEvents', () => {
-    expect(appContent).toContain('useRadioSocketEvents');
+  it('delegatesRadioSocketEvents_toUseDjSpeech', () => {
+    expect(appContent).toContain('useDjSpeech');
+    const hookContent = readFileSync(join(__dirname_local, '..', 'hooks', 'useDjSpeech.js'), 'utf-8');
+    expect(hookContent).toContain('useRadioSocketEvents');
   });
 
-  it('imports useChatSocketEvents', () => {
-    expect(appContent).toContain('useChatSocketEvents');
+  it('delegatesChatSocketEvents_toUseDjSpeech', () => {
+    const hookContent = readFileSync(join(__dirname_local, '..', 'hooks', 'useDjSpeech.js'), 'utf-8');
+    expect(hookContent).toContain('useChatSocketEvents');
   });
 
   it('imports useCrabSocketEvents', () => {

@@ -42,4 +42,76 @@ describe('ColdStartContext', () => {
     expect(screen.getByTestId('phase').textContent).toBe('done');
     vi.useRealTimers();
   });
+
+  it('emitsClientReady_whenSocketAndConnectedAndLoggedIn', () => {
+    const socket = { emit: vi.fn() };
+    render(
+      <ColdStartProvider socket={socket} connected={true} loggedIn={true}>
+        <TestConsumer />
+      </ColdStartProvider>,
+    );
+    expect(socket.emit).toHaveBeenCalledWith('client:ready');
+  });
+
+  it('doesNotEmitClientReady_whenNotConnected', () => {
+    const socket = { emit: vi.fn() };
+    render(
+      <ColdStartProvider socket={socket} connected={false} loggedIn={true}>
+        <TestConsumer />
+      </ColdStartProvider>,
+    );
+    expect(socket.emit).not.toHaveBeenCalledWith('client:ready');
+  });
+
+  it('doesNotEmitClientReady_whenNotLoggedIn', () => {
+    const socket = { emit: vi.fn() };
+    render(
+      <ColdStartProvider socket={socket} connected={true} loggedIn={false}>
+        <TestConsumer />
+      </ColdStartProvider>,
+    );
+    expect(socket.emit).not.toHaveBeenCalledWith('client:ready');
+  });
+
+  it('callsOnDeferredSpeech_whenPhaseBecomesDone_andPendingSpeechExists', () => {
+    vi.useFakeTimers();
+    const onDeferredSpeech = vi.fn();
+    let ctxRef = null;
+    function SetSpeechConsumer() {
+      const ctx = useColdStart();
+      ctxRef = ctx;
+      return null;
+    }
+    render(
+      <ColdStartProvider onDeferredSpeech={onDeferredSpeech}>
+        <SetSpeechConsumer />
+        <TestConsumer />
+      </ColdStartProvider>,
+    );
+    // Set a pending speech URL
+    act(() => {
+      ctxRef.pendingSpeechRef.current = 'http://example.com/speech.mp3';
+    });
+    // Transition to exit → done
+    fireEvent.click(screen.getByText('Exit'));
+    act(() => { vi.advanceTimersByTime(900); });
+    expect(onDeferredSpeech).toHaveBeenCalledWith('http://example.com/speech.mp3');
+    // pendingSpeechRef should be cleared after callback
+    expect(ctxRef.pendingSpeechRef.current).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('doesNotCallOnDeferredSpeech_whenNoPendingSpeech', () => {
+    vi.useFakeTimers();
+    const onDeferredSpeech = vi.fn();
+    render(
+      <ColdStartProvider onDeferredSpeech={onDeferredSpeech}>
+        <TestConsumer />
+      </ColdStartProvider>,
+    );
+    fireEvent.click(screen.getByText('Exit'));
+    act(() => { vi.advanceTimersByTime(900); });
+    expect(onDeferredSpeech).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
 });

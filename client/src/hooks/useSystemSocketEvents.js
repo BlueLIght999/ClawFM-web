@@ -2,12 +2,7 @@ import { useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useUI } from '../contexts/UIContext.jsx';
 import { useColdStart } from '../contexts/ColdStartContext.jsx';
-
-const E = {
-  LOGIN_REQUIRED: 'radio:login-required',
-  PLAN_UPDATE: 'plan:update',
-  ERROR: 'radio:error',
-};
+import { E } from '../constants/events.js';
 
 export function useSystemSocketEvents(socket) {
   const { setLoggedIn } = useAuth();

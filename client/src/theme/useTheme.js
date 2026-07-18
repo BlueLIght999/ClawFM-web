@@ -2,6 +2,19 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { THEME_PALETTES, getTimeTheme } from './themes.js';
 
 const STORAGE_KEY = 'qclaudio-theme-override';
+const DEFAULT_THEME = 'cream';
+
+function readStoredOverride() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored === null) return DEFAULT_THEME;
+    const parsed = JSON.parse(stored);
+    if (parsed === 'auto') return null;
+    return THEME_PALETTES[parsed] ? parsed : DEFAULT_THEME;
+  } catch {
+    return DEFAULT_THEME;
+  }
+}
 
 function applyTheme(themeName) {
   const palette = THEME_PALETTES[themeName];
@@ -19,12 +32,7 @@ export function useTheme() {
     return getTimeTheme(now.getHours() + now.getMinutes() / 60);
   });
 
-  const [override, setOverride] = useState(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? JSON.parse(stored) : null;
-    } catch { return null; }
-  });
+  const [override, setOverride] = useState(readStoredOverride);
 
   const lastAutoRef = useRef(autoTheme);
 
@@ -61,7 +69,7 @@ export function useTheme() {
 
   const clearOverride = useCallback(() => {
     setOverride(null);
-    try { localStorage.removeItem(STORAGE_KEY); } catch {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify('auto')); } catch {}
   }, []);
 
   return {

@@ -36,6 +36,8 @@ export default function SettingsView({
       <div className="pixel-border" style={{ background: 'var(--bg-secondary)', padding: '8px 12px', marginBottom: 8 }}>
         <p style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: 'var(--text-dim)', marginBottom: 6 }}>THEME</p>
         <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className={`pixel-btn ${override === null ? 'accent' : ''}`}
+            onClick={clearOverride} style={{ fontSize: 9 }}>AUTO</button>
           {THEME_NAMES.map(t => (
             <button key={t} className={`pixel-btn ${theme === t ? 'accent' : ''}`}
               onClick={() => override === t ? clearOverride() : setThemeOverride(t)}

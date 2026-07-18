@@ -1,7 +1,7 @@
 # Qclaudio 88.7 — 绞杀重构进度看板
 
 > 实时反映重构进度、优先级、收益目标、灰度迁移状态。
-> 配合 `ARCHITECTURE-BASELINE.md` / `TARGET-DIRECTORY.md` / `SEAMS-AND-PORTS.md` 使用。
+> 配合 `ARCHITECTURE-BASELINE.md` / `TARGET-DIRECTORY.md` / `SEAMS-AND-PORTS.md` / `REFACTOR-PRIORITY.md`（优先级矩阵）/ `TEST-COVERAGE-SCHEDULE.md`（测试覆盖排期）使用。
 > **进度以工具输出为准**：`npm run arch:check` 的 error 数 = 剩余架构债。
 
 ---
@@ -160,7 +160,7 @@ async synthesize(text) {
 | **P4-e** | 拆 `claude.js` prompt 构建到 infrastructure writer | 高 | 消除 D2 fs 硬违规 + 328 行最大遗留之一 | 高 | characterization tests |
 | **P4-f** | 微服务化 TTS（首个微服务拆分试点） | 中 | 验证 Port→HTTP 适配模式 | 中 | HTTP 适配器测试 |
 | **P4-g** | 微服务化音乐源 | 中 | 消除 NeteaseCloudMusicApi 子进程管理 | 中 | HTTP 适配器测试 |
-| **P4-h** | 前端 Song 稳定字段迁移 | 中 | 防腐层最后一段外露债 | 中 | grep 无 ar/al/dt |
+| **P4-h** | 前端 Song 稳定字段迁移 + Socket v2 | ✅ 完成 | 防腐层在 UI 与传输边界闭合 | 中 | grep 无 ar/al/dt；v1/v2 双发契约测试 |
 
 > 建议下一刀：先做 P4-a/P4-b（零风险归位），再按 P4-c→P4-d→P4-e 深化绞杀，最后 P4-f/P4-g 微服务化。
 
@@ -210,7 +210,7 @@ Current priority order:
 | **P0 Guardrail** | Keep test/architecture/lint baseline | Every cut must stay reversible and behavior-preserving | Prevents strangler work from turning into a rewrite | `npm test` green, `npm run arch:check` 0 violations, lint 0 errors |
 | **P1 Backend seam** | Extract `dj-speech-finished` completion flow | It mixes cold-start completion, normal speech completion, scheduler state, and queue emit payloads | Locks R1 "radio never silent" completion behavior behind application tests | TDD service tests for cold-start/chat/transition completion branches |
 | **P1 Characterization first** | Add characterization tests around `proactive.js` before deeper extraction | Complexity is high and behavior is timing/state sensitive | Makes the next proactive-policy extraction safer | Tests cover disabled state, active speech guard, queue/plan context, TTS failure fallback |
-| **P2 Product debt** | Frontend reads stable `Song` fields only | MusicSourcePort already emits stable Song, but UI still has old NetEase field compatibility | Completes anti-corruption layer toward replacing music source later | `rg "song\\.(ar|al|dt)|\\.ar\\b|\\.al\\b|\\.dt\\b" client` has no business reads |
+| **P2 Product debt ✅** | Frontend reads stable `Song` fields only | Completed in 2.0.0 through Socket v2 and a source architecture guard | Anti-corruption layer now closes before the UI | v2 payload tests + client source guard pass |
 | **P2 Core depth** | Continue `scheduler` / `recommender` rule extraction | High value but higher behavioral risk than handler seams | More playback and recommendation rules move into domain/application | New pure-rule tests plus existing scheduler/recommender regression tests pass |
 | **P3 Cleanup** | Reduce legacy lint warnings | Useful but not architecturally blocking | Lower noise so real hotspots stand out | Warning count drops without broad formatting churn |
 
@@ -272,7 +272,7 @@ infrastructure/：auth/LegacyNeteaseAuthClient · storage/{FileCorpus,defaultCor
          handler onDjSpeechNeeded 普通过渡播报/refill 播报→DjSpeechService + LegacyDjSpeechWriter
          handler chat streaming token/JSON say/fallback/announce 文本→domain streamingChatRules
          handler chat streaming loop/History/TTS announce→StreamingConversationService
-待办：   前端 Song 稳定字段迁移 → scheduler/recommender/proactive 热点深化 → legacy warning 清理
+待办：   scheduler/recommender/proactive 热点深化 → legacy warning 清理
 ```
 
 
@@ -363,7 +363,7 @@ infrastructure/：auth/LegacyNeteaseAuthClient · storage/{FileCorpus,defaultCor
 | **P2-b** | TasteMarkdown 构建提炼 | ✅ 完成 | build-taste-markdown 4 测试 |
 | **P2-a2** | CorpusPort 切 context/recommender→fs | ⬜ 待办 | arch warn 4→1 |
 | **P2-c** | 7×Repository 拆 db/history/cookie-store | ✅ 基本完成 | 7×Repository 已建；queue/scheduler/planner/claude/recommender/context/server/netease/handler 已接线；旧 DB 仅留在 infrastructure adapters 内 |
-| **P2-d** | MusicSourcePort 斩 ar/al/dt 透传 | 🟡 进行中 | MusicSourcePort + LegacyNeteaseMusicSourceAdapter 已建；scheduler/router/recommender/handler 点歌/server REST 音乐接口已接；前端尚未全面切稳定 Song |
+| **P2-d** | MusicSourcePort 斩 ar/al/dt 透传 | ✅ 完成 | 2.0.0 前端只读稳定 Song；三条 Socket v2 事件只输出六字段 DTO；v1 仅保留过渡兼容 |
 | **P2-e** | handler.js 拆 application services | 🟡 进行中 | PlaybackService 已接管播放器控制和 SONG_REQUEST；ConversationService 已接管 chat 快速命令、推荐状态机、play_personalized、plan 操作；ColdStartService 已接管 TTS/降级/开播、触发守卫、首曲准备、安全超时、cold-start LLM writing；AuthenticationService 已接管 Auth 登录/QR；DjSpeechService 已接管普通过渡播报和 refill 补队列播报；StreamingConversationService 已接管 chat streaming loop |
 
 ---
@@ -382,7 +382,7 @@ infrastructure/：auth/LegacyNeteaseAuthClient · storage/{FileCorpus,defaultCor
 | domain 纯文件数 | 1 | **31** | 全核心域 | `ls domain/**` |
 | application Port 契约 | 0 | **12** | 覆盖 15 接缝 | `rg --files server/application/ports` |
 | infrastructure legacy adapter | 0 | **14** | 旧实现全部退到接缝背后 | `rg --files server/infrastructure` |
-| 前端网易云字段透传 | 有 | 有(MusicSourcePort 已备) | 无 | grep song.ar/al/dt |
+| 前端网易云字段透传 | 有 | **无（Socket v2 已切换）** | 无 | client 架构测试 + v2 payload 契约 |
 
 ---
 
@@ -418,7 +418,7 @@ P2 Port化+拆分     ███████████████░░░   7
 | LLM 调用 | claude/planner 直连 client | LlmPort + DeepSeekLlmAdapter + legacy writer adapters | 🟡 **部分切换** | planner/claude 非流式已接；cold-start/transition writers 已退到 infrastructure；chat 流式保留 legacy client |
 | 鉴权状态 | cookie-store / netease auth 直连 | AuthRepository + AuthenticationService + LegacyNeteaseAuthClient | 🟢 **主链路已切换** | netease cookie 读写已接；handler 登录/QR 已接；server 启动登录状态恢复已接；剩余为外围 REST 音乐接口的 NetEase 直连 |
 | 数据存储 | db/history 17函数 | 7×Repository legacy adapters | 🟢 **业务层已切换** | services/socket/application/domain 不再直连 db/history；旧 DB 退到 infrastructure adapters 内 |
-| 音乐源 | netease.js 直连 | MusicSourcePort + LegacyNeteaseMusicSourceAdapter | 🟡 **部分切换** | adapter 输出稳定 Song；scheduler/router/recommender/handler 点歌/server REST 音乐接口已接；前端旧字段读取待迁 |
+| 音乐源 | netease.js 直连 | MusicSourcePort + LegacyNeteaseMusicSourceAdapter | 🟢 **主链路已切换** | adapter 输出稳定 Song；前端只消费 Socket v2；v1 事件仅作过渡兼容 |
 | socket 编排 | handler 800行 | application services | 🟡 **十三刀完成** | 播放控制和 SONG_REQUEST 已委托 PlaybackService；chat 快速命令、推荐状态机、play_personalized、plan 操作已委托 ConversationService；cold-start TTS/纯文本降级/直接开播、触发守卫、首曲准备、安全超时、LLM writing 已委托 ColdStartService；Auth 登录/QR 已委托 AuthenticationService；普通 transition speech 与 refill 补队列播报已委托 DjSpeechService；chat streaming loop 已委托 StreamingConversationService |
 
 图例：🟢 已灰度切换　🟡 部分　⚪ 未开始
@@ -448,7 +448,7 @@ P2 Port化+拆分     ███████████████░░░   7
 | **P1 ✅** | 收敛 `DjSpeechService` 工厂行数 warning | 已完成 | transition/refill 两条播报流程抽到模块级 helper，工厂只保留公开入口委托 | 中 | `eslint --max-warnings 40` + `dj-speech-service.test.js` + `dj-speech-rules.test.js` 通过 |
 | **P1 ✅** | 把普通 transition speech 从 `onDjSpeechNeeded` 切到 `DjSpeechService` | 已完成 | 普通过渡播报的 TTS 成功/失败、陈旧 speech guard 和时长估算可单测 | 中 | `dj-speech-rules.test.js` + `dj-speech-service.test.js` + handler 静态接缝测试 |
 | **P1 ✅** | 把 refill 补队列播报从 `onDjSpeechNeeded` 切到 `DjSpeechService` | 已完成 | 补队列、queue update、生成 refill 文案、TTS 成功/失败暂停、complete 语义可单测 | 中 | `dj-speech-rules.test.js` + `dj-speech-service.test.js` + `socket-handler-loads.test.js` |
-| **P2** | 前端逐步只读稳定 `Song` 字段 | 中 | 彻底斩断 `ar/al/dt` 透传债 | 中 | `rg "song\\.(ar|al|dt)|\\.ar\\b|\\.al\\b|\\.dt\\b" client` 无业务读取 |
+| **P2 ✅** | 前端只读稳定 `Song` 字段 + Socket v2 | 已完成 | `ar/al/dt` 不再进入 2.0.0 前端 | 中 | v2 projector/emitter/client architecture tests 全绿 |
 | **P2 ✅** | scheduler 的 ListenHistoryRepository 改为构造注入 | 已完成 | services/scheduler 对具体 legacy adapter 依赖更薄，测试可直接 fake repo | 中低 | `scheduler-listen-history-repository.test.js` 覆盖 skip/_onSongEnding record；默认行为不变 |
 
 > 建议下一刀：优先推进 **前端 Song 稳定字段迁移**；若继续后端，则进入 scheduler/recommender/proactive 热点深化，需要先补更细的 characterization tests。
@@ -465,6 +465,45 @@ P2 Port化+拆分     ███████████████░░░   7
 | **P2 / 产品债** | 前端逐步只读稳定 `Song` 字段 | MusicSourcePort 已输出稳定 Song，但前端仍兼容 `ar/al/dt`，这是防腐层最后一段外露债 | 最终切断 NetEase 旧字段向 UI 透传，为替换音乐源留空间 | `rg "song\\.(ar|al|dt)|\\.ar\\b|\\.al\\b|\\.dt\\b" client` 无业务读取 |
 | **P2 / 业务接缝深化** | 继续瘦 `scheduler`、`recommender`、`proactive` 热点 | 这些模块仍有复杂度 warning，但风险高于 PlaybackService，需要更多 characterization tests | 播放推进、推荐、主动播报的领域规则继续沉入 domain/application | 新增纯规则测试先 RED 后 GREEN；相关 load/system tests 全绿 |
 | **P3 / 清理项** | 清理 legacy unused vars、prefer-template、测试 helper warning | 主要是质量账，不改变架构边界，适合穿插做 | 减少 lint 噪音，让真正复杂度热点更显眼 | 每次只消一个小类 warning，避免格式化/机械改动扩大 diff |
+
+### 6.2 启动器 P0 确定性启动节点（2026-07-18）
+
+| 项目 | 改造前 | 当前状态 | 验收 |
+|------|--------|----------|------|
+| 就绪判断 | 解析 `ON AIR` 日志 + 业务 auth 接口 | `/health/ready` + `wait-on` + Qclaudio 身份校验 | ready 前不打开浏览器 |
+| 重复启动 | 仅看端口接口是否返回 200 | 新实例复用、legacy 双信号复用、外部服务拒绝 | 不重复拉起进程，不杀未知进程 |
+| 重启策略 | 所有非零退出均重启 | ready 前失败直接退出；ready 后崩溃才限次退避 | 端口/配置错误快速暴露 |
+| Windows 关闭 | signal + shell 子进程 | 无 shell + IPC shutdown + 所有权清理 | 系统测试确认 HTTP/NetEase 端口释放 |
+| 浏览器 | 默认浏览器，可能过早打开 | ready 后优先 Microsoft Edge；支持 `--no-open` | 空白页启动路径被消除 |
+| 供应链 | 未使用的 `concurrently` 带 critical audit | 移除无引用依赖；固定 `wait-on@8.0.5` 保持 Node 18 兼容 | 根目录 `npm audit` 无漏洞 |
+
+本节点新增 `24` 个启动相关测试，并增加 `npm run test:launcher-system` 真实进程链验证。下一阶段为 P1：依赖/环境预检、前端构建指纹、`npm run doctor`，不在 P0 自动执行联网修复。
+
+### 6.3 启动器 P1 初始化与 doctor 节点（2026-07-18）
+
+| 能力 | 当前实现 | 约束与收益 |
+|------|----------|------------|
+| 项目预检 | 检查 Node 18+、npm、关键文件、root/server/client 运行依赖 | 缺包时报告 workspace + 包名，不在启动时自动联网安装 |
+| 环境检查 | 统一读取 `.env` 与进程环境，进程环境优先 | `PORT/NETEASE_API_PORT` 非法或重复时在启动前失败 |
+| 构建指纹 | SHA-256 覆盖 client 入口、src、public、package/lock | 只在 dist 缺失、源码变化、状态缺失或 `--force-build` 时构建 |
+| 状态落盘 | 原子写入 `data/runtime/startup-state.json` | 构建失败不更新状态，下一次可安全重试 |
+| doctor | `npm run doctor` 只读输出 READY/WARN/FAIL 与 CURRENT/STALE | 不创建目录、不构建、不读取或输出密钥值 |
+| 启动顺序 | 先复用已有 Qclaudio；只有新启动才执行初始化 | 重复启动保持快速，不为已运行实例重复检查或构建 |
+
+P1 在真实 Windows 系统测试中发现并修复 `npm.cmd EINVAL`：构建改为当前 Node 直接执行 `npm-cli.js`，不启用 shell。下一阶段 P2 建议提供显式 `npm run repair`，只在用户主动触发时执行确定性依赖修复。
+
+### 6.4 启动器 P2 显式依赖修复节点（2026-07-18）
+
+| 能力 | 当前实现 | 约束与收益 |
+|------|----------|------------|
+| 修复计划 | preflight 生成 root/server/client 缺失依赖与非修复型 blockers | 计划是纯规则，可在无 IO、无网络条件下单测 |
+| 显式入口 | `npm run repair` | 仅用户主动触发；`npm start` 和 `npm run doctor` 不自动联网 |
+| 确定性安装 | 受影响 workspace 顺序执行 `npm ci --no-audit --no-fund` | 使用现有 lockfile，不修改 manifest/lock；输出顺序稳定 |
+| Windows 进程 | 当前 Node 直接执行已定位的 `npm-cli.js`，`shell:false` | 复用 P1 的 `npm.cmd EINVAL` 修复，不引入 shell 注入面 |
+| 零写入阻塞 | Node/npm、必要文件、端口配置存在错误时拒绝安装 | 非依赖问题先由用户修正，避免无效重建 `node_modules` |
+| 完成验证 | 安装后再次运行完整 preflight | 依赖仍缺失或出现其他失败时命令非零退出，不报告假成功 |
+
+本节点新增 `11` 个纯规则、应用编排、异常分支和 CLI 契约测试；真实 `npm run repair` 在依赖完整时稳定 no-op，启动/关闭系统测试继续通过。下一步不扩张自动修复范围；优先回到业务绞杀目标，或在真实故障数据证明需要后再评估 repair 的代理/离线缓存支持。
 
 ---
 
@@ -520,7 +559,7 @@ routeIntent 实证：52→45(提纯4个函数) → ≤10(switch拆成 AI_ACTION_
 接线/配置(infrastructure)：实例化 SDK/框架(llmClient/defaultCorpus)，是 TDD
      的 Configuration 例外——其决策逻辑由已测纯谓词(isLlmConfigured)保障，
      不为"new OpenAX()"这类外部实例化硬写 mock 测试。
-向后兼容(方案B)：DTO 兼带旧字段，前端不改仍工作，为将来彻底斩断铺路。
+向后兼容：破坏性 payload 改造使用版本化双发。v1 保留旧字段供旧客户端过渡，v2 只发稳定 DTO；新前端只订阅 v2。
 ```
 
 ### 8.5 自留债当轮偿还
@@ -544,6 +583,6 @@ npm run lint    复杂度 warning 数=剩余热点，逐个消除
 
 ## 一句话进度
 
-> **P0✅ P1✅ P2 Port 地基✅ · 305 测试全绿 · lint 0 error / 40 warnings · 0 架构违规 · domain 31 纯文件 · application 12 个 Port 契约 + 6 个 application service · infrastructure 14 个 legacy adapter。**
+> **Qclaudio 2.0.0 · P0✅ P1✅ P2 Port/MusicSource✅ · 后端 1368 测试 + 前端 255 测试全绿 · lint 0 error / 36 warnings · arch 0 error / 10 warnings · Socket v2 稳定 Song 与 v1 双发完成。**
 > **已接线：handler→Weather/Speech/PlaybackService(播放控制+SONG_REQUEST)/ConversationService/ColdStartService(cold-start writing+TTS+开播)/AuthenticationService(Auth 登录+QR)/DjSpeechService(普通 transition+refill 播报)/StreamingConversationService/ChatRepo/ProfileRepo，proactive→Weather/Speech，queue→QueueSnapshotRepo，scheduler→ListenHistoryRepo/MusicSource，router→MusicSource，recommender→MusicSource/ListenHistory/Profile/SeedPoolRepo，planner→Weather/Llm/PlanRepo，claude→Llm/Chat/ProfileRepo，netease→AuthRepo，server/taste→ProfileRepo，server/startup→AuthenticationService，server/rest-music→MusicSourcePort。**
-> **下一步：推进前端 Song 稳定字段迁移；或继续后端 scheduler/recommender/proactive 深化；继续暂不改 Socket 协议，不破坏事件名和外部行为。**
+> **下一步：继续 scheduler/recommender/proactive 接缝深化，优先提炼纯规则；Socket v1 在一个大版本过渡期内保留，后续删除前必须再次走版本决策。启动器暂不扩张自动修复范围。**

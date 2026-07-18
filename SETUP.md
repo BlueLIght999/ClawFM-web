@@ -1,5 +1,7 @@
 # Qclaudio 88.7 — 安装指南
 
+当前应用版本：`2.0.0`。该版本前端使用 Socket Song 协议 v2；服务端仍双发 v1 事件供旧客户端过渡。
+
 AI DJ 电台，24/7 播放网易云音乐，支持自然语言点歌和 AI 语音主持。
 
 ## 前置要求
@@ -53,7 +55,41 @@ cp .env.example .env
 npm start
 ```
 
-打开浏览器访问 `http://localhost:3333`。
+启动器会完成端口身份检查，等待 `/health/ready` 确认服务可用后，再用 Microsoft Edge 打开 `http://localhost:3333`。
+
+无需打开浏览器时运行：
+
+```bash
+npm start -- --no-open
+```
+
+启动前只做诊断、不修改文件：
+
+```bash
+npm run doctor
+```
+
+如果 doctor 报告某个 workspace 缺少依赖，可显式执行：
+
+```bash
+npm run repair
+```
+
+`repair` 只处理 root/server/client 中实际缺依赖的 workspace，使用各自 lockfile 执行 `npm ci`，完成后再次运行 preflight 验证。该命令可能访问 npm registry 并重建对应 `node_modules`，但不会修改 `package.json` 或 lockfile。Node 版本、必要文件或端口配置仍有错误时，修复会在写入前停止。
+
+如果 doctor 显示 `Client build: STALE`，正常启动会自动重新构建。也可以显式强制构建：
+
+```bash
+npm start -- --force-build
+```
+
+启动器会检查 Node/npm、必要文件、运行依赖、`.env` 和端口配置。缺少依赖时会给出具体 workspace 和包名；普通启动不会自动联网安装，只有用户主动执行 `npm run repair` 才会修复依赖。
+
+验证完整启动和关闭链路：
+
+```bash
+npm run test:launcher-system
+```
 
 首次使用需要扫码登录网易云账号。
 
@@ -89,10 +125,16 @@ DJ 会自动读取这些文件来个性化推荐。
 ## 常见问题
 
 **Q: 启动后浏览器一片空白？**
-确保在项目根目录运行 `npm start`，而不是 server 目录。
+确保在项目根目录运行 `npm start`，而不是 server 目录。新版启动器只会在后端 ready 后打开浏览器；若端口被其他服务占用，会直接输出冲突端口而不是打开空白页。
 
 **Q: 扫码登录失败？**
-检查 `server/netease-api/` 是否已正确安装并启动（端口 3000）。
+确认 `server/node_modules/NeteaseCloudMusicApi` 已安装，并检查 `.env` 中的 `NETEASE_API_PORT`（默认 `4001`）是否被其他程序占用。启动器不会自动终止未知进程。
+
+**Q: 如何检查服务是否已经就绪？**
+访问 `http://localhost:3333/health/ready`。它只表示 Qclaudio 主进程已可接收请求；包含外部依赖状态的完整检查仍使用 `/health`。
+
+**Q: 为什么启动时自动重新构建前端？**
+启动器会对 `client/src`、`client/public`、入口文件和 package lock 计算内容指纹。源码变化或首次建立指纹时会构建一次，成功后记录到 `data/runtime/startup-state.json`；内容未变化时不会重复构建。
 
 **Q: DJ 不说话（只有文字没有语音）？**
 检查 `.env` 中的 `DASHSCOPE_API_KEY` 是否正确。TTS 不可用时 DJ 会降级为纯文字模式。

@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useRef, useEffect } from 'react';
 
 const ColdStartContext = createContext(null);
 
-export function ColdStartProvider({ children }) {
+export function ColdStartProvider({ children, socket, connected, loggedIn, onDeferredSpeech }) {
   const [coldPhase, setColdPhase] = useState('loading');
   const [coldPhaseText, setColdPhaseText] = useState('');
   const [coldOpenText, setColdOpenText] = useState('');
@@ -16,6 +16,23 @@ export function ColdStartProvider({ children }) {
     const timer = setTimeout(() => setColdPhase('done'), 900);
     return () => clearTimeout(timer);
   }, [coldPhase]);
+
+  // Signal server that client is ready for cold start (logged in + connected)
+  useEffect(() => {
+    if (socket && connected && loggedIn) {
+      socket.emit('client:ready');
+    }
+  }, [socket, connected, loggedIn]);
+
+  // Play deferred cold-start speech after exit animation completes
+  // Only fires when onDeferredSpeech callback is provided; otherwise App.jsx handles it
+  useEffect(() => {
+    if (coldPhase !== 'done') return;
+    const url = pendingSpeechRef.current;
+    if (!url || !onDeferredSpeech) return;
+    pendingSpeechRef.current = null;
+    onDeferredSpeech(url);
+  }, [coldPhase, onDeferredSpeech]);
 
   const isColdLoading = coldPhase !== 'done';
 

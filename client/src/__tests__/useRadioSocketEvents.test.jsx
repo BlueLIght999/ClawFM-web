@@ -7,11 +7,6 @@ vi.mock('../contexts/RadioContext.jsx', () => ({
     updateRadioState: vi.fn(),
     isPlayingRef: { current: false },
   }),
-  useRadio: () => ({
-    setRadioState: vi.fn(),
-    updateRadioState: vi.fn(),
-    isPlayingRef: { current: false },
-  }),
 }));
 
 vi.mock('../contexts/ColdStartContext.jsx', () => ({
@@ -19,16 +14,9 @@ vi.mock('../contexts/ColdStartContext.jsx', () => ({
     coldPhaseRef: { current: 'loading' },
     setColdPhase: vi.fn(),
   }),
-  useColdStart: () => ({
-    coldPhaseRef: { current: 'loading' },
-    setColdPhase: vi.fn(),
-  }),
 }));
 
 vi.mock('../contexts/CrabContext.jsx', () => ({
-  useCrab: () => ({
-    setCrabState: vi.fn(),
-  }),
   useCrab: () => ({
     setCrabState: vi.fn(),
   }),
@@ -47,22 +35,22 @@ function makeMockSocket() {
 }
 
 describe('useRadioSocketEvents', () => {
-  it('registers radio:state handler', () => {
+  it('registers radio:state-v2 handler', () => {
     const socket = makeMockSocket();
     renderHook(() => useRadioSocketEvents(socket, { current: null }));
-    expect(socket.on).toHaveBeenCalledWith('radio:state', expect.any(Function));
+    expect(socket.on).toHaveBeenCalledWith('radio:state-v2', expect.any(Function));
   });
 
-  it('registers radio:song-change handler', () => {
+  it('registers radio:song-change-v2 handler', () => {
     const socket = makeMockSocket();
     renderHook(() => useRadioSocketEvents(socket, { current: null }));
-    expect(socket.on).toHaveBeenCalledWith('radio:song-change', expect.any(Function));
+    expect(socket.on).toHaveBeenCalledWith('radio:song-change-v2', expect.any(Function));
   });
 
-  it('registers radio:queue-update handler', () => {
+  it('registers radio:queue-update-v2 handler', () => {
     const socket = makeMockSocket();
     renderHook(() => useRadioSocketEvents(socket, { current: null }));
-    expect(socket.on).toHaveBeenCalledWith('radio:queue-update', expect.any(Function));
+    expect(socket.on).toHaveBeenCalledWith('radio:queue-update-v2', expect.any(Function));
   });
 
   it('registers radio:pause handler', () => {

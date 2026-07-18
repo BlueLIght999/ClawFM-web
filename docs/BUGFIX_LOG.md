@@ -358,3 +358,80 @@ setTimeout(() => setLoading(false), 3000);
 | `client/src/components/LoginOverlay.jsx` | #18, #19, #20 | 全部已修复 |
 | `client/src/App.jsx` | #19, #20 | 全部已修复 |
 
+---
+
+# 第三轮：启动器确定性启动节点
+
+> 日期：2026-07-18
+> 范围：`bin/qclaudio.js` → `server/index.js` → `server/server.js` → `NeteaseProcessManager`
+
+## Bug #22: 启动器依赖 `ON AIR` 日志文本判断 ready [已修复]
+
+**症状：** 日志分块、格式调整或 logger 输出变化时，后端已经监听但启动器仍等待 30 秒；反向也可能过早打开浏览器。
+
+**修复：**
+- 新增 `/health/ready` 稳定身份契约。
+- 使用开源 `wait-on@8.0.5` 等待 HTTP GET 2xx，再校验 `service/instanceId`。
+- 浏览器只在 ready 后打开，Windows 优先 Microsoft Edge。
+
+## Bug #23: 升级前运行中的 Qclaudio 被误判为外部端口占用 [已修复]
+
+**症状：** 旧实例没有 `/health/ready`，SPA fallback 返回首页，新启动器无法复用。
+
+**修复：** 使用“Qclaudio 页面标题 + `/api/auth/status` JSON”双信号识别 legacy 实例；只复用，不终止用户进程。真正的外部服务仍立即报端口冲突。
+
+## Bug #24: 确定性启动错误进入无意义重启循环 [已修复]
+
+**症状：** 端口冲突、配置错误或初始化失败也会指数重启，延迟暴露根因。
+
+**修复：** server 子进程在 IPC `ready` 前退出时直接失败；只有 ready 后的运行期崩溃才允许限次指数退避。稳定运行 60 秒后重置重试计数。
+
+## Bug #25: Windows 子进程关闭可能残留 [已修复]
+
+**症状：** shell 包装和 POSIX signal 在 Windows 上语义不稳定，强制终止启动器可能留下 server 或网易云 API 进程。
+
+**修复：**
+- Node 子进程统一使用 `process.execPath` 和 `shell:false`。
+- `qclaudio → index → server` 使用 IPC shutdown 逐层关闭。
+- Netease 管理器记录进程所有权，关闭后禁止自动重启。
+- 新增真实系统测试，验证 ready、IPC 关闭和两个端口释放。
+
+## Bug #26: 前端 dist 存在但内容过期 [已修复]
+
+**症状：** `client/dist/index.html` 只要存在，启动器就永远跳过构建；源码更新后仍加载旧页面。
+
+**修复：** 对 client 入口、`src`、`public`、package manifest 和 lockfile 计算 SHA-256 指纹。指纹变化后自动构建，成功后原子写入 `data/runtime/startup-state.json`。
+
+## Bug #27: 启动器与后端读取不同的端口配置 [已修复]
+
+**症状：** `.env` 修改 `PORT` 后，后端监听新端口，但启动器仍探测默认 `3333`，最终 readiness 超时。
+
+**修复：** 启动器和 preflight 共用 `loadStartupConfig`，按“进程环境 > `.env` > 默认值”解析端口，并把最终端口显式传给子进程。
+
+## Bug #28: Windows 构建阶段执行 `npm.cmd` 返回 EINVAL [已修复]
+
+**症状：** 构建指纹触发前端构建后，`execFileSync('npm.cmd')` 在 Windows 直接失败，服务无法启动。
+
+**修复：** 定位当前 `npm-cli.js`，使用 `process.execPath` 直接执行，不启用 shell。新增 `npm run doctor` 只读诊断依赖、环境、端口和构建状态。
+
+## Bug #29: node_modules 部分缺失只能手工猜测安装目录 [已修复]
+
+**症状：** doctor 能报告缺失依赖，但用户仍需手动进入 root/server/client 判断执行哪条安装命令；错误 workspace 或非锁文件安装会扩大环境漂移。
+
+**修复：**
+- 新增显式 `npm run repair`，从 preflight 的缺失依赖事实生成确定性修复计划。
+- 只对受影响 workspace 顺序执行 lockfile 驱动的 `npm ci`，Windows 继续通过当前 Node 运行 `npm-cli.js`，不启用 shell。
+- Node、必要文件、端口等非依赖问题会阻止任何安装；安装后再次 preflight，仍失败则带 workspace 上下文退出。
+- 普通 `npm start` 与只读 `npm run doctor` 不调用修复器，避免隐式联网和不可预期写入。
+
+## Bug #30: 稳定 Song 已上线但 Socket 仍泄漏原始字段 [已修复]
+
+**症状：** 前端组件虽已只读 `title/artist/album/durationMs/coverUrl`，但 `radio:state`、`radio:song-change` 和 `radio:queue-update` 仍携带 `ar/al/dt` 及音乐源私有字段，防腐层没有在传输边界真正闭合。
+
+**修复：**
+- 应用版本提升到 `2.0.0`，新增三条 v2 事件并在 payload 中标记 `schemaVersion: 2`。
+- 新增纯投影器，将 currentSong、song、upcomingSongs 映射为稳定六字段 Song DTO。
+- 所有服务端 Song 事件统一经过 versioned emitter；v1 原 payload 与 v2 稳定 payload 双发，旧客户端继续可用。
+- 2.0.0 前端只订阅 v2；增加架构测试，禁止生产源码重新读取 `ar/al/dt` 或订阅 v1 Song 事件。
+- Service Worker 缓存升级为 `qclaudio-v7`，避免旧客户端脚本继续订阅 v1。
+

@@ -36,6 +36,18 @@ describe('SettingsView', () => {
     expect(screen.getByText(/MORNING/)).toBeInTheDocument();
     expect(screen.getByText(/AFTERNOON/)).toBeInTheDocument();
     expect(screen.getByText(/NIGHT/)).toBeInTheDocument();
+    expect(screen.getByText(/CREAM/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'AUTO' })).toBeInTheDocument();
+  });
+
+  it('clearsThemeOverride_whenAutoButtonClicked', async () => {
+    const { default: SettingsView } = await import('../components/SettingsView.jsx');
+    const clearOverride = vi.fn();
+    render(<SettingsView {...defaultProps} override="cream" clearOverride={clearOverride} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'AUTO' }));
+
+    expect(clearOverride).toHaveBeenCalled();
   });
 
   it('shows proactive toggle ON when enabled', async () => {
