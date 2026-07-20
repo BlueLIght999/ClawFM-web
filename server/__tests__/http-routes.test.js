@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+
+// Mock history module before importing httpRoutes
+vi.mock('../db/history.js', () => ({
+  getListenCount: vi.fn(() => 0),
+}));
+
 import { registerHttpRoutes } from '../infrastructure/http/httpRoutes.js';
 
 function createTestApp(services) {

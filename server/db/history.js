@@ -25,6 +25,12 @@ export function getArtistPlayCount(hours = 1) {
   );
 }
 
+// P0: Total songs played — used by /api/taste for real play count
+export function getListenCount() {
+  const row = queryOne('SELECT COUNT(*) as count FROM listen_history');
+  return row?.count || 0;
+}
+
 export function getChatHistory(limit = 20) {
   return queryAll('SELECT role, content FROM chat_history ORDER BY id DESC LIMIT ?', [limit]).reverse();
 }

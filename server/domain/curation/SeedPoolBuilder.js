@@ -60,7 +60,10 @@ export class SeedPoolBuilder {
         for (const track of tracks) {
           this._addSeedSong(track, songs, artistCount, `playlist:${pl.name}`);
         }
-      } catch { /* skip failed playlist */ }
+      } catch (e) {
+        // P1: log error instead of silently swallowing — aids diagnosing empty seed pool
+        console.warn(`[SeedPoolBuilder] Failed to fetch playlist "${pl?.name}" (${pl?.id}):`, e.message);
+      }
     }
   }
 
@@ -76,7 +79,10 @@ export class SeedPoolBuilder {
           }
         }
       }
-    } catch { /* skip */ }
+    } catch (e) {
+      // P1: log error instead of silently swallowing
+      console.warn('[SeedPoolBuilder] Failed to fetch liked songs:', e.message);
+    }
   }
 
   _addSeedSong(track, songs, artistCount, source) {

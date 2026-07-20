@@ -7,6 +7,8 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import * as history from '../../db/history.js';
+import { buildTasteResponse } from '../../domain/profile/tasteResponse.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -75,7 +77,9 @@ export function registerHttpRoutes(app, services) {
       if (!uid) return res.json({ playlists: [] });
       const playlists = (await musicSource.userPlaylists(uid)).map(p => ({
         id: p.id, name: p.name, trackCount: p.trackCount,
-        playCount: p.playCount, coverImgUrl: p.coverImgUrl,
+        playCount: p.playCount,
+        // P0: fix field name mismatch — adapter returns coverUrl, not coverImgUrl
+        coverImgUrl: p.coverUrl || p.coverImgUrl || '',
       }));
       res.json({ playlists });
     } catch (e) {
@@ -130,14 +134,14 @@ export function registerHttpRoutes(app, services) {
   });
 
   // ─── Profile & Taste ───────────────────────────────────
+  // P0: totalSongs now from listen_history (real count), not profile.analysis (never written)
   app.get('/api/taste', (req, res) => {
     const profile = listenerProfileRepository.get();
-    res.json({
-      topArtists: (profile.topArtists || []).slice(0, 10),
-      topGenres: (profile.analysis?.topGenres || []),
-      totalSongs: profile.analysis?.totalSongs || 0,
+    res.json(buildTasteResponse({
+      profile,
+      getListenCount: history.getListenCount,
       currentMood: getTimeOfDayMood(),
-    });
+    }));
   });
 
   app.get('/api/profile', async (req, res) => {
