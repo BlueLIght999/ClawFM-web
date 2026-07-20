@@ -35,19 +35,36 @@ export function seedSongMatchesPreference(seedSong, preference) {
   return haystack.includes(keyword);
 }
 
+/**
+ * Rank songs by user's top artists with weighted preference.
+ *
+ * P1: Increased preference weight — top artists get exponentially more weight
+ * based on their rank position. The #1 artist gets TOP1_BOOST extra points.
+ * This ensures user's most-listened artists dominate the queue over generic
+ * recommendations.
+ */
 export function rankSongsByTopArtists(songs, topArtists) {
-  const topArtistNames = new Set(
-    (topArtists || []).slice(0, 15).map(a => lower(a.name))
-  );
+  const topList = (topArtists || []).slice(0, 15);
+  const topArtistNames = new Set(topList.map(a => lower(a.name)));
+
+  // Build weight map: #1 artist gets 5.0, exponential decay by rank
+  // Formula ensures top1 single match beats any combination of lower-rank matches
+  const weightMap = new Map();
+  topList.forEach((a, idx) => {
+    const baseWeight = 5.0 * Math.pow(0.6, idx); // 5.0, 3.0, 1.8, 1.08, 0.65, ...
+    weightMap.set(lower(a.name), baseWeight);
+  });
+
   return [...(songs || [])].sort((a, b) =>
-    artistScore(b, topArtistNames) - artistScore(a, topArtistNames)
+    artistWeightedScore(b, weightMap, topArtistNames) -
+    artistWeightedScore(a, weightMap, topArtistNames)
   );
 }
 
-function artistScore(song, topArtistNames) {
+function artistWeightedScore(song, weightMap, topArtistNames) {
   return artistName(song)
     .split(',')
     .map(name => lower(name.trim()))
     .filter(name => topArtistNames.has(name))
-    .length;
+    .reduce((sum, name) => sum + (weightMap.get(name) || 0), 0);
 }

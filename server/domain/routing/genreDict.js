@@ -51,6 +51,30 @@ const GENRE_DICT = {
     seedArtists: ['Queen', 'Nirvana', 'Coldplay', 'Oasis'],
     enhancedQuery: 'rock 摇滚',
   },
+  mathrock: {
+    aliases: ['数学摇滚', 'math rock', 'math-rock', 'mathrock'],
+    playlistQuery: '数学摇滚',
+    seedArtists: ['toe', 'Tricot', 'American Football', 'TTNG', 'Covet'],
+    enhancedQuery: 'math rock 数学摇滚 复杂拍号',
+  },
+  postpunk: {
+    aliases: ['后朋克', 'post-punk', 'post punk'],
+    playlistQuery: '后朋克',
+    seedArtists: ['Joy Division', 'Bauhaus', 'The Cure', 'Public Image Ltd'],
+    enhancedQuery: 'post punk 后朋克',
+  },
+  emo: {
+    aliases: ['情绪摇滚', 'emotional'],
+    playlistQuery: 'emo',
+    seedArtists: ['My Chemical Romance', 'Fall Out Boy', 'Brand New', 'Texas Is The Reason'],
+    enhancedQuery: 'emo 情绪摇滚',
+  },
+  progrock: {
+    aliases: ['前卫摇滚', 'progressive rock', 'prog rock'],
+    playlistQuery: '前卫摇滚',
+    seedArtists: ['Pink Floyd', 'Yes', 'Genesis', 'King Crimson', 'Rush'],
+    enhancedQuery: 'progressive rock 前卫摇滚',
+  },
   metal: {
     aliases: ['金属', '重金属', 'heavy metal'],
     playlistQuery: '金属',

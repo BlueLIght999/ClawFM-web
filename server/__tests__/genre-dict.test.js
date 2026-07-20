@@ -83,6 +83,56 @@ describe('genreDict', () => {
       expect(result).not.toBeNull();
       expect(result.entry.seedArtists.length).toBeGreaterThan(0);
     });
+
+    // P1: mathrock 条目 — "数学摇滚"不应被误导向 rock 大类
+    it('exactMatch_mathrock', () => {
+      const result = matchGenre('mathrock');
+      expect(result).not.toBeNull();
+      expect(result.key).toBe('mathrock');
+      expect(result.matchScore).toBe(1.0);
+    });
+
+    it('aliasMatch_chinese_mathRock', () => {
+      const result = matchGenre('数学摇滚');
+      expect(result).not.toBeNull();
+      expect(result.key).toBe('mathrock');
+      expect(result.matchScore).toBe(0.9);
+    });
+
+    it('aliasMatch_english_mathRock', () => {
+      expect(matchGenre('math rock').key).toBe('mathrock');
+      expect(matchGenre('math-rock').key).toBe('mathrock');
+    });
+
+    it('mathrock_hasToeAsSeedArtist', () => {
+      const result = matchGenre('数学摇滚');
+      expect(result.entry.seedArtists).toContain('toe');
+    });
+
+    it('mathrock_doesNotFallBackToRock', () => {
+      // "数学摇滚" contains "摇滚" but should match mathrock (longer alias), not rock
+      const result = matchGenre('数学摇滚');
+      expect(result.key).not.toBe('rock');
+    });
+
+    it('rock_stillMatchesForJustRock', () => {
+      // "摇滚" alone should still match rock
+      const result = matchGenre('摇滚');
+      expect(result.key).toBe('rock');
+    });
+
+    // P2: 其他子风格也应有精确匹配
+    it('postpunk_matchesPostpunk_notPunk', () => {
+      const result = matchGenre('后朋克');
+      expect(result).not.toBeNull();
+      expect(result.key).toBe('postpunk');
+    });
+
+    it('emo_matchesEmo_notPunk', () => {
+      const result = matchGenre('emo');
+      expect(result).not.toBeNull();
+      expect(result.key).not.toBe('punk');
+    });
   });
 
   describe('getGenreEntry', () => {

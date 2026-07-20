@@ -121,7 +121,18 @@ function buildCoreMethods(legacy) {
     },
     async likedSongs(uid) {
       const result = await legacy.getLikedSongs(uid);
-      return toSongs(result?.ids || result?.songs || []);
+      const ids = result?.ids || result?.songs || [];
+
+      // P0: Real /likelist API returns numeric ID array, not song objects.
+      // Detect shape: if first element is a number, fetch full song details.
+      if (Array.isArray(ids) && ids.length > 0 && typeof ids[0] === 'number') {
+        const batchIds = ids.slice(0, 500).join(',');
+        const detail = await legacy.getSongDetail(batchIds);
+        return toSongs(detail?.songs || []);
+      }
+
+      // Backward compat: ids is already an object array (old test mocks)
+      return toSongs(ids);
     },
     async personalFm() {
       const result = await legacy.getPersonalFm();
