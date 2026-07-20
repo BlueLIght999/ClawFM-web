@@ -9,6 +9,8 @@ const CHAT_SPEECH_ACTIONS = new Set([
 
 const SENTENCE_SPLIT_RE = /[。！？.!?]/;
 
+import { extractSayFromText, stripJsonFromText } from './djJsonGuard.js';
+
 /**
  * Extract streamed token text from an OpenAI-compatible chunk.
  *
@@ -30,12 +32,11 @@ export function streamTokenFromChunk(chunk) {
  * Constraint: preserves the legacy "JSON only matters when it has a say field" behavior.
  */
 export function displayTextFromDjStream(fullText) {
-  try {
-    const parsed = JSON.parse(fullText);
-    return parsed?.say || fullText;
-  } catch {
-    return fullText;
-  }
+  // P0: use djJsonGuard for robust JSON extraction + stripping
+  const extracted = extractSayFromText(fullText);
+  if (extracted !== fullText) return extracted; // JSON was found and say extracted
+  // No JSON — strip any residual JSON blocks from mixed content
+  return stripJsonFromText(fullText);
 }
 
 /**

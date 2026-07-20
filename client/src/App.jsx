@@ -30,6 +30,7 @@ export default function App({ socket, connected }) {
     djDialogText, djDialogStreaming, djDialogVisible, djDialogMsgId,
     sendMessage: handleChatMessage, hideDJDialog: handleDJDialogHide,
     showDJMessage, appendDJStreamChunk, endDJStream, addDJMessage, chatOpenRef,
+    isDjThinking,
   } = useChat();
   const {
     coldPhase, setColdPhase, coldPhaseRef, coldPhaseText, setColdPhaseText,
@@ -138,6 +139,7 @@ export default function App({ socket, connected }) {
         onChatMessage={handleChatMessage}
         chatOpen={chatOpen}
         setChatOpen={setChatOpen}
+        isDjThinking={isDjThinking}
         error={error}
         socket={socket}
         currentSong={radioState.currentSong}

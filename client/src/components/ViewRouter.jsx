@@ -51,7 +51,7 @@ export function ViewRouter({
             socket={socket}
             onRefreshPlan={() => {
               fetch('/api/plan/today?force=true').then(r => r.json()).then(data => {
-                if (data.blocks) setPlan(data);
+                if (data.blocks && data.blocks.length > 0) setPlan(data);
               }).catch(() => {});
             }}
           />

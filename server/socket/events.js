@@ -7,6 +7,7 @@ export const EVENTS = {
   DJ_MESSAGE: 'radio:dj-message',
   DJ_SPEECH_START: 'radio:dj-speech-start',
   DJ_SPEECH_END: 'radio:dj-speech-end',
+  DJ_STREAM_START: 'radio:dj-stream-start',
   DJ_STREAM_CHUNK: 'radio:dj-stream-chunk',
   DJ_STREAM_END: 'radio:dj-stream-end',
   QUEUE_UPDATE: 'radio:queue-update',

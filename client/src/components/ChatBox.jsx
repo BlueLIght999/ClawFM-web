@@ -51,7 +51,7 @@ function UserAvatar() {
   );
 }
 
-export default function ChatBox({ messages, onSend, isOpen, onToggle }) {
+export default function ChatBox({ messages, onSend, isOpen, onToggle, isDjThinking }) {
   const [input, setInput] = useState('');
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
@@ -152,6 +152,24 @@ export default function ChatBox({ messages, onSend, isOpen, onToggle }) {
             </div>
           </div>
         ))}
+        {/* P1: "DJ is thinking" indicator — shown between message send and first stream chunk */}
+        {isDjThinking && (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'row-reverse',
+          }}>
+            <div style={{
+              fontFamily: 'var(--font-mono)', fontSize: 15,
+              color: 'var(--accent-glow)',
+              background: 'rgba(224,123,86,0.08)',
+              border: '1px solid rgba(224,123,86,0.2)',
+              padding: '4px 8px',
+            }}>
+              <span className="cursor-blink" style={{ marginRight: 6 }} />
+              <span style={{ opacity: 0.8 }}>{'DJ 正在思考...'}</span>
+            </div>
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 

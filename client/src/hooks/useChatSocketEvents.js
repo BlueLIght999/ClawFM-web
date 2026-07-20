@@ -6,7 +6,7 @@ import { useColdStart } from '../contexts/ColdStartContext.jsx';
 import { E } from '../constants/events.js';
 
 export function useChatSocketEvents(socket, djSpeechUrlRef, speechTypeRef, setDjSpeechUrl, pendingSpeechRef) {
-  const { addDJMessage, showDJMessage, appendDJStreamChunk, endDJStream } = useChat();
+  const { addDJMessage, showDJMessage, appendDJStreamChunk, endDJStream, startDjThinking, clearDjThinking } = useChat();
   const { setCrabState } = useCrab();
   const { isPlayingRef } = useRadio();
   const { setColdPhase } = useColdStart();
@@ -17,6 +17,12 @@ export function useChatSocketEvents(socket, djSpeechUrlRef, speechTypeRef, setDj
     socket.on(E.DJ_MESSAGE, (data) => {
       addDJMessage(data.text);
       showDJMessage(data.text);
+    });
+
+    // P1: DJ_STREAM_START — DJ begins thinking, show loading state + crab pulse
+    socket.on(E.DJ_STREAM_START, () => {
+      startDjThinking();
+      setCrabState('loading');
     });
 
     socket.on(E.DJ_SPEECH_START, (data) => {
@@ -39,20 +45,24 @@ export function useChatSocketEvents(socket, djSpeechUrlRef, speechTypeRef, setDj
 
     socket.on(E.DJ_STREAM_CHUNK, (data) => {
       appendDJStreamChunk(data.messageId, data.token);
+      // P1: first chunk arrived — switch crab from loading to talking
+      setCrabState('talking');
     });
 
     socket.on(E.DJ_STREAM_END, () => {
       endDJStream();
+      clearDjThinking();
     });
 
     return () => {
       socket.off(E.DJ_MESSAGE);
+      socket.off(E.DJ_STREAM_START);
       socket.off(E.DJ_SPEECH_START);
       socket.off(E.DJ_SPEECH_END);
       socket.off(E.DJ_STREAM_CHUNK);
       socket.off(E.DJ_STREAM_END);
     };
   }, [socket, addDJMessage, showDJMessage, appendDJStreamChunk, endDJStream,
-      setCrabState, isPlayingRef, setColdPhase, djSpeechUrlRef, speechTypeRef,
-      setDjSpeechUrl, pendingSpeechRef]);
+      startDjThinking, clearDjThinking, setCrabState, isPlayingRef, setColdPhase,
+      djSpeechUrlRef, speechTypeRef, setDjSpeechUrl, pendingSpeechRef]);
 }

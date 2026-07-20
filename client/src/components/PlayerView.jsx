@@ -20,6 +20,7 @@ export function PlayerView({
   onDJDialogReply, onDJDialogHide, speechAudioRef,
   audioEl, isPlaying, theme,
   chatMessages, onChatMessage, chatOpen, setChatOpen,
+  isDjThinking,
   error, socket, weather = '',
   currentSong, elapsed, duration, queueMode, upcomingSongs,
   musicAudioRef, onSkip, onPrevious, onPause, onResume, onSetMode,
@@ -48,7 +49,7 @@ export function PlayerView({
                 messageId={djDialogMsgId} onReply={onDJDialogReply} onHide={onDJDialogHide}
                 speechAudioRef={speechAudioRef} />
             }
-            chat={<ChatBox messages={chatMessages} onSend={onChatMessage} isOpen={chatOpen} onToggle={setChatOpen} />}
+            chat={<ChatBox messages={chatMessages} onSend={onChatMessage} isOpen={chatOpen} onToggle={setChatOpen} isDjThinking={isDjThinking} />}
           />
         }
         lyrics={<LyricsDisplay songId={currentSong?.id} song={currentSong} elapsed={elapsed} isPlaying={isPlaying} />}

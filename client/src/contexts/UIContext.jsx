@@ -32,9 +32,10 @@ export function UIProvider({ socket, children }) {
   }, [view]);
 
   // Fetch initial plan
+  // P1: check blocks.length > 0 — empty array [] is truthy, would show "No schedule available"
   useEffect(() => {
     fetch('/api/plan/today').then(r => r.json()).then(data => {
-      if (data.blocks) setPlan(data);
+      if (data.blocks && data.blocks.length > 0) setPlan(data);
     }).catch(() => {});
   }, []);
 

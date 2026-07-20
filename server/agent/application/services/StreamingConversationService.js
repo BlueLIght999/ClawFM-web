@@ -6,6 +6,7 @@ import {
   streamTokenFromChunk,
 } from '../../domain/streamingChatRules.js';
 import { createSentenceAccumulator } from '../../domain/sentenceAccumulator.js';
+import { shouldFilterChunk, stripJsonFromText } from '../../domain/djJsonGuard.js';
 
 const DJ_UNAVAILABLE_TEXT = 'DJ 暂时离线，请稍后再试。';
 
@@ -44,12 +45,27 @@ export function createStreamingConversationService({
       }
 
       let fullText = '';
+      let jsonBuffering = false;  // P0: buffer JSON tokens to prevent leaking to frontend
       try {
         for await (const chunk of stream) {
           const token = mergedStream ? chunk : streamTokenFromChunk(chunk);
           if (token) {
             fullText += token;
-            onChunk({ messageId, token });
+            // P0: detect JSON start — buffer instead of emitting to frontend
+            if (!jsonBuffering && shouldFilterChunk(token)) {
+              jsonBuffering = true;
+            }
+            if (!jsonBuffering) {
+              onChunk({ messageId, token });
+            }
+          }
+        }
+
+        // If we buffered JSON, strip it and emit only the clean text
+        if (jsonBuffering) {
+          const cleaned = stripJsonFromText(fullText);
+          if (cleaned) {
+            onChunk({ messageId, token: cleaned });
           }
         }
 

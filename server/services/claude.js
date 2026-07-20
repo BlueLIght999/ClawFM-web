@@ -6,6 +6,7 @@ import config from '../config.js';
 import { artistName } from '../domain/hosting/artistName.js';
 import { fallbackTransitionScript } from '../domain/hosting/fallbackTransitionScript.js';
 import { buildProactivePrompt } from '../domain/hosting/buildProactivePrompt.js';
+import { extractSayFromText } from '../agent/domain/djJsonGuard.js';
 import {
   buildDjResponseMessages,
   buildIntentMessages,
@@ -67,7 +68,8 @@ export async function generateDjResponse({
   try {
     return JSON.parse(result);
   } catch {
-    return { say: result, play: [], reason: 'parsed as text', segue: '' };
+    // P0: strip JSON markup — LLM may return ```json or partial JSON
+    return { say: extractSayFromText(result), play: [], reason: 'parsed as text', segue: '' };
   }
 }
 
@@ -132,7 +134,7 @@ export async function generateColdOpen(nextSong, weather, timeOfDay) {
   if (!result) {
     return { say: coldOpenFallback(nextSong) };
   }
-  try { return JSON.parse(result); } catch { return { say: result }; }
+  try { return JSON.parse(result); } catch { return { say: extractSayFromText(result) }; }
 }
 
 /** Streaming cold open — emits tokens via onChunk, returns full text */
@@ -172,7 +174,7 @@ export async function generateRefillSpeech(upcomingSongs, weather, timeOfDay) {
   if (!result) {
     return { say: refillSpeechFallback() };
   }
-  try { return JSON.parse(result); } catch { return { say: result }; }
+  try { return JSON.parse(result); } catch { return { say: extractSayFromText(result) }; }
 }
 
 // Keep backward compat

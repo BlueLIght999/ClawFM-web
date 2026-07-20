@@ -49,6 +49,10 @@ export async function handleChatMessage(text, io, socket, deps) {
   if (chatHistory && text) chatHistory.append('user', text);
   if (metricsCollector) metricsCollector.chatMessages.inc({ role: 'user' });
 
+  // P1: notify frontend that DJ is thinking — before any LLM call
+  const messageId = `dj-${Date.now()}`;
+  socket.emit(EVENTS.DJ_STREAM_START, { messageId, timestamp: Date.now() });
+
   const turnResult = await agentLoopService.handleMessage({ text, snapshot: preRecommendSnapshot });
   if (turnResult.unavailableMessage) {
     socket.emit(EVENTS.DJ_MESSAGE, turnResult.unavailableMessage);
