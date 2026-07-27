@@ -267,6 +267,26 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
       });
     },
 
+    /**
+     * 列出指定簇的成员（含 nickname/avatar/selfTags，给 GET /clusters/:id/members 用）。
+     * 不返回 cookie 类敏感字段。
+     */
+    listClusterMembers(clusterId) {
+      return q(
+        `SELECT user_id, nickname, avatar_url, joined_at, last_active_at, cluster_id, self_tags
+         FROM community_members WHERE cluster_id = ? ORDER BY joined_at ASC`,
+        [Number(clusterId)]
+      ).map((r) => ({
+        userId: String(r.user_id),
+        nickname: r.nickname || '',
+        avatarUrl: r.avatar_url || '',
+        joinedAt: r.joined_at,
+        lastActiveAt: r.last_active_at || null,
+        clusterId: r.cluster_id === null || r.cluster_id === undefined ? null : Number(r.cluster_id),
+        selfTags: parseJsonArray(r.self_tags),
+      }));
+    },
+
     createInbox(entry) {
       run(
         `INSERT INTO community_inbox (user_id, target_type, target_id, from_cluster, reason)

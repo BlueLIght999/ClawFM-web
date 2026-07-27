@@ -204,6 +204,7 @@ export function createServices(io) {
   });
   const communityService = createCommunityService({
     communityRepository,
+    eventPublisher: communityEventPublisher,
     feedPersonalizer: (userId, posts) => {
       try {
         const invs = communityRepository.listInvitations(userId).filter((i) => i.status === 'active' && i.contextType === 'feed');

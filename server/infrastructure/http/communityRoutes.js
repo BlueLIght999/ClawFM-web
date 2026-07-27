@@ -18,7 +18,8 @@ function fail(res, error, status = 400) {
  * @returns {import('express').Router}
  */
 export function createCommunityRouter(services) {
-  const { communityService, memberProfileService, communityRepository, cookieCipherPort } = services;
+  const { communityService, memberProfileService, communityRepository, cookieCipherPort,
+          clusterService, memberAgentService, distributionService } = services;
   const router = express.Router();
   router.use(express.json());
 
@@ -80,6 +81,50 @@ export function createCommunityRouter(services) {
     const post = communityService.likePost(Number(req.params.id));
     if (!post) return fail(res, 'not_found', 404);
     return ok(res, post);
+  });
+
+  // ── P1: 聚类 / 收件箱 / 成员 Agent 配置 / Agent 互评 ─────────────
+  // GET /clusters — 列出所有簇+标签+成员数（F3）
+  router.get('/clusters', (_req, res) => {
+    if (!clusterService) return fail(res, 'cluster_not_enabled', 501);
+    return ok(res, clusterService.getClusters());
+  });
+
+  // GET /clusters/:id/members — 指定簇的成员列表（F3）
+  router.get('/clusters/:id/members', (req, res) => {
+    if (!clusterService) return fail(res, 'cluster_not_enabled', 501);
+    const members = clusterService.getClusterMembers(req.params.id);
+    return ok(res, members);
+  });
+
+  // GET /inbox?userId=... — 我的收件箱（F4 离线推送）
+  router.get('/inbox', (req, res) => {
+    const userId = req.query.userId ? String(req.query.userId) : null;
+    if (!userId) return fail(res, 'user_id_required');
+    return ok(res, communityService.listInbox(userId));
+  });
+
+  // PUT /me/agent-config — 改我的 agent 半自主规则（F7）
+  router.put('/me/agent-config', (req, res) => {
+    if (!memberAgentService) return fail(res, 'member_agent_not_enabled', 501);
+    const { userId, rules, personaSnapshot } = req.body || {};
+    if (!userId) return fail(res, 'user_id_required');
+    const normalized = memberAgentService.setConfig(userId, rules || {}, personaSnapshot || null);
+    return ok(res, { userId, rules: normalized });
+  });
+
+  // POST /posts/:id/agent-comment — 触发我的 agent 评论该帖（F8，RC7 署名）
+  router.post('/posts/:id/agent-comment', async (req, res) => {
+    if (!memberAgentService) return fail(res, 'member_agent_not_enabled', 501);
+    const { byUserId } = req.body || {};
+    if (!byUserId) return fail(res, 'by_user_id_required');
+    try {
+      const r = await memberAgentService.commentOnPost({ postId: Number(req.params.id), byUserId: String(byUserId) });
+      if (!r.ok) return fail(res, r.error);
+      return ok(res, { commentId: r.commentId, content: r.content });
+    } catch {
+      return fail(res, 'agent_comment_failed', 500);
+    }
   });
 
   // ── 一起听房间（F5）──────────────────────────────────────

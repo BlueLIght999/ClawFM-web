@@ -46,6 +46,7 @@
  * @property {() => {userId:string, profile:object}[]} listAllProfiles
  * @property {(clusters: Array) => void} saveClusterSnapshot
  * @property {() => Array} getClusterSnapshot
+ * @property {(clusterId: number) => CommunityMember[]} listClusterMembers
  * @property {(entry: {userId:string, targetType:string, targetId:string, fromCluster:number|null, reason:string|null}) => number} createInbox
  * @property {(userId: string) => Array} listInbox
  * @property {(userId: string, targetType: string, targetId: string) => boolean} hasInboxRecently

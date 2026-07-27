@@ -16,6 +16,7 @@ function makeMockServices() {
       getFeed: ({ limit, cursor }) => [{ id: 2 }, { id: 1 }].filter((p) => cursor === null || p.id < cursor).slice(0, limit),
       getPostWithComments: (id) => (id === 1 ? { post: { id: 1 }, comments: [] } : null),
       likePost: (id) => (id === 1 ? { id: 1, likes: 5 } : null),
+      listInbox: (userId) => [{ id: 1, userId, targetType: 'post', targetId: '5', fromCluster: 1, reason: 'test', read: false }],
     },
     memberProfileService: {
       buildProfile: async (userId) => {
@@ -29,8 +30,22 @@ function makeMockServices() {
     communityRepository: {
       createMember: ({ userId, nickname, avatarUrl }) => ({ userId, nickname, avatarUrl, clusterId: null, selfTags: [] }),
       upsertMemberAuth: () => {},
+      listInbox: (userId) => [{ id: 1, userId, targetType: 'post', targetId: '5', fromCluster: 1, reason: 'test', read: false }],
     },
     cookieCipherPort: { encrypt: (c) => `enc:${c}`, decrypt: (s) => s.replace(/^enc:/, '') },
+    clusterService: {
+      getClusters: () => [{ clusterId: 1, label: 'rock·night_owl', memberCount: 2, memberUserIds: ['u1', 'u2'] }],
+      getClusterMembers: (id) => id === '1'
+        ? [{ userId: 'u1', nickname: '阿七', clusterId: 1, selfTags: ['rock'] },
+           { userId: 'u2', nickname: '阿八', clusterId: 1, selfTags: [] }]
+        : [],
+    },
+    memberAgentService: {
+      setConfig: (userId, rules) => ({ canComment: !!rules.canComment, allowedTopics: rules.allowedTopics || [], canBeInvited: !!rules.canBeInvited, sharePlaylists: !!rules.sharePlaylists }),
+      commentOnPost: async ({ postId, byUserId }) => postId === 1
+        ? { ok: true, commentId: 99, content: `——${byUserId} 的 agent 代发：好歌` }
+        : { ok: false, error: 'post_not_found' },
+    },
     roomService: {
       createRoom: ({ hostUserId, name, topicTags }) => ({ ok: true, room: { roomId: 'room_1', hostUserId, name, topicTags: topicTags || [], status: 'active' } }),
       listRooms: () => [{ roomId: 'room_1', name: 'r', status: 'active' }],
@@ -190,5 +205,76 @@ describe('community routes', () => {
     const res = await request(app).post('/api/community/rooms/room_1/end').send({ userId: 'u1' });
     expect(res.status).toBe(200);
     expect(res.body.data.ended).toBe(true);
+  });
+
+  // ── P1 gap: clusters / inbox / agent-config / agent-comment ──
+  it('GET /clusters returns cluster snapshot', async () => {
+    const res = await request(app).get('/api/community/clusters');
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].clusterId).toBe(1);
+    expect(res.body.data[0].label).toBe('rock·night_owl');
+    expect(res.body.data[0].memberCount).toBe(2);
+  });
+
+  it('GET /clusters/:id/members returns members of cluster', async () => {
+    const res = await request(app).get('/api/community/clusters/1/members');
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBe(2);
+    expect(res.body.data[0].userId).toBe('u1');
+  });
+
+  it('GET /clusters/:id/members empty for unknown cluster', async () => {
+    const res = await request(app).get('/api/community/clusters/999/members');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([]);
+  });
+
+  it('GET /inbox rejects missing userId', async () => {
+    const res = await request(app).get('/api/community/inbox');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('user_id_required');
+  });
+
+  it('GET /inbox?userId=u1 returns user inbox', async () => {
+    const res = await request(app).get('/api/community/inbox?userId=u1');
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].userId).toBe('u1');
+    expect(res.body.data[0].targetType).toBe('post');
+  });
+
+  it('PUT /me/agent-config normalizes and stores rules', async () => {
+    const res = await request(app).put('/api/community/me/agent-config').send({
+      userId: 'u1',
+      rules: { canComment: true, allowedTopics: ['rock', 'jazz'], canBeInvited: true, sharePlaylists: false },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.data.userId).toBe('u1');
+    expect(res.body.data.rules.canComment).toBe(true);
+    expect(res.body.data.rules.allowedTopics).toEqual(['rock', 'jazz']);
+  });
+
+  it('PUT /me/agent-config rejects missing userId', async () => {
+    const res = await request(app).put('/api/community/me/agent-config').send({ rules: {} });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('user_id_required');
+  });
+
+  it('POST /posts/:id/agent-comment triggers member agent comment', async () => {
+    const res = await request(app).post('/api/community/posts/1/agent-comment').send({ byUserId: 'u2' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.commentId).toBe(99);
+    expect(res.body.data.content).toContain('u2');
+  });
+
+  it('POST /posts/:id/agent-comment 400 when post missing', async () => {
+    const res = await request(app).post('/api/community/posts/999/agent-comment').send({ byUserId: 'u2' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('post_not_found');
+  });
+
+  it('POST /posts/:id/agent-comment rejects missing byUserId', async () => {
+    const res = await request(app).post('/api/community/posts/1/agent-comment').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('by_user_id_required');
   });
 });
