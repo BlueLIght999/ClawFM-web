@@ -11,7 +11,8 @@ import { emitQueueUpdate } from './versionedRadioEmitter.js';
 
 export function startRecurringTasks(io, deps) {
   const { scheduler, queue, recommender, getPlan, generatePlan,
-    getTimeOfDayMood, maybeProactiveSpeech, eventPublisher, logger } = deps;
+    getTimeOfDayMood, maybeProactiveSpeech, eventPublisher, logger,
+    clusterService } = deps;
 
   const intervals = [];
 
@@ -71,6 +72,28 @@ export function startRecurringTasks(io, deps) {
       logger?.error?.({ component: 'proactive', err: e }, 'error');
     }
   }, 60000));
+
+  // F3: cross-user clustering — every 6h + once at startup (RC2: failures degrade, never crash radio)
+  if (clusterService?.runClustering) {
+    // 启动时跑一次（异步，不阻塞 recurringTasks 装配）
+    Promise.resolve().then(() => {
+      try {
+        const r = clusterService.runClustering();
+        logger?.info?.({ component: 'cluster', k: r.k, degraded: r.degraded }, 'startup clustering done');
+      } catch (e) {
+        logger?.warn?.({ component: 'cluster', err: e?.message }, 'startup clustering failed');
+      }
+    });
+    // 每 6h 跑一次
+    intervals.push(setInterval(() => {
+      try {
+        const r = clusterService.runClustering();
+        logger?.info?.({ component: 'cluster', k: r.k, degraded: r.degraded }, 'scheduled clustering done');
+      } catch (e) {
+        logger?.warn?.({ component: 'cluster', err: e?.message }, 'scheduled clustering failed');
+      }
+    }, 6 * 60 * 60 * 1000));
+  }
 
   return {
     stop() {
