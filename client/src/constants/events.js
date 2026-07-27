@@ -29,4 +29,20 @@ export const E = {
   // System events
   SYNC_TIME: 'sync:time',
   PLAN_UPDATE: 'plan:update',
+
+  // Community module events (PRD v0.3) — aligned with server/socket/events.js
+  // Server -> Client
+  COMMUNITY_PUSH: 'community:push',
+  COMMUNITY_CLUSTER_UPDATED: 'community:cluster-updated',
+  COMMUNITY_POST_NEW: 'community:post-new',
+  COMMUNITY_AGENT_COMMENT: 'community:agent-comment',
+  COMMUNITY_INVITATION: 'community:invitation',
+  ROOM_STATE: 'room:state',
+  ROOM_CHAT: 'room:chat',
+  ROOM_SYNC: 'room:sync',
+  // Client -> Server
+  COMMUNITY_IDENTIFY: 'community:identify',
+  ROOM_JOIN: 'room:join',
+  ROOM_LEAVE: 'room:leave',
+  ROOM_SKIP: 'room:skip',
 };
