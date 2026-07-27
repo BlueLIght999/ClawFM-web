@@ -146,4 +146,51 @@ describe('community service', () => {
     // 传 forUserId → 反序（a,b）
     expect(svc.getFeed({ limit: 10, forUserId: 'u9' }).map((p) => p.id)).toEqual([a, b]);
   });
+
+  // ── F2/§6: community:post-new event ──
+  it('createPost_emitsCommunityPostNew_forNonCommentPosts', () => {
+    const emits = [];
+    const publisher = { emit: (event, payload, target) => emits.push({ event, payload, target }) };
+    const svc = createCommunityService({ communityRepository: makeMockRepo(), eventPublisher: publisher });
+
+    const r = svc.createPost({ userId: 'u1', type: 'reflection', content: '好听' });
+
+    expect(emits.length).toBe(1);
+    expect(emits[0].event).toBe('community:post-new');
+    expect(emits[0].payload.id).toBe(r.post.id);
+    expect(emits[0].payload.userId).toBe('u1');
+    expect(emits[0].target).toBeNull(); // 全广播
+  });
+
+  it('createPost_doesNotEmitPostNew_forComments', () => {
+    const emits = [];
+    const publisher = { emit: (event, payload) => emits.push({ event, payload }) };
+    const svc = createCommunityService({ communityRepository: makeMockRepo(), eventPublisher: publisher });
+
+    // 先建父帖（会 emit 一次）
+    svc.createPost({ userId: 'u1', type: 'reflection', content: 'parent' });
+    emits.length = 0;
+    // 评论不应 emit
+    svc.createPost({ userId: 'u2', type: 'comment', content: '回复', parentId: 1 });
+
+    expect(emits.length).toBe(0);
+  });
+
+  it('createPost_emitsPostNew_forAgentAuthoredPosts', () => {
+    // RC7: agent 代发的非评论帖也走 post-new（前端要看到"由 X 的 agent 代发"标记）
+    const emits = [];
+    const publisher = { emit: (event, payload) => emits.push({ event, payload }) };
+    const svc = createCommunityService({ communityRepository: makeMockRepo(), eventPublisher: publisher });
+
+    svc.createPost({ userId: 'u2', type: 'recommend', content: '推荐这首歌', songId: 's1', isAgent: true, agentAuthorUserId: 'u2' });
+
+    expect(emits.length).toBe(1);
+    expect(emits[0].payload.isAgent).toBe(true);
+  });
+
+  it('createPost_noEventPublisher_doesNotCrash', () => {
+    // 未注入 eventPublisher 时不应崩（向后兼容）
+    const svc = createCommunityService({ communityRepository: makeMockRepo() });
+    expect(() => svc.createPost({ userId: 'u1', type: 'reflection', content: 'x' })).not.toThrow();
+  });
 });
