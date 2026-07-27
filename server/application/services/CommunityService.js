@@ -10,13 +10,16 @@ import { validatePost } from '../../domain/community/postRules.js';
  * @param {object} deps
  * @param {import('../ports/repos/CommunityRepository.js').CommunityRepository} deps.communityRepository
  * @param {(userId: string, posts: Array) => Array} [deps.feedPersonalizer] — F9 发现流个性化（按 active feed-invitations 加权）
+ * @param {{emit?: (event:string, payload:object, targetUserId?:string|null)=>void}} [deps.eventPublisher] — 用于 community:post-new 广播
  */
-export function createCommunityService({ communityRepository, feedPersonalizer } = {}) {
+export function createCommunityService({ communityRepository, feedPersonalizer, eventPublisher } = {}) {
   const repo = communityRepository;
   const personalize = typeof feedPersonalizer === 'function' ? feedPersonalizer : (_uid, posts) => posts;
 
   /**
    * 发帖（或评论）。先过 postRules 校验，再持久化。
+   * 发帖成功后 emit community:post-new（PRD §6），targetUserId=null 走全广播。
+   * 评论（type=comment）不发 post-new，避免评论刷屏 feed（评论走 community:agent-comment 或父帖查询）。
    * @returns {{ok:true, post:object} | {ok:false, error:string}}
    */
   function createPost(input) {
@@ -34,7 +37,11 @@ export function createCommunityService({ communityRepository, feedPersonalizer }
       isAgent: !!input.isAgent,
       agentAuthorUserId: input.agentAuthorUserId || null,
     });
-    return { ok: true, post: repo.getPost(id) };
+    const saved = repo.getPost(id);
+    if (post.type !== 'comment') {
+      eventPublisher?.emit?.('community:post-new', saved, null);
+    }
+    return { ok: true, post: saved };
   }
 
   /**
@@ -65,5 +72,12 @@ export function createCommunityService({ communityRepository, feedPersonalizer }
     return repo.getPost(id);
   }
 
-  return { createPost, getFeed, getPost, getPostWithComments, listComments, likePost };
+  /**
+   * 收件箱（F4 离线推送可见）。直接走 repo 即可，service 仅作统一入口。
+   */
+  function listInbox(userId) {
+    return repo.listInbox(userId);
+  }
+
+  return { createPost, getFeed, getPost, getPostWithComments, listComments, likePost, listInbox };
 }

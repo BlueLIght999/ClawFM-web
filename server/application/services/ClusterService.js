@@ -59,5 +59,9 @@ export function createClusterService({ communityRepository, eventPublisher, logg
     return repo.getClusterSnapshot();
   }
 
-  return { runClustering, getClusters };
+  function getClusterMembers(clusterId) {
+    return repo.listClusterMembers(Number(clusterId));
+  }
+
+  return { runClustering, getClusters, getClusterMembers };
 }
