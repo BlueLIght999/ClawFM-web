@@ -10,6 +10,7 @@ import { extractIntent } from './claude.js';
 import { isGenreQuery } from '../domain/routing/isGenreQuery.js';
 import { filterLiveVersions } from '../domain/routing/liveVersionFilter.js';
 import { matchFastRoute } from '../domain/routing/matchFastRoute.js';
+import { matchSearchRoute } from '../domain/routing/matchSearchRoute.js';
 import { moodToQuery } from '../domain/routing/moodToQuery.js';
 import { pickStartSong } from '../domain/routing/pickStartSong.js';
 import { createGenreSearchEngine } from '../domain/routing/GenreSearchEngine.js';
@@ -59,9 +60,9 @@ export async function routeIntentWithDependencies(text, {
   // Search direct: "play <query>", "放<query>", "来点<query>", "我想听<query>"
   // P0-2: \s* allows Chinese no-space input like "来点爵士" "播周杰伦"
   // Note: "帮我找" / "找一首" are conversational and stay on AI path for better intent extraction
-  const searchMatch = msg.match(/^(?:play|放|播放|搜索|搜|点播|来点|来一首|点一首|我想听|播|来些|来几首|放一首)\s*(.+)/i);
+  const searchMatch = matchSearchRoute(msg);
   if (searchMatch) {
-    const query = searchMatch[1].trim();
+    const query = searchMatch.query;
     // If query is a genre/instrument/style, route to personalized recommendation
     if (isGenreQuery(query)) {
       // Use GenreSearchEngine for multi-source genre search when music port is available

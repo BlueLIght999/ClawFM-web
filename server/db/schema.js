@@ -115,6 +115,112 @@ function createTables(db) {
       generated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // ── Community module (PRD v0.3) ────────────────────────────────
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_members (
+      user_id TEXT PRIMARY KEY,
+      nickname TEXT,
+      avatar_url TEXT,
+      joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_active_at DATETIME,
+      cluster_id INTEGER,
+      self_tags TEXT
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_member_netease_auth (
+      user_id TEXT PRIMARY KEY,
+      netease_uid TEXT NOT NULL,
+      cookie_encrypted TEXT NOT NULL,
+      fetched_at DATETIME,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_listens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      song_id TEXT,
+      title TEXT,
+      artist TEXT,
+      action TEXT NOT NULL,
+      played_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      parent_id INTEGER,
+      content TEXT NOT NULL,
+      song_id TEXT,
+      playlist_id TEXT,
+      auto_tags TEXT,
+      likes INTEGER DEFAULT 0,
+      is_agent INTEGER DEFAULT 0,
+      agent_author_user_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_clusters (
+      cluster_id INTEGER PRIMARY KEY,
+      label TEXT,
+      centroid TEXT,
+      member_count INTEGER,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_inbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      from_cluster INTEGER,
+      reason TEXT,
+      read INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_rooms (
+      room_id TEXT PRIMARY KEY,
+      host_user_id TEXT NOT NULL,
+      name TEXT,
+      topic_tags TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      active INTEGER DEFAULT 1
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_member_agent_config (
+      user_id TEXT PRIMARY KEY,
+      rules_json TEXT NOT NULL,
+      persona_snapshot TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_invitations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_user_id TEXT NOT NULL,
+      to_user_id TEXT NOT NULL,
+      context_type TEXT NOT NULL,
+      context_id TEXT,
+      status TEXT DEFAULT 'pending',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_profiles (
+      user_id TEXT PRIMARY KEY,
+      profile_json TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 }
 
 export function saveDb() {

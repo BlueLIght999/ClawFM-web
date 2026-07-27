@@ -48,4 +48,20 @@ export const EVENTS = {
 
   // Bubble system (Server -> Client)
   CRAB_BUBBLES: 'crab:bubbles',
+
+  // Community module (PRD v0.3) ───────────────────────────────
+  // Server -> Client
+  COMMUNITY_PUSH: 'community:push',             // Agent 分发推送（帖子/歌单/歌曲）
+  COMMUNITY_CLUSTER_UPDATED: 'community:cluster-updated',
+  COMMUNITY_POST_NEW: 'community:post-new',     // 动态时间线新帖
+  COMMUNITY_AGENT_COMMENT: 'community:agent-comment', // agent 代发评论（带署名）
+  COMMUNITY_INVITATION: 'community:invitation', // 收到邀请
+  ROOM_STATE: 'room:state',                     // 一起听房间状态（房主播放同步）
+  ROOM_CHAT: 'room:chat',                       // 房间内聊天（双向）
+  ROOM_SYNC: 'room:sync',                       // 播放位置同步
+  // Client -> Server
+  COMMUNITY_IDENTIFY: 'community:identify',       // 成员登录后绑定 socket 到 user:<uid> room
+  ROOM_JOIN: 'room:join',
+  ROOM_LEAVE: 'room:leave',
+  ROOM_SKIP: 'room:skip',                       // 房主切歌
 };

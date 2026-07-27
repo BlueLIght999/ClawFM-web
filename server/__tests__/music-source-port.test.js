@@ -88,4 +88,24 @@ describe('MusicSourcePort adapter', () => {
       coverUrl: '',
     }]);
   });
+
+  it('search_repeatedCallsWithinTtl_hitCacheNotLegacy', async () => {
+    const searchSongs = vi.fn(async () => ({
+      result: {
+        songs: [{
+          id: 1,
+          name: '晴天',
+          ar: [{ name: '周杰伦' }],
+          al: { name: '叶惠美', picUrl: 'http://cover' },
+          dt: 269000,
+        }],
+      },
+    }));
+    const adapter = createLegacyNeteaseMusicSourceAdapter({ searchSongs });
+
+    await adapter.search('晴天', 5);
+    await adapter.search('晴天', 5);
+
+    expect(searchSongs).toHaveBeenCalledTimes(1);
+  });
 });

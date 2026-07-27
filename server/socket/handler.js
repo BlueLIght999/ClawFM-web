@@ -30,6 +30,7 @@ import { onNewConnection } from './connectionHandler.js';
 import { wireBubbleEvents, maybePushBubbles } from './bubbleHandler.js';
 import { triggerColdStart } from './coldStartHandler.js';
 import { handleChatMessage, setChatLogger } from './chatHandler.js';
+import { createCommunityHandler } from './communityHandler.js';
 import { emitQueueUpdate, emitRadioState, emitSongChange } from './versionedRadioEmitter.js';
 import { safeAsyncHandler } from '../domain/socket/safeAsyncHandler.js';
 
@@ -267,6 +268,8 @@ export function setupSocketHandler(io, services) {
   wireSchedulerCallbacks(io, deps);
   deps.queue.init();
 
+  const communityHandler = createCommunityHandler({ io, roomService: deps.roomService, logger: deps.logger });
+
   io.on('connection', async (socket) => {
     wireClientReady(socket, io, deps);
     wireAuthEvents(socket, deps);
@@ -274,6 +277,7 @@ export function setupSocketHandler(io, services) {
     wireChatAndCrabEvents(socket, io, deps);
     wireSpeechAndPlanEvents(socket, io, deps);
     wireLifecycleEvents(socket, io, deps);
+    communityHandler?.register?.(socket);
 
     const cleanupBubbles = wireBubbleEvents(io, socket, deps);
     socket.on('disconnect', () => { if (cleanupBubbles) cleanupBubbles(); });

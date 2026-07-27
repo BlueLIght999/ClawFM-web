@@ -87,6 +87,22 @@ import './application/ports/services/ProfileQueryPort.js';
 import './application/ports/services/ProfileCommandPort.js';
 import './application/ports/services/ClusterPort.js';
 
+// Community module (PRD v0.3)
+import { createCommunityService } from './application/services/CommunityService.js';
+import { createMemberProfileService } from './application/services/MemberProfileService.js';
+import { createClusterService } from './application/services/ClusterService.js';
+import { createDistributionService } from './application/services/DistributionService.js';
+import { createMemberAgentService } from './application/services/MemberAgentService.js';
+import { createInvitationService } from './application/services/InvitationService.js';
+import { createRoomService } from './application/services/RoomService.js';
+import { registerCommunityTools } from './agent/application/services/CommunityTools.js';
+import { sqliteCommunityRepository } from './infrastructure/persistence/repositories/SqliteCommunityRepository.js';
+import { neteaseMemberHistoryAdapter } from './infrastructure/netease/NeteaseMemberHistoryAdapter.js';
+import { createCookieCipher, deriveKey } from './infrastructure/netease/CookieCipher.js';
+import { createCommunityEventPublisher } from './infrastructure/community/CommunityEventPublisher.js';
+import { createMemberAgentLoopAdapter } from './infrastructure/community/MemberAgentLoopAdapter.js';
+import { personalizeFeed } from './domain/community/feedPersonalizationRules.js';
+
 /**
  * Wire all dependencies and return a services object.
  * @param {import('socket.io').Server} io — the Socket.IO server
@@ -168,6 +184,60 @@ export function createServices(io) {
     repositories,
   });
 
+  // ── Community module wiring (PRD v0.3) ────────────────────
+  const communityRepository = sqliteCommunityRepository;
+  const cookieCipherPort = createCookieCipher(
+    process.env.COMMUNITY_COOKIE_KEY || deriveKey('clawfm-community', process.env.COMMUNITY_COOKIE_SALT || 'clawfm')
+  );
+  const communityEventPublisher = createCommunityEventPublisher({ io, logger });
+  const memberAgentLoopPort = createMemberAgentLoopAdapter({
+    logger,
+    generate: async (messages) => {
+      if (!llmClient) throw new Error('llm not configured');
+      const res = await llmClient.chat.completions.create({
+        model: config.deepseekModel || 'deepseek-chat',
+        messages,
+        max_tokens: 120,
+      });
+      return res?.choices?.[0]?.message?.content || '';
+    },
+  });
+  const communityService = createCommunityService({
+    communityRepository,
+    feedPersonalizer: (userId, posts) => {
+      try {
+        const invs = communityRepository.listInvitations(userId).filter((i) => i.status === 'active' && i.contextType === 'feed');
+        if (invs.length === 0) return posts;
+        const profiles = invs.map((i) => communityRepository.getProfile(i.toUserId)).filter(Boolean);
+        if (profiles.length === 0) return posts;
+        return personalizeFeed(posts, profiles);
+      } catch {
+        return posts;
+      }
+    },
+  });
+  const memberProfileService = createMemberProfileService({
+    communityRepository,
+    neteaseHistoryPort: neteaseMemberHistoryAdapter,
+    cookieCipherPort,
+    logger,
+  });
+  const clusterService = createClusterService({ communityRepository, eventPublisher: communityEventPublisher, logger });
+  const distributionService = createDistributionService({ communityRepository, eventPublisher: communityEventPublisher, logger });
+  const memberAgentService = createMemberAgentService({ communityRepository, memberAgentLoopPort, eventPublisher: communityEventPublisher, logger });
+  const invitationService = createInvitationService({
+    communityRepository,
+    neteaseHistoryPort: neteaseMemberHistoryAdapter,
+    cookieCipherPort,
+    eventPublisher: communityEventPublisher,
+    logger,
+  });
+  const roomService = createRoomService({ communityRepository, eventPublisher: communityEventPublisher, logger });
+  // 注册社区 Agent 工具到现有 toolRegistry
+  if (services.toolRegistry) {
+    registerCommunityTools({ registry: services.toolRegistry, distributionService, memberAgentService, invitationService });
+  }
+
   return {
     ...services,
     ...legacy,
@@ -194,6 +264,17 @@ export function createServices(io) {
     getWeatherRaw,
     // Chat history (for session persistence)
     chatHistory: legacyChatHistoryRepository,
+    // Community
+    communityService,
+    memberProfileService,
+    clusterService,
+    distributionService,
+    memberAgentService,
+    invitationService,
+    roomService,
+    communityRepository,
+    cookieCipherPort,
+    communityEventPublisher,
   };
 }
 

@@ -14,3 +14,5 @@ agent-radio-hero.jpg
 agent-radio.html
 community-hero.jpg
 community.html
+# Vendored NeteaseCloudMusicApi dev server (has its own .git; installed via npm dep)
+server/netease-api/
