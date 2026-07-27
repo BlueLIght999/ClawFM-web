@@ -10,6 +10,7 @@ import {
 } from '../../domain/reactLoopRules.js';
 import { buildAgentExecTrace } from '../../domain/agentTurnRules.js';
 import { matchFastRoute } from '../../../domain/routing/matchFastRoute.js';
+import { matchSearchRoute } from '../../../domain/routing/matchSearchRoute.js';
 
 /**
  * Execute all tool calls in an LLM response in parallel.
@@ -93,6 +94,13 @@ function preFlightCheck(text, snapshot, { djStatus, agentTurnService }) {
   }
   const normalized = text.trim().toLowerCase();
   if (matchFastRoute(normalized)) {
+    return agentTurnService.handleMessage({ text, snapshot });
+  }
+  // F1: search-direct intents ("播周杰伦", "来点爵士", "我想听晴天") bypass ReAct
+  // and go through AgentTurnService which calls intentRouter.route() once.
+  // matchFastRoute is consulted FIRST so "播放" (resume) is captured before
+  // matchSearchRoute would match it as prefix "播" + query "放".
+  if (matchSearchRoute(normalized)) {
     return agentTurnService.handleMessage({ text, snapshot });
   }
   return null;

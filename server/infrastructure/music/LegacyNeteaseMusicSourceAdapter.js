@@ -30,6 +30,7 @@ import {
   getPlaylistHot,
 } from '../netease/neteaseApi.js';
 import { toSongDTO } from '../../domain/curation/toSongDTO.js';
+import { SearchResultCache } from '../../domain/music/SearchResultCache.js';
 
 function songsFromSearchResult(result) {
   return result?.result?.songs || result?.songs || result?.body?.songs || [];
@@ -68,10 +69,23 @@ function toPlaylists(rawPlaylists) {
  * Build the core music source methods (playback + playlist).
  */
 function buildCoreMethods(legacy) {
+  // F3: wrap searchSongs with a 60s LRU cache to reduce external Netease API calls.
+  // The cache sits at the adapter layer so all music.search callers (router,
+  // ConversationService, recommender) benefit transparently.
+  const searchCache = new SearchResultCache({
+    music: {
+      search: async (keywords, limit) => {
+        const result = await legacy.searchSongs(keywords, limit);
+        return toSongs(songsFromSearchResult(result));
+      },
+    },
+    ttlMs: 60 * 1000,
+    maxSize: 100,
+  });
+
   return {
     async search(keywords, limit = 20) {
-      const result = await legacy.searchSongs(keywords, limit);
-      return toSongs(songsFromSearchResult(result));
+      return searchCache.search(keywords, limit);
     },
     /** Search playlists by keywords (type=1000). Returns Playlist DTOs. */
     async searchPlaylists(keywords, limit = 10) {
