@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 
 const ProfileView = lazy(() => import('./ProfileView.jsx'));
 const SettingsView = lazy(() => import('./SettingsView.jsx'));
+const CommunityView = lazy(() => import('./CommunityView.jsx'));
 
 export function ViewFallback() {
   return (
@@ -55,6 +56,12 @@ export function ViewRouter({
               }).catch(() => {});
             }}
           />
+        </Suspense>
+      )}
+
+      {view === 'community' && (
+        <Suspense fallback={<ViewFallback />}>
+          <CommunityView />
         </Suspense>
       )}
 
