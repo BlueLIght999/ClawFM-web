@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import express from 'express';
 import * as history from '../../db/history.js';
 import { buildTasteResponse } from '../../domain/profile/tasteResponse.js';
+import { registerCommunityRoutes } from './communityRoutes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -199,6 +200,12 @@ export function registerHttpRoutes(app, services) {
 
   // Serve TTS audio
   app.use('/audio/tts', express.static(config.tts.outputDir));
+
+  // ─── Community module (PRD v0.3) ────────────────────────
+  // 挂在 /api/community/*，须在 SPA catch-all 之前
+  if (services.communityService && services.memberProfileService) {
+    registerCommunityRoutes(app, services);
+  }
 
   // Serve client dist
   const clientDist = path.resolve(__dirname, '..', '..', '..', 'client', 'dist');
