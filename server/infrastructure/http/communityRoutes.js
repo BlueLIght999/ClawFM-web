@@ -168,6 +168,45 @@ export function createCommunityRouter(services) {
     });
   }
 
+  // ── 邀请引入（F9）──────────────────────────────────────
+  if (services.invitationService) {
+    // POST /invitations — 邀请某人的 agent（默认 context_type=feed）
+    router.post('/invitations', (req, res) => {
+      const { fromUserId, toUserId, contextType, contextId } = req.body || {};
+      if (!fromUserId || !toUserId) return fail(res, 'user_ids_required');
+      const r = services.invitationService.invite({ fromUserId, toUserId, contextType, contextId });
+      if (!r.ok) return fail(res, r.error, r.reasons ? 403 : 400);
+      return ok(res, r, 201);
+    });
+
+    // POST /invitations/:id/respond — 接受/拒绝
+    router.post('/invitations/:id/respond', (req, res) => {
+      const { status } = req.body || {};
+      if (!status) return fail(res, 'status_required');
+      const r = services.invitationService.respond(Number(req.params.id), status);
+      if (!r.ok) return fail(res, r.error, r.error === 'not_found' ? 404 : 400);
+      return ok(res, r);
+    });
+
+    // GET /invitations?userId=... — 列出与我相关的邀请
+    router.get('/invitations', (req, res) => {
+      const userId = req.query.userId ? String(req.query.userId) : null;
+      if (!userId) return fail(res, 'user_id_required');
+      return ok(res, services.invitationService.listForUser(userId));
+    });
+
+    // POST /invitations/:id/bring-playlist — 触发被邀请方 agent 把歌单带入上下文
+    router.post('/invitations/:id/bring-playlist', async (req, res) => {
+      try {
+        const r = await services.invitationService.bringPlaylist(Number(req.params.id));
+        if (!r.ok) return fail(res, r.error, r.error === 'invitation_not_found' ? 404 : 400);
+        return ok(res, r);
+      } catch {
+        return fail(res, 'bring_playlist_failed', 500);
+      }
+    });
+  }
+
   return router;
 }
 

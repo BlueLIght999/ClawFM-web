@@ -54,6 +54,21 @@ function makeMockServices() {
       hostControl: (id, userId, state) => (userId === 'u1' ? { ok: true, payload: { isPlaying: !!state.isPlaying, skip: !!state.skip } } : { ok: false, error: 'not_host_or_inactive' }),
       endRoom: (id, userId) => (userId === 'u1' ? { ok: true } : { ok: false, error: 'not_host' }),
     },
+    invitationService: {
+      invite: ({ fromUserId, toUserId, contextType, contextId }) => {
+        if (toUserId === 'blocked') return { ok: false, error: 'not_authorized', reasons: ['canBeInvited=false'] };
+        return { ok: true, id: 1, fromUserId, toUserId, contextType: contextType || 'feed', contextId: contextId || null, status: 'pending' };
+      },
+      respond: (invitationId, status) => {
+        if (invitationId === 999) return { ok: false, error: 'not_found' };
+        return { ok: true, status };
+      },
+      listForUser: (userId) => [{ id: 1, fromUserId: 'u2', toUserId: userId, status: 'pending', contextType: 'feed' }],
+      bringPlaylist: async (invitationId) => {
+        if (invitationId === 999) return { ok: false, error: 'invitation_not_found' };
+        return { ok: true, playlists: [{ id: 'pl1', name: 'MyPlaylist' }] };
+      },
+    },
   };
 }
 
@@ -276,5 +291,70 @@ describe('community routes', () => {
     const res = await request(app).post('/api/community/posts/1/agent-comment').send({});
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('by_user_id_required');
+  });
+
+  // ── F9: invitations ──
+  it('POST /invitations creates invitation', async () => {
+    const res = await request(app).post('/api/community/invitations').send({ fromUserId: 'u1', toUserId: 'u2' });
+    expect(res.status).toBe(201);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data.id).toBe(1);
+    expect(res.body.data.fromUserId).toBe('u1');
+    expect(res.body.data.contextType).toBe('feed');
+  });
+
+  it('POST /invitations rejects missing userIds', async () => {
+    const res = await request(app).post('/api/community/invitations').send({ fromUserId: 'u1' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('user_ids_required');
+  });
+
+  it('POST /invitations 403 when not authorized', async () => {
+    const res = await request(app).post('/api/community/invitations').send({ fromUserId: 'u1', toUserId: 'blocked' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('not_authorized');
+  });
+
+  it('POST /invitations/:id/respond accepts invitation', async () => {
+    const res = await request(app).post('/api/community/invitations/1/respond').send({ status: 'accepted' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('accepted');
+  });
+
+  it('POST /invitations/:id/respond 404 when not found', async () => {
+    const res = await request(app).post('/api/community/invitations/999/respond').send({ status: 'accepted' });
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('not_found');
+  });
+
+  it('POST /invitations/:id/respond rejects missing status', async () => {
+    const res = await request(app).post('/api/community/invitations/1/respond').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('status_required');
+  });
+
+  it('GET /invitations?userId=u1 returns list', async () => {
+    const res = await request(app).get('/api/community/invitations?userId=u1');
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].toUserId).toBe('u1');
+    expect(res.body.data[0].status).toBe('pending');
+  });
+
+  it('GET /invitations rejects missing userId', async () => {
+    const res = await request(app).get('/api/community/invitations');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('user_id_required');
+  });
+
+  it('POST /invitations/:id/bring-playlist triggers playlist bring', async () => {
+    const res = await request(app).post('/api/community/invitations/1/bring-playlist');
+    expect(res.status).toBe(200);
+    expect(res.body.data.playlists[0].id).toBe('pl1');
+  });
+
+  it('POST /invitations/:id/bring-playlist 404 when not found', async () => {
+    const res = await request(app).post('/api/community/invitations/999/bring-playlist');
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('invitation_not_found');
   });
 });
