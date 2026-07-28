@@ -158,6 +158,15 @@ registerHttpRoutes(app, {
   logger,
   readiness,
   readinessChecker,
+  // Community module (PRD v0.3) — 注入到 httpRoutes 以注册 /api/community/* 路由
+  communityService: services.communityService,
+  memberProfileService: services.memberProfileService,
+  communityRepository: services.communityRepository,
+  cookieCipherPort: services.cookieCipherPort,
+  clusterService: services.clusterService,
+  memberAgentService: services.memberAgentService,
+  distributionService: services.distributionService,
+  roomService: services.roomService,
 });
 
 function displayTtsHealthBanner(ttsHealth) {
