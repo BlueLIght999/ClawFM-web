@@ -14,6 +14,7 @@ import { useCrab } from './contexts/CrabContext.jsx';
 import { useUI } from './contexts/UIContext.jsx';
 import { useCrabSocketEvents } from './hooks/useCrabSocketEvents.js';
 import { useSystemSocketEvents } from './hooks/useSystemSocketEvents.js';
+import { useCommunitySocketEvents } from './hooks/useCommunitySocketEvents.js';
 import { useAudioErrorHandler } from './hooks/useAudioErrorHandler.js';
 import { useGeolocation } from './hooks/useGeolocation.js';
 import { useCrabInteraction } from './hooks/useCrabInteraction.js';
@@ -80,6 +81,7 @@ export default function App({ socket, connected }) {
 
   useCrabSocketEvents(socket);
   useSystemSocketEvents(socket);
+  useCommunitySocketEvents(socket);
 
   // Send browser geolocation to server for accurate weather
   useGeolocation(socket, connected);

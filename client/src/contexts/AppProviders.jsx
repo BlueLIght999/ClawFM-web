@@ -4,6 +4,7 @@ import { ChatProvider } from './ChatContext.jsx';
 import { ColdStartProvider } from './ColdStartContext.jsx';
 import { CrabProvider } from './CrabContext.jsx';
 import { UIProvider } from './UIContext.jsx';
+import { CommunityProvider } from './CommunityContext.jsx';
 import { useSocket } from '../hooks/useSocket.js';
 
 /**
@@ -18,6 +19,8 @@ import { useSocket } from '../hooks/useSocket.js';
  * ColdStartProvider needs loggedIn from AuthContext, so ColdStartBridge
  * consumes AuthContext to bridge the dependency.
  *
+ * CommunityProvider 独立无跨 Context 依赖，放在 UIProvider 之前。
+ *
  * Render-prop support: if `children` is a function, it is invoked with
  * `{ socket, connected }` so the inner App component can keep its existing
  * prop signature without creating a second socket connection. This is the
@@ -31,9 +34,11 @@ export function AppProviders({ children }) {
         <ChatProvider socket={socket}>
           <ColdStartBridge socket={socket} connected={connected}>
             <CrabProviderWrapper>
-              <UIProvider socket={socket}>
-                {typeof children === 'function' ? children({ socket, connected }) : children}
-              </UIProvider>
+              <CommunityProvider socket={socket}>
+                <UIProvider socket={socket}>
+                  {typeof children === 'function' ? children({ socket, connected }) : children}
+                </UIProvider>
+              </CommunityProvider>
             </CrabProviderWrapper>
           </ColdStartBridge>
         </ChatProvider>

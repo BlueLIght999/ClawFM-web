@@ -16,6 +16,7 @@ function Clock() {
 export default function TopBar({ radioName, freq, connected, view, onViewChange, weather, ttsStatus }) {
   const tabs = [
     { id: 'player', label: 'FM' },
+    { id: 'community', label: 'COM' },
     { id: 'profile', label: 'ME' },
     { id: 'settings', label: 'SET' },
   ];

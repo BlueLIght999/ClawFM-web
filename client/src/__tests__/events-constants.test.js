@@ -73,4 +73,53 @@ describe('Event Constants', () => {
   it('exportsDjStreamEnd', () => {
     expect(E.DJ_STREAM_END).toBe('radio:dj-stream-end');
   });
+
+  // ── Community module events (PRD v0.3) ──
+  it('exportsCommunityPush', () => {
+    expect(E.COMMUNITY_PUSH).toBe('community:push');
+  });
+
+  it('exportsCommunityClusterUpdated', () => {
+    expect(E.COMMUNITY_CLUSTER_UPDATED).toBe('community:cluster-updated');
+  });
+
+  it('exportsCommunityPostNew', () => {
+    expect(E.COMMUNITY_POST_NEW).toBe('community:post-new');
+  });
+
+  it('exportsCommunityAgentComment', () => {
+    expect(E.COMMUNITY_AGENT_COMMENT).toBe('community:agent-comment');
+  });
+
+  it('exportsCommunityInvitation', () => {
+    expect(E.COMMUNITY_INVITATION).toBe('community:invitation');
+  });
+
+  it('exportsRoomState', () => {
+    expect(E.ROOM_STATE).toBe('room:state');
+  });
+
+  it('exportsRoomChat', () => {
+    expect(E.ROOM_CHAT).toBe('room:chat');
+  });
+
+  it('exportsRoomSync', () => {
+    expect(E.ROOM_SYNC).toBe('room:sync');
+  });
+
+  it('exportsCommunityIdentify', () => {
+    expect(E.COMMUNITY_IDENTIFY).toBe('community:identify');
+  });
+
+  it('exportsRoomJoin', () => {
+    expect(E.ROOM_JOIN).toBe('room:join');
+  });
+
+  it('exportsRoomLeave', () => {
+    expect(E.ROOM_LEAVE).toBe('room:leave');
+  });
+
+  it('exportsRoomSkip', () => {
+    expect(E.ROOM_SKIP).toBe('room:skip');
+  });
 });
