@@ -1,12 +1,14 @@
-/* === CommunityView — 社区模块样式（Feed/发帖/收件箱/簇/通知/Agent 配置） === */
+/* === CommunityView — 像素风 + Suno playlist 布局 === */
+/* 保留：Press Start 2P / VT323 字体、CRT 扫描线、青橙配色、pixel-border */
+/* 借鉴 Suno：卡片网格、封面 hero、播放量浮层、hover 抬升、列表行 */
 
 .community-view {
   flex: 1;
   overflow: auto;
-  padding: 10px;
+  padding: 12px 14px 24px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 /* === Tab 导航 === */
@@ -15,110 +17,290 @@
   gap: 4px;
   flex-wrap: wrap;
   align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-dim);
 }
 
 .community-tab {
-  background: var(--bg-panel);
-  border: 2px solid var(--border-dim);
-  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
   font-family: var(--font-pixel);
-  font-size: 8px;
+  font-size: 9px;
   letter-spacing: 1px;
-  padding: 4px 8px;
+  padding: 6px 10px;
   cursor: pointer;
   image-rendering: pixelated;
-  transition: all 0.1s;
+  transition: all 0.15s;
   text-transform: uppercase;
+  position: relative;
 }
 
 .community-tab:hover {
-  border-color: var(--border-color);
   color: var(--text-primary);
 }
 
 .community-tab.active {
-  border-color: var(--accent);
   color: var(--accent);
-  box-shadow: 0 0 6px var(--shadow-accent-outer);
+}
+
+.community-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -9px;
+  height: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--shadow-accent-glow);
 }
 
 .community-tab-badge {
   display: inline-block;
   margin-left: 4px;
-  min-width: 14px;
-  padding: 0 3px;
+  min-width: 16px;
+  padding: 1px 4px;
   background: var(--accent);
   color: var(--bg-deep);
-  font-size: 7px;
+  font-size: 8px;
   text-align: center;
   line-height: 1.4;
 }
 
-/* === Panel 容器（复用 pixel-border，仅补内边距与间距） === */
-.community-panel {
-  background: var(--bg-secondary);
-  padding: 8px 12px;
-  margin-bottom: 8px;
+/* === Hero 区（Suno playlist hero 风格）=== */
+.community-hero {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  padding: 16px;
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+  border: 1px solid var(--border-dim);
+  position: relative;
+  overflow: hidden;
 }
 
-.community-panel:last-child {
-  margin-bottom: 0;
+.community-hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -10%;
+  width: 60%;
+  height: 200%;
+  background: radial-gradient(ellipse, var(--shadow-accent-hover) 0%, transparent 70%);
+  pointer-events: none;
+  opacity: 0.5;
 }
 
-.community-panel-title {
+.community-hero-cover {
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 12px var(--shadow-accent-outer);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  position: relative;
+  z-index: 1;
+}
+
+.community-hero-meta {
+  flex: 1;
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.community-hero-label {
   font-family: var(--font-pixel);
-  font-size: 8px;
+  font-size: 7px;
   color: var(--text-dim);
-  letter-spacing: 1px;
+  letter-spacing: 2px;
   margin-bottom: 6px;
   text-transform: uppercase;
 }
 
-/* === 加入社区表单 === */
-.community-join-form {
+.community-hero-title {
+  font-family: var(--font-pixel);
+  font-size: 16px;
+  color: var(--text-primary);
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.community-hero-stats {
   display: flex;
-  gap: 6px;
+  gap: 16px;
   flex-wrap: wrap;
-  align-items: center;
-}
-
-.community-join-form .pixel-input {
-  flex: 1;
-  min-width: 120px;
-}
-
-/* === 帖子卡片 === */
-.community-post {
-  border: 1px solid var(--border-dim);
-  background: var(--bg-primary);
-  padding: 8px 10px;
-  margin-bottom: 6px;
-  transition: border-color 0.15s;
-}
-
-.community-post:hover {
-  border-color: var(--border-color);
-}
-
-.community-post:last-child {
-  margin-bottom: 0;
-}
-
-.community-post-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   font-family: var(--font-mono);
-  font-size: 14px;
-  color: var(--text-dim);
-  margin-bottom: 4px;
-}
-
-.community-post-author {
+  font-size: 16px;
   color: var(--text-secondary);
 }
 
-.community-post-agent-tag {
+.community-hero-stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.community-hero-stat-value {
+  color: var(--accent-glow);
+  font-weight: bold;
+}
+
+/* === 卡片网格（Suno trending grid）=== */
+.community-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.community-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-dim);
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.community-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--shadow-accent-outer);
+}
+
+/* 卡片封面区（Suno 封面占位）*/
+.community-card-cover {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--bg-panel) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.community-card-cover-text {
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 8px;
+  word-break: break-word;
+}
+
+/* 封面右上角徽章（Suno 播放量浮层）*/
+.community-card-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(5, 10, 16, 0.85);
+  border: 1px solid var(--accent);
+  color: var(--accent-glow);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  padding: 2px 6px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  backdrop-filter: blur(4px);
+}
+
+.community-card-badge-icon {
+  font-size: 10px;
+}
+
+/* 封面 hover 遮罩 + 播放按钮（Suno hover 播放）*/
+.community-card-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 10, 16, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.community-card:hover .community-card-overlay {
+  opacity: 1;
+}
+
+.community-card-play {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg-deep);
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 16px var(--shadow-accent-glow);
+  transition: transform 0.15s;
+}
+
+.community-card-play:hover {
+  transform: scale(1.1);
+}
+
+/* 卡片正文 */
+.community-card-body {
+  padding: 8px 10px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.community-card-title {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--text-primary);
+  line-height: 1.25;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+
+.community-card-author {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.community-card-author-avatar {
+  width: 16px;
+  height: 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  color: var(--text-secondary);
+}
+
+.community-card-agent-tag {
   display: inline-block;
   margin-left: 4px;
   padding: 0 4px;
@@ -130,39 +312,15 @@
   vertical-align: middle;
 }
 
-.community-post-type {
-  font-family: var(--font-pixel);
-  font-size: 6px;
-  color: var(--text-muted);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-
-.community-post-content {
-  font-family: var(--font-mono);
-  font-size: 16px;
-  color: var(--text-primary);
-  line-height: 1.35;
-  margin: 4px 0 6px 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.community-post-song {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  color: var(--accent-glow);
-  margin-bottom: 4px;
-}
-
-.community-post-tags {
+/* 卡片底部标签条 */
+.community-card-tags {
   display: flex;
-  gap: 4px;
+  gap: 3px;
   flex-wrap: wrap;
-  margin-bottom: 6px;
+  margin-top: 2px;
 }
 
-.community-post-tag {
+.community-card-tag {
   font-family: var(--font-pixel);
   font-size: 6px;
   color: var(--text-muted);
@@ -171,203 +329,460 @@
   letter-spacing: 0.5px;
 }
 
-.community-post-actions {
+/* === 列表布局（Suno track list 风格，用于 inbox/notifications）=== */
+.community-list {
   display: flex;
-  gap: 6px;
-  align-items: center;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  color: var(--text-dim);
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border-dim);
+  background: var(--bg-secondary);
 }
 
-.community-post-like-count {
+.community-list-item {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-dim);
+  transition: background 0.15s;
+  cursor: pointer;
+}
+
+.community-list-item:last-child {
+  border-bottom: none;
+}
+
+.community-list-item:hover {
+  background: var(--bg-elevated);
+}
+
+.community-list-thumb {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
   color: var(--accent);
-  min-width: 24px;
 }
 
-/* === 发帖表单 === */
-.community-composer textarea.pixel-input {
-  width: 100%;
-  min-height: 80px;
-  resize: vertical;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  line-height: 1.3;
-  padding: 6px 8px;
+.community-list-body {
+  flex: 1;
+  min-width: 0;
 }
 
-.community-composer-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  margin-top: 6px;
-  flex-wrap: wrap;
-}
-
-.community-composer-row select.pixel-input {
-  min-width: 110px;
-}
-
-/* === 收件箱 === */
-.community-inbox-item {
-  border-left: 2px solid var(--border-dim);
-  padding: 6px 10px;
-  margin-bottom: 6px;
-  background: var(--bg-primary);
-  transition: border-color 0.15s;
-}
-
-.community-inbox-item:hover {
-  border-left-color: var(--accent);
-}
-
-.community-inbox-item:last-child {
-  margin-bottom: 0;
-}
-
-.community-inbox-meta {
-  font-family: var(--font-pixel);
-  font-size: 6px;
-  color: var(--text-muted);
-  letter-spacing: 0.5px;
-  margin-bottom: 2px;
-  text-transform: uppercase;
-}
-
-.community-inbox-title {
+.community-list-title {
   font-family: var(--font-mono);
   font-size: 15px;
   color: var(--text-primary);
   margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.community-inbox-summary {
+.community-list-summary {
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--text-dim);
-  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* === 簇列表 === */
-.community-cluster {
-  border: 1px solid var(--border-dim);
-  background: var(--bg-primary);
-  padding: 8px 10px;
-  margin-bottom: 6px;
-  transition: border-color 0.15s;
-}
-
-.community-cluster:hover {
-  border-color: var(--border-color);
-}
-
-.community-cluster:last-child {
-  margin-bottom: 0;
-}
-
-.community-cluster.current {
-  border-color: var(--accent);
-  box-shadow: 0 0 6px var(--shadow-accent-outer);
-}
-
-.community-cluster-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 4px;
-}
-
-.community-cluster-label {
+.community-list-meta {
   font-family: var(--font-pixel);
-  font-size: 8px;
+  font-size: 7px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+/* === 簇卡片（Suno playlist card 风格）=== */
+.community-cluster-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-dim);
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.2s;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.community-cluster-card:hover {
+  border-color: var(--border-color);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--shadow-border-outer);
+}
+
+.community-cluster-card.current {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--shadow-accent-outer);
+}
+
+.community-cluster-cover {
+  width: 100%;
+  aspect-ratio: 1;
+  background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--bg-primary) 100%);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
+  padding: 8px;
+  position: relative;
+}
+
+.community-cluster-cover-cell {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.community-cluster-cover-label {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  font-family: var(--font-pixel);
+  font-size: 9px;
   color: var(--accent-glow);
   letter-spacing: 1px;
+  text-align: center;
+  background: rgba(5, 10, 16, 0.7);
+  padding: 4px;
+  backdrop-filter: blur(4px);
 }
 
-.community-cluster-count {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-dim);
+.community-cluster-body {
+  padding: 8px 10px;
 }
 
 .community-cluster-members {
   font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-secondary);
+  font-size: 12px;
+  color: var(--text-dim);
   line-height: 1.4;
+  margin-top: 4px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
-/* === 通知 === */
-.community-notification {
-  border-left: 2px solid var(--text-dim);
-  padding: 4px 8px;
-  margin-bottom: 4px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-secondary);
-  background: var(--bg-primary);
-  transition: border-color 0.15s;
+/* === 发帖表单（Suno create panel 风格）=== */
+.community-composer {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-dim);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.community-notification:hover {
-  border-left-color: var(--accent);
-}
-
-.community-notification:last-child {
-  margin-bottom: 0;
-}
-
-.community-notification-type {
+.community-composer-label {
   font-family: var(--font-pixel);
-  font-size: 6px;
+  font-size: 9px;
   color: var(--accent);
-  letter-spacing: 0.5px;
-  margin-right: 4px;
+  letter-spacing: 1px;
   text-transform: uppercase;
 }
 
-.community-notification-time {
-  color: var(--text-muted);
-  font-size: 12px;
+.community-composer textarea {
+  width: 100%;
+  min-height: 100px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-dim);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 16px;
+  line-height: 1.4;
+  padding: 10px 12px;
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.15s;
 }
 
-/* === Agent 配置 === */
+.community-composer textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 8px var(--shadow-accent-outer);
+}
+
+.community-composer-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.community-composer-select,
+.community-composer-input {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-dim);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.community-composer-select {
+  min-width: 140px;
+}
+
+.community-composer-input {
+  flex: 1;
+  min-width: 140px;
+}
+
+.community-composer-select:focus,
+.community-composer-input:focus {
+  border-color: var(--accent);
+}
+
+/* === 按钮（Suno 圆角按钮 + 像素边框混合）=== */
+.community-btn {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  letter-spacing: 1px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-transform: uppercase;
+}
+
+.community-btn:hover {
+  background: var(--text-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.community-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.community-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-deep);
+}
+
+.community-btn-primary:hover {
+  background: var(--accent-glow);
+  border-color: var(--accent-glow);
+  color: var(--bg-deep);
+  box-shadow: 0 0 12px var(--shadow-accent-glow);
+}
+
+/* === 加入社区 hero（未加入时）=== */
+.community-join-hero {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 20px;
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 12px var(--shadow-accent-outer);
+}
+
+.community-join-hero-icon {
+  font-size: 48px;
+  flex-shrink: 0;
+}
+
+.community-join-hero-body {
+  flex: 1;
+}
+
+.community-join-hero-title {
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  color: var(--accent);
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+
+.community-join-hero-desc {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.community-join-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.community-join-form .community-composer-input {
+  min-width: 140px;
+}
+
+/* === Agent 配置（Suno settings card 风格）=== */
+.community-agent-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-dim);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
 .community-agent-rule {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 0;
+  padding: 14px 0;
   border-bottom: 1px solid var(--border-dim);
+  gap: 16px;
 }
 
 .community-agent-rule:last-child {
   border-bottom: none;
 }
 
+.community-agent-rule-info {
+  flex: 1;
+  min-width: 0;
+}
+
 .community-agent-rule-label {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 16px;
   color: var(--text-primary);
+  margin-bottom: 2px;
 }
 
 .community-agent-rule-hint {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-dim);
-  margin-top: 2px;
+}
+
+.community-toggle {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dim);
+  width: 44px;
+  height: 22px;
+  border-radius: 11px;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.community-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--text-dim);
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.community-toggle.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.community-toggle.on::after {
+  left: 24px;
+  background: var(--bg-deep);
+}
+
+/* === 通知项 === */
+.community-notification-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-dim);
+  transition: background 0.15s;
+}
+
+.community-notification-item:last-child {
+  border-bottom: none;
+}
+
+.community-notification-item:hover {
+  background: var(--bg-elevated);
+}
+
+.community-notification-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--accent);
+}
+
+.community-notification-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.community-notification-type {
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  color: var(--accent);
+  letter-spacing: 1px;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}
+
+.community-notification-text {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.community-notification-time {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 /* === 空状态 === */
 .community-empty {
-  padding: 16px;
+  padding: 48px 16px;
   text-align: center;
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 16px;
   color: var(--text-dim);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-dim);
 }
 
-.community-empty .cursor-blink::after {
-  content: '_';
+.community-empty-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+  opacity: 0.5;
 }
 
 /* === 错误提示 === */
@@ -376,12 +791,14 @@
   background: var(--shadow-accent-hover);
   color: var(--accent-glow);
   font-family: var(--font-mono);
-  font-size: 13px;
-  padding: 6px 10px;
-  margin-bottom: 6px;
+  font-size: 14px;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-/* === 加载更多按钮 === */
+/* === 加载更多 === */
 .community-load-more {
   display: block;
   width: 100%;
@@ -390,21 +807,44 @@
   border: 1px dashed var(--border-dim);
   color: var(--text-secondary);
   font-family: var(--font-pixel);
-  font-size: 7px;
+  font-size: 8px;
   letter-spacing: 1px;
-  padding: 6px;
+  padding: 12px;
   cursor: pointer;
-  margin-top: 6px;
-  transition: all 0.1s;
+  margin-top: 8px;
+  transition: all 0.15s;
   text-transform: uppercase;
 }
 
 .community-load-more:hover {
   border-color: var(--accent);
+  border-style: solid;
   color: var(--accent);
+  background: var(--shadow-accent-hover);
 }
 
 .community-load-more:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* === 响应式：小屏单列 === */
+@media (max-width: 640px) {
+  .community-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+  }
+  .community-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .community-hero-cover {
+    width: 100%;
+    height: 120px;
+  }
+  .community-join-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }

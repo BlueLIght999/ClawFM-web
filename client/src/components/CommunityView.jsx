@@ -5,13 +5,10 @@ import './community.css';
 /**
  * CommunityView — 社区模块入口视图（PRD v0.3 F1-F9）。
  *
- * 自包含：从 CommunityContext 取状态/方法，不接收外部 props。
- * Tab：feed（动态）/ compose（发帖）/ inbox（收件箱）/ clusters（簇列表）/
- *      notifications（通知）/ agent（Agent 配置）
+ * 视觉：像素风（Press Start 2P + VT323 + 青橙配色 + CRT 扫描线）
+ *      + Suno playlist 布局（卡片网格 / 封面 hero / 播放量浮层 / hover 抬升 / 列表行）
  *
- * - 公共读取（feed/clusters）在 mount 时拉取，不需要 currentMember
- * - 写操作（发帖/点赞/触发 agent 评论/更新 agent 配置）需要 currentMember；
- *   未加入社区时，在操作处内联显示"加入社区"表单
+ * Tab：feed / compose / inbox / clusters / notifications / agent
  */
 const TABS = [
   { id: 'feed', label: 'FEED' },
@@ -27,6 +24,12 @@ const POST_TYPES = [
   { value: 'history', label: 'History' },
   { value: 'recommend', label: 'Recommend' },
 ];
+
+const NOTIFICATION_ICONS = {
+  push: '◉',
+  'agent-comment': '◈',
+  invitation: '✉',
+};
 
 export default function CommunityView() {
   const community = useCommunity();
@@ -59,7 +62,7 @@ export default function CommunityView() {
       try {
         await fetchClusters();
       } catch (e) {
-        // 非致命，不打断首屏
+        // 非致命
       }
     })();
     return () => { cancelled = true; };
@@ -86,21 +89,55 @@ export default function CommunityView() {
   }, [hasMoreFeed, loadingFeed, feedCursor, fetchFeed]);
 
   const notifyCount = notifications.length;
+  const totalLikes = useMemo(
+    () => feed.reduce((sum, p) => sum + (p.likes || 0), 0),
+    [feed],
+  );
 
   return (
     <div className="community-view">
-      <h2 className="pixel-title" style={{ fontSize: 12 }}>COMMUNITY</h2>
+      {/* Hero 区（Suno playlist hero 风格）*/}
+      <div className="community-hero">
+        <div className="community-hero-cover">
+          {currentMember ? (currentMember.avatarUrl ? '◉' : '♪') : '◆'}
+        </div>
+        <div className="community-hero-meta">
+          <div className="community-hero-label">COMMUNITY</div>
+          <div className="community-hero-title">
+            {currentMember ? `@${currentMember.nickname || currentMember.userId}` : 'Join the Wave'}
+          </div>
+          <div className="community-hero-stats">
+            <span className="community-hero-stat">
+              <span className="community-hero-stat-value">{feed.length}</span> posts
+            </span>
+            <span className="community-hero-stat">
+              <span className="community-hero-stat-value">{clusters.length}</span> clusters
+            </span>
+            <span className="community-hero-stat">
+              <span className="community-hero-stat-value">{totalLikes}</span> likes
+            </span>
+            {currentMember?.clusterId != null && (
+              <span className="community-hero-stat">
+                cluster <span className="community-hero-stat-value">#{currentMember.clusterId}</span>
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
 
       {error && (
         <div className="community-error" role="alert">
-          {error}
-          <button className="pixel-btn" style={{ marginLeft: 8, fontSize: 7 }}
+          <span>{error}</span>
+          <button className="community-btn" style={{ padding: '4px 10px', fontSize: 7 }}
             onClick={() => setError(null)}>DISMISS</button>
         </div>
       )}
 
-      {!currentMember && <JoinPanel onCreate={createMember} onError={setError} />}
+      {!currentMember && (
+        <JoinHero onCreate={createMember} onError={setError} />
+      )}
 
+      {/* Tab 导航 */}
       <nav className="community-tabs" aria-label="Community sections">
         {TABS.map(tab => (
           <button
@@ -166,8 +203,8 @@ export default function CommunityView() {
   );
 }
 
-// ── 加入社区表单（F1，未加入时显示）────────────────────────
-function JoinPanel({ onCreate, onError }) {
+// ── 加入社区 Hero（Suno CTA 风格）─────────────────────────
+function JoinHero({ onCreate, onError }) {
   const [userId, setUserId] = useState('');
   const [nickname, setNickname] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -186,59 +223,67 @@ function JoinPanel({ onCreate, onError }) {
   }, [userId, nickname, onCreate, onError]);
 
   return (
-    <form className="pixel-border community-panel" onSubmit={handleJoin}>
-      <p className="community-panel-title">JOIN COMMUNITY</p>
-      <div className="community-join-form">
-        <input
-          className="pixel-input"
-          type="text"
-          placeholder="user id"
-          value={userId}
-          onChange={e => setUserId(e.target.value)}
-          aria-label="user id"
-          required
-        />
-        <input
-          className="pixel-input"
-          type="text"
-          placeholder="nickname"
-          value={nickname}
-          onChange={e => setNickname(e.target.value)}
-          aria-label="nickname"
-          required
-        />
-        <button
-          type="submit"
-          className="pixel-btn accent"
-          disabled={submitting}
-        >{submitting ? 'JOINING...' : 'JOIN'}</button>
+    <form className="community-join-hero" onSubmit={handleJoin}>
+      <div className="community-join-hero-icon">◆</div>
+      <div className="community-join-hero-body">
+        <div className="community-join-hero-title">JOIN COMMUNITY</div>
+        <div className="community-join-hero-desc">
+          Create your member identity to post, receive pushes, and let your agent speak for you.
+        </div>
+        <div className="community-join-form">
+          <input
+            className="community-composer-input"
+            type="text"
+            placeholder="user id"
+            value={userId}
+            onChange={e => setUserId(e.target.value)}
+            aria-label="user id"
+            required
+          />
+          <input
+            className="community-composer-input"
+            type="text"
+            placeholder="nickname"
+            value={nickname}
+            onChange={e => setNickname(e.target.value)}
+            aria-label="nickname"
+            required
+          />
+          <button
+            type="submit"
+            className="community-btn community-btn-primary"
+            disabled={submitting}
+          >{submitting ? 'JOINING...' : 'JOIN'}</button>
+        </div>
       </div>
     </form>
   );
 }
 
-// ── Feed Tab（F6）──────────────────────────────────────────
+// ── Feed Tab — 卡片网格（Suno trending grid 风格）─────────
 function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike, onTriggerAgentComment, onError }) {
   if (!feed || feed.length === 0) {
     return (
-      <div className="pixel-border community-panel">
-        <div className="community-empty"><span className="cursor-blink">No posts yet</span></div>
+      <div className="community-empty">
+        <div className="community-empty-icon">♪</div>
+        <div>No posts yet</div>
       </div>
     );
   }
   return (
-    <div className="pixel-border community-panel">
-      <p className="community-panel-title">RECENT POSTS</p>
-      {feed.map(post => (
-        <PostCard
-          key={post.id}
-          post={post}
-          currentMember={currentMember}
-          onLike={onLike}
-          onTriggerAgentComment={onTriggerAgentComment}
-          onError={onError}
-        />
-      ))}
+    <>
+      <div className="community-grid">
+        {feed.map(post => (
+          <PostCard
+            key={post.id}
+            post={post}
+            currentMember={currentMember}
+            onLike={onLike}
+            onTriggerAgentComment={onTriggerAgentComment}
+            onError={onError}
+          />
+        ))}
+      </div>
       {hasMore && (
         <button
           type="button"
@@ -247,11 +292,11 @@ function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike
           disabled={loadingMore}
         >{loadingMore ? 'LOADING...' : 'LOAD MORE'}</button>
       )}
-    </div>
+    </>
   );
 }
 
-// ── 帖子卡片（F2 + F8 触发口）─────────────────────────────
+// ── 帖子卡片（Suno song card 风格：封面 + 浮层 + hover 播放）───
 function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onError }) {
   const [liking, setLiking] = useState(false);
   const [agentPending, setAgentPending] = useState(false);
@@ -285,46 +330,61 @@ function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onError 
     return raw.map(t => String(t).trim()).filter(Boolean).slice(0, 3);
   }, [post.auto_tags]);
 
+  // 封面占位文字：取内容前 30 字符或帖子类型
+  const coverText = post.song_title
+    ? `♪ ${post.song_title}`
+    : (post.content || '').slice(0, 40) || post.type;
+
   return (
-    <article className="community-post">
-      <div className="community-post-header">
-        <span>
-          <span className="community-post-author">@{post.nickname || post.userId}</span>
-          {post.is_agent && <span className="community-post-agent-tag" title={`agent of @${post.agent_author_user_id}`}>AGENT</span>}
-        </span>
-        <span className="community-post-type">{post.type}</span>
+    <article className="community-card">
+      {/* 封面区 */}
+      <div className="community-card-cover">
+        <div className="community-card-cover-text">{coverText}</div>
+
+        {/* 右上角点赞数徽章（Suno 播放量浮层）*/}
+        <div className="community-card-badge" title="likes">
+          <span className="community-card-badge-icon">♥</span>
+          <span>{post.likes || 0}</span>
+        </div>
+
+        {/* hover 遮罩 + 播放/点赞按钮 */}
+        <div className="community-card-overlay">
+          <button
+            type="button"
+            className="community-card-play"
+            onClick={handleLike}
+            disabled={liking}
+            title="Like"
+            aria-label="like post"
+          >{liking ? '···' : '♥'}</button>
+        </div>
       </div>
 
-      <div className="community-post-content">{post.content}</div>
-
-      {(post.song_title || post.playlist_id) && (
-        <div className="community-post-song">
-          {post.song_title ? `♪ ${post.song_title}${post.song_artist ? ' — ' + post.song_artist : ''}` : `♫ playlist:${post.playlist_id}`}
+      {/* 正文 */}
+      <div className="community-card-body">
+        <div className="community-card-title">{post.content}</div>
+        <div className="community-card-author">
+          <span className="community-card-author-avatar">
+            {(post.nickname || post.userId || '?').charAt(0).toUpperCase()}
+          </span>
+          <span>@{post.nickname || post.userId}</span>
+          {post.is_agent && (
+            <span className="community-card-agent-tag" title={`agent of @${post.agent_author_user_id}`}>AGENT</span>
+          )}
         </div>
-      )}
-
-      {tags.length > 0 && (
-        <div className="community-post-tags">
-          {tags.map(t => <span key={t} className="community-post-tag">#{t}</span>)}
-        </div>
-      )}
-
-      <div className="community-post-actions">
-        <button
-          type="button"
-          className="pixel-btn"
-          onClick={handleLike}
-          disabled={liking}
-          aria-label="like post"
-        >{liking ? '...' : 'LIKE'}</button>
-        <span className="community-post-like-count">{post.likes || 0}</span>
+        {tags.length > 0 && (
+          <div className="community-card-tags">
+            {tags.map(t => <span key={t} className="community-card-tag">#{t}</span>)}
+          </div>
+        )}
         {currentMember && (
           <button
             type="button"
-            className="pixel-btn"
+            className="community-btn"
             onClick={handleAgentComment}
             disabled={agentPending}
             title="Let my agent comment (F8)"
+            style={{ marginTop: 4, padding: '4px 8px', fontSize: 7 }}
           >{agentPending ? 'AGENT...' : 'AGENT COMMENT'}</button>
         )}
       </div>
@@ -332,7 +392,7 @@ function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onError 
   );
 }
 
-// ── 发帖 Tab（F2）──────────────────────────────────────────
+// ── 发帖 Tab（Suno create panel 风格）─────────────────────
 function ComposeTab({ currentMember, onCreate, onError }) {
   const [content, setContent] = useState('');
   const [type, setType] = useState('reflection');
@@ -341,8 +401,9 @@ function ComposeTab({ currentMember, onCreate, onError }) {
 
   if (!currentMember) {
     return (
-      <div className="pixel-border community-panel">
-        <div className="community-empty">Join community to post.</div>
+      <div className="community-empty">
+        <div className="community-empty-icon">✎</div>
+        <div>Join community to post.</div>
       </div>
     );
   }
@@ -368,10 +429,9 @@ function ComposeTab({ currentMember, onCreate, onError }) {
   };
 
   return (
-    <form className="pixel-border community-panel community-composer" onSubmit={handleSubmit}>
-      <p className="community-panel-title">NEW POST</p>
+    <form className="community-composer" onSubmit={handleSubmit}>
+      <div className="community-composer-label">NEW POST</div>
       <textarea
-        className="pixel-input"
         placeholder="Share a thought, a song, or a moment..."
         value={content}
         onChange={e => setContent(e.target.value)}
@@ -380,7 +440,7 @@ function ComposeTab({ currentMember, onCreate, onError }) {
       />
       <div className="community-composer-row">
         <select
-          className="pixel-input"
+          className="community-composer-select"
           value={type}
           onChange={e => setType(e.target.value)}
           aria-label="post type"
@@ -388,7 +448,7 @@ function ComposeTab({ currentMember, onCreate, onError }) {
           {POST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         <input
-          className="pixel-input"
+          className="community-composer-input"
           type="text"
           placeholder="song id (optional)"
           value={songId}
@@ -397,7 +457,7 @@ function ComposeTab({ currentMember, onCreate, onError }) {
         />
         <button
           type="submit"
-          className="pixel-btn accent"
+          className="community-btn community-btn-primary"
           disabled={submitting || !content.trim()}
         >{submitting ? 'POSTING...' : 'POST'}</button>
       </div>
@@ -405,61 +465,81 @@ function ComposeTab({ currentMember, onCreate, onError }) {
   );
 }
 
-// ── 收件箱 Tab（F4）────────────────────────────────────────
+// ── 收件箱 Tab — 列表行（Suno track list 风格）────────────
 function InboxTab({ inbox, currentMember }) {
   if (!currentMember) {
     return (
-      <div className="pixel-border community-panel">
-        <div className="community-empty">Join community to view inbox.</div>
+      <div className="community-empty">
+        <div className="community-empty-icon">✉</div>
+        <div>Join community to view inbox.</div>
       </div>
     );
   }
   if (!inbox || inbox.length === 0) {
     return (
-      <div className="pixel-border community-panel">
-        <div className="community-empty"><span className="cursor-blink">Inbox empty</span></div>
+      <div className="community-empty">
+        <div className="community-empty-icon">✉</div>
+        <div>Inbox empty</div>
       </div>
     );
   }
   return (
-    <div className="pixel-border community-panel">
-      <p className="community-panel-title">INBOX</p>
+    <div className="community-list">
       {inbox.map(item => (
-        <div key={item.id} className="community-inbox-item">
-          <div className="community-inbox-meta">
+        <div key={item.id} className="community-list-item">
+          <div className="community-list-thumb">✉</div>
+          <div className="community-list-body">
+            <div className="community-list-title">{item.title || 'Untitled'}</div>
+            {item.summary && <div className="community-list-summary">{item.summary}</div>}
+          </div>
+          <div className="community-list-meta">
             {item.kind || 'push'}{item.from_cluster ? ` · ${item.from_cluster}` : ''}
           </div>
-          <div className="community-inbox-title">{item.title || 'Untitled'}</div>
-          {item.summary && <div className="community-inbox-summary">{item.summary}</div>}
         </div>
       ))}
     </div>
   );
 }
 
-// ── 簇列表 Tab（F3）────────────────────────────────────────
+// ── 簇列表 Tab — 卡片网格（Suno playlist card 风格）────────
 function ClustersTab({ clusters, currentMember }) {
   if (!clusters || clusters.length === 0) {
     return (
-      <div className="pixel-border community-panel">
-        <div className="community-empty"><span className="cursor-blink">No clusters yet</span></div>
+      <div className="community-empty">
+        <div className="community-empty-icon">◉</div>
+        <div>No clusters yet</div>
       </div>
     );
   }
   return (
-    <div className="pixel-border community-panel">
-      <p className="community-panel-title">CLUSTERS</p>
+    <div className="community-grid">
       {clusters.map(c => {
         const isCurrent = currentMember && c.id === currentMember.clusterId;
+        const members = c.members || [];
+        const topMembers = members.slice(0, 4);
         return (
-          <div key={c.id} className={`community-cluster${isCurrent ? ' current' : ''}`}>
-            <div className="community-cluster-header">
-              <span className="community-cluster-label">{c.label || `cluster-${c.id}`}</span>
-              <span className="community-cluster-count">{(c.members || []).length} members</span>
+          <div key={c.id} className={`community-cluster-card${isCurrent ? ' current' : ''}`}>
+            {/* 封面：2x2 网格展示前 4 个成员首字母 + 簇标签 */}
+            <div className="community-cluster-cover">
+              {[0, 1, 2, 3].map(i => (
+                <div key={i} className="community-cluster-cover-cell">
+                  {topMembers[i] ? (topMembers[i].nickname || topMembers[i].userId || '?').charAt(0).toUpperCase() : '·'}
+                </div>
+              ))}
+              <div className="community-cluster-cover-label">
+                {c.label || `cluster-${c.id}`}
+              </div>
             </div>
-            <div className="community-cluster-members">
-              {(c.members || []).slice(0, 12).map(m => `@${m.nickname || m.userId}`).join('  ')}
-              {(c.members || []).length > 12 ? ' ...' : ''}
+            <div className="community-cluster-body">
+              <div className="community-card-author">
+                <span className="community-card-author-avatar">{members.length}</span>
+                <span>members</span>
+                {isCurrent && <span className="community-card-agent-tag">YOU</span>}
+              </div>
+              <div className="community-cluster-members">
+                {members.slice(0, 8).map(m => `@${m.nickname || m.userId}`).join('  ')}
+                {members.length > 8 ? ` +${members.length - 8}` : ''}
+              </div>
             </div>
           </div>
         );
@@ -468,34 +548,45 @@ function ClustersTab({ clusters, currentMember }) {
   );
 }
 
-// ── 通知 Tab（F4 push / F8 agent-comment / F9 invitation）──
+// ── 通知 Tab — 列表行（Suno activity list 风格）───────────
 function NotificationsTab({ notifications, onClear }) {
   if (!notifications || notifications.length === 0) {
     return (
-      <div className="pixel-border community-panel">
-        <div className="community-empty"><span className="cursor-blink">No notifications</span></div>
+      <div className="community-empty">
+        <div className="community-empty-icon">◈</div>
+        <div>No notifications</div>
       </div>
     );
   }
   return (
-    <div className="pixel-border community-panel">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-        <p className="community-panel-title" style={{ margin: 0 }}>NOTIFICATIONS</p>
-        <button type="button" className="pixel-btn" onClick={onClear}>CLEAR</button>
+    <>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button type="button" className="community-btn" onClick={onClear}>CLEAR ALL</button>
       </div>
-      {notifications.map((n, idx) => (
-        <div key={`${n.at}-${idx}`} className="community-notification">
-          <span className="community-notification-type">{n.type}</span>
-          {n.postId && <span>post #{n.postId} </span>}
-          {n.payload && (n.payload.title || n.payload.summary || JSON.stringify(n.payload).slice(0, 80))}
-          <span className="community-notification-time"> · {new Date(n.at).toLocaleTimeString()}</span>
-        </div>
-      ))}
-    </div>
+      <div className="community-list">
+        {notifications.map((n, idx) => (
+          <div key={`${n.at}-${idx}`} className="community-notification-item">
+            <div className="community-notification-icon">
+              {NOTIFICATION_ICONS[n.type] || '●'}
+            </div>
+            <div className="community-notification-body">
+              <div className="community-notification-type">{n.type}</div>
+              <div className="community-notification-text">
+                {n.postId && <span>post #{n.postId} </span>}
+                {n.payload && (n.payload.title || n.payload.summary || JSON.stringify(n.payload).slice(0, 80))}
+              </div>
+            </div>
+            <div className="community-notification-time">
+              {new Date(n.at).toLocaleTimeString()}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
-// ── Agent 配置 Tab（F7）───────────────────────────────────
+// ── Agent 配置 Tab（Suno settings card 风格）──────────────
 function AgentTab({ currentMember, agentConfig, onUpdate, onError }) {
   const [rules, setRules] = useState({
     canComment: true,
@@ -506,7 +597,6 @@ function AgentTab({ currentMember, agentConfig, onUpdate, onError }) {
   const [topicInput, setTopicInput] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // 同步 prop agentConfig 到本地 state
   useEffect(() => {
     if (agentConfig) {
       setRules({
@@ -520,8 +610,9 @@ function AgentTab({ currentMember, agentConfig, onUpdate, onError }) {
 
   if (!currentMember) {
     return (
-      <div className="pixel-border community-panel">
-        <div className="community-empty">Join community to configure agent.</div>
+      <div className="community-empty">
+        <div className="community-empty-icon">◈</div>
+        <div>Join community to configure agent.</div>
       </div>
     );
   }
@@ -549,86 +640,91 @@ function AgentTab({ currentMember, agentConfig, onUpdate, onError }) {
   };
 
   return (
-    <div className="pixel-border community-panel">
-      <p className="community-panel-title">AGENT RULES</p>
-
-      <div className="community-agent-rule">
-        <div>
-          <div className="community-agent-rule-label">Can comment</div>
-          <div className="community-agent-rule-hint">Allow my agent to post comments on my behalf (F8)</div>
-        </div>
-        <button
-          type="button"
-          className={`pixel-btn ${rules.canComment ? 'accent' : ''}`}
-          onClick={() => setRules(prev => ({ ...prev, canComment: !prev.canComment }))}
-        >{rules.canComment ? 'ON' : 'OFF'}</button>
+    <>
+      <div className="community-agent-section">
+        <Toggle
+          label="Can comment"
+          hint="Allow my agent to post comments on my behalf (F8)"
+          on={rules.canComment}
+          onToggle={() => setRules(prev => ({ ...prev, canComment: !prev.canComment }))}
+        />
+        <Toggle
+          label="Can be invited"
+          hint="Other members can invite my agent (F9)"
+          on={rules.canBeInvited}
+          onToggle={() => setRules(prev => ({ ...prev, canBeInvited: !prev.canBeInvited }))}
+        />
+        <Toggle
+          label="Share playlists"
+          hint="My agent carries my playlists when invited"
+          on={rules.sharePlaylists}
+          onToggle={() => setRules(prev => ({ ...prev, sharePlaylists: !prev.sharePlaylists }))}
+        />
       </div>
 
-      <div className="community-agent-rule">
-        <div>
-          <div className="community-agent-rule-label">Can be invited</div>
-          <div className="community-agent-rule-hint">Other members can invite my agent (F9)</div>
-        </div>
-        <button
-          type="button"
-          className={`pixel-btn ${rules.canBeInvited ? 'accent' : ''}`}
-          onClick={() => setRules(prev => ({ ...prev, canBeInvited: !prev.canBeInvited }))}
-        >{rules.canBeInvited ? 'ON' : 'OFF'}</button>
-      </div>
-
-      <div className="community-agent-rule">
-        <div>
-          <div className="community-agent-rule-label">Share playlists</div>
-          <div className="community-agent-rule-hint">My agent carries my playlists when invited</div>
-        </div>
-        <button
-          type="button"
-          className={`pixel-btn ${rules.sharePlaylists ? 'accent' : ''}`}
-          onClick={() => setRules(prev => ({ ...prev, sharePlaylists: !prev.sharePlaylists }))}
-        >{rules.sharePlaylists ? 'ON' : 'OFF'}</button>
-      </div>
-
-      <div className="community-agent-rule" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
-        <div style={{ width: '100%' }}>
-          <div className="community-agent-rule-label">Allowed topics</div>
-          <div className="community-agent-rule-hint">Topics my agent can comment on (empty = unrestricted)</div>
-        </div>
-        <div className="community-composer-row" style={{ width: '100%', marginTop: 6 }}>
-          <input
-            className="pixel-input"
-            type="text"
-            placeholder="topic"
-            value={topicInput}
-            onChange={e => setTopicInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddTopic(); } }}
-            aria-label="new topic"
-          />
-          <button type="button" className="pixel-btn" onClick={handleAddTopic}>ADD</button>
-        </div>
-        {rules.allowedTopics.length > 0 && (
-          <div className="community-post-tags" style={{ marginTop: 6 }}>
-            {rules.allowedTopics.map(t => (
-              <button
-                type="button"
-                key={t}
-                className="community-post-tag"
-                onClick={() => handleRemoveTopic(t)}
-                style={{ cursor: 'pointer', background: 'transparent' }}
-                title="remove"
-              >#{t} ✕</button>
-            ))}
+      <div className="community-agent-section">
+        <div className="community-agent-rule" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: 8 }}>
+          <div className="community-agent-rule-info" style={{ width: '100%' }}>
+            <div className="community-agent-rule-label">Allowed topics</div>
+            <div className="community-agent-rule-hint">Topics my agent can comment on (empty = unrestricted)</div>
           </div>
-        )}
+          <div className="community-composer-row" style={{ width: '100%' }}>
+            <input
+              className="community-composer-input"
+              type="text"
+              placeholder="topic"
+              value={topicInput}
+              onChange={e => setTopicInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddTopic(); } }}
+              aria-label="new topic"
+            />
+            <button type="button" className="community-btn" onClick={handleAddTopic}>ADD</button>
+          </div>
+          {rules.allowedTopics.length > 0 && (
+            <div className="community-card-tags" style={{ width: '100%' }}>
+              {rules.allowedTopics.map(t => (
+                <button
+                  type="button"
+                  key={t}
+                  className="community-card-tag"
+                  onClick={() => handleRemoveTopic(t)}
+                  style={{ cursor: 'pointer', background: 'transparent' }}
+                  title="remove"
+                >#{t} ✕</button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="community-composer-row" style={{ justifyContent: 'flex-end' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <button
           type="button"
-          className="pixel-btn accent"
+          className="community-btn community-btn-primary"
           onClick={handleSave}
           disabled={saving}
         >{saving ? 'SAVING...' : 'SAVE RULES'}</button>
       </div>
+    </>
+  );
+}
+
+// ── Toggle 开关（Suno switch 风格）────────────────────────
+function Toggle({ label, hint, on, onToggle }) {
+  return (
+    <div className="community-agent-rule">
+      <div className="community-agent-rule-info">
+        <div className="community-agent-rule-label">{label}</div>
+        <div className="community-agent-rule-hint">{hint}</div>
+      </div>
+      <button
+        type="button"
+        className={`community-toggle${on ? ' on' : ''}`}
+        onClick={onToggle}
+        role="switch"
+        aria-checked={on}
+        aria-label={label}
+      />
     </div>
   );
 }
