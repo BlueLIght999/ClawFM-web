@@ -8,13 +8,15 @@ import './community.css';
  * 视觉：像素风（Press Start 2P + VT323 + 青橙配色 + CRT 扫描线）
  *      + Suno playlist 布局（卡片网格 / 封面 hero / 播放量浮层 / hover 抬升 / 列表行）
  *
- * Tab：feed / compose / inbox / clusters / notifications / agent
+ * Tab：feed / compose / inbox / invitations / clusters / rooms / notifications / agent
  */
 const TABS = [
   { id: 'feed', label: 'FEED' },
   { id: 'compose', label: 'POST' },
   { id: 'inbox', label: 'INBOX' },
+  { id: 'invitations', label: 'INVS' },
   { id: 'clusters', label: 'CLUSTERS' },
+  { id: 'rooms', label: 'ROOMS' },
   { id: 'notifications', label: 'NOTIFY' },
   { id: 'agent', label: 'AGENT' },
 ];
@@ -35,9 +37,12 @@ export default function CommunityView() {
   const community = useCommunity();
   const {
     currentMember, feed, inbox, clusters, notifications, agentConfig,
+    rooms, roomState, invitations,
     fetchFeed, fetchInbox, fetchClusters,
     createPost, likePost, triggerAgentComment, updateAgentConfig,
     createMember, clearNotifications,
+    fetchRooms, createRoom, joinRoomHttp, endRoom,
+    invite, respondInvitation, fetchInvitations, bringPlaylist,
   } = community;
 
   const [activeTab, setActiveTab] = useState('feed');
@@ -74,6 +79,18 @@ export default function CommunityView() {
     fetchInbox(currentMember.userId).catch(e => setError(e.message));
   }, [activeTab, currentMember, fetchInbox]);
 
+  // 切到 rooms 时拉房间列表
+  useEffect(() => {
+    if (activeTab !== 'rooms') return;
+    fetchRooms().catch(e => setError(e.message));
+  }, [activeTab, fetchRooms]);
+
+  // 切到 invitations 时拉邀请列表
+  useEffect(() => {
+    if (activeTab !== 'invitations' || !currentMember) return;
+    fetchInvitations(currentMember.userId).catch(e => setError(e.message));
+  }, [activeTab, currentMember, fetchInvitations]);
+
   const handleLoadMore = useCallback(async () => {
     if (!hasMoreFeed || loadingFeed) return;
     setLoadingFeed(true);
@@ -89,6 +106,10 @@ export default function CommunityView() {
   }, [hasMoreFeed, loadingFeed, feedCursor, fetchFeed]);
 
   const notifyCount = notifications.length;
+  const pendingInvitationCount = useMemo(
+    () => invitations.filter(inv => inv.status === 'pending').length,
+    [invitations],
+  );
   const totalLikes = useMemo(
     () => feed.reduce((sum, p) => sum + (p.likes || 0), 0),
     [feed],
@@ -151,6 +172,9 @@ export default function CommunityView() {
             {tab.id === 'notifications' && notifyCount > 0 && (
               <span className="community-tab-badge">{notifyCount > 99 ? '99+' : notifyCount}</span>
             )}
+            {tab.id === 'invitations' && pendingInvitationCount > 0 && (
+              <span className="community-tab-badge">{pendingInvitationCount > 99 ? '99+' : pendingInvitationCount}</span>
+            )}
           </button>
         ))}
       </nav>
@@ -164,6 +188,7 @@ export default function CommunityView() {
           onLoadMore={handleLoadMore}
           onLike={likePost}
           onTriggerAgentComment={triggerAgentComment}
+          onInvite={invite}
           onError={setError}
         />
       )}
@@ -180,8 +205,32 @@ export default function CommunityView() {
         <InboxTab inbox={inbox} currentMember={currentMember} />
       )}
 
+      {activeTab === 'invitations' && (
+        <InvitationsTab
+          invitations={invitations}
+          currentMember={currentMember}
+          onRespond={respondInvitation}
+          onBringPlaylist={bringPlaylist}
+          onInvite={invite}
+          onError={setError}
+        />
+      )}
+
       {activeTab === 'clusters' && (
         <ClustersTab clusters={clusters} currentMember={currentMember} />
+      )}
+
+      {activeTab === 'rooms' && (
+        <RoomsTab
+          rooms={rooms}
+          roomState={roomState}
+          currentMember={currentMember}
+          onCreate={createRoom}
+          onJoin={joinRoomHttp}
+          onEnd={endRoom}
+          onSkip={community.roomSkip}
+          onError={setError}
+        />
       )}
 
       {activeTab === 'notifications' && (
@@ -261,7 +310,7 @@ function JoinHero({ onCreate, onError }) {
 }
 
 // ── Feed Tab — 卡片网格（Suno trending grid 风格）─────────
-function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike, onTriggerAgentComment, onError }) {
+function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike, onTriggerAgentComment, onInvite, onError }) {
   if (!feed || feed.length === 0) {
     return (
       <div className="community-empty">
@@ -280,6 +329,7 @@ function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike
             currentMember={currentMember}
             onLike={onLike}
             onTriggerAgentComment={onTriggerAgentComment}
+            onInvite={onInvite}
             onError={onError}
           />
         ))}
@@ -297,9 +347,10 @@ function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike
 }
 
 // ── 帖子卡片（Suno song card 风格：封面 + 浮层 + hover 播放）───
-function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onError }) {
+function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onInvite, onError }) {
   const [liking, setLiking] = useState(false);
   const [agentPending, setAgentPending] = useState(false);
+  const [invitePending, setInvitePending] = useState(false);
 
   const handleLike = useCallback(async () => {
     setLiking(true);
@@ -323,6 +374,20 @@ function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onError 
       setAgentPending(false);
     }
   }, [post.id, currentMember, onTriggerAgentComment, onError]);
+
+  const handleInvite = useCallback(async () => {
+    if (!currentMember) { onError('join_community_first'); return; }
+    const targetUserId = post.userId;
+    if (targetUserId === currentMember.userId) { onError('cannot_invite_self'); return; }
+    setInvitePending(true);
+    try {
+      await onInvite({ fromUserId: currentMember.userId, toUserId: targetUserId });
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setInvitePending(false);
+    }
+  }, [post, currentMember, onInvite, onError]);
 
   const tags = useMemo(() => {
     if (!post.auto_tags) return [];
@@ -378,14 +443,24 @@ function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onError 
           </div>
         )}
         {currentMember && (
-          <button
-            type="button"
-            className="community-btn"
-            onClick={handleAgentComment}
-            disabled={agentPending}
-            title="Let my agent comment (F8)"
-            style={{ marginTop: 4, padding: '4px 8px', fontSize: 7 }}
-          >{agentPending ? 'AGENT...' : 'AGENT COMMENT'}</button>
+          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+            <button
+              type="button"
+              className="community-btn"
+              onClick={handleAgentComment}
+              disabled={agentPending}
+              title="Let my agent comment (F8)"
+              style={{ padding: '4px 8px', fontSize: 7 }}
+            >{agentPending ? 'AGENT...' : 'AGENT COMMENT'}</button>
+            <button
+              type="button"
+              className="community-btn"
+              onClick={handleInvite}
+              disabled={invitePending || post.userId === currentMember.userId}
+              title="Invite TA's agent into my feed (F9)"
+              style={{ padding: '4px 8px', fontSize: 7 }}
+            >{invitePending ? 'INV...' : 'INVITE AGENT'}</button>
+          </div>
         )}
       </div>
     </article>
@@ -726,5 +801,314 @@ function Toggle({ label, hint, on, onToggle }) {
         aria-label={label}
       />
     </div>
+  );
+}
+
+// ── 房间 Tab — 卡片网格 + 创建表单 + 房间内视图（F5）─────
+function RoomsTab({ rooms, roomState, currentMember, onCreate, onJoin, onEnd, onSkip, onError }) {
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState('');
+  const [topicTags, setTopicTags] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  if (!currentMember) {
+    return (
+      <div className="community-empty">
+        <div className="community-empty-icon">◉</div>
+        <div>Join community to use rooms.</div>
+      </div>
+    );
+  }
+
+  // 如果有房间状态，显示房间内视图
+  if (roomState) {
+    return <RoomInterior roomState={roomState} currentMember={currentMember} onEnd={onEnd} onSkip={onSkip} />;
+  }
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setCreating(true);
+    try {
+      const tags = topicTags.trim()
+        ? topicTags.split(',').map(t => t.trim()).filter(Boolean)
+        : [];
+      await onCreate({ hostUserId: currentMember.userId, name: name.trim(), topicTags: tags });
+      setName('');
+      setTopicTags('');
+      setShowCreate(false);
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="community-composer-label">ACTIVE ROOMS</div>
+        <button
+          type="button"
+          className="community-btn community-btn-primary"
+          onClick={() => setShowCreate(s => !s)}
+        >{showCreate ? 'CANCEL' : '+ CREATE ROOM'}</button>
+      </div>
+
+      {showCreate && (
+        <form className="community-composer" onSubmit={handleCreate}>
+          <div className="community-composer-row">
+            <input
+              className="community-composer-input"
+              type="text"
+              placeholder="room name"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              aria-label="room name"
+              required
+            />
+            <input
+              className="community-composer-input"
+              type="text"
+              placeholder="topic tags (comma-separated)"
+              value={topicTags}
+              onChange={e => setTopicTags(e.target.value)}
+              aria-label="topic tags"
+            />
+            <button
+              type="submit"
+              className="community-btn community-btn-primary"
+              disabled={creating || !name.trim()}
+            >{creating ? 'CREATING...' : 'CREATE'}</button>
+          </div>
+        </form>
+      )}
+
+      {(!rooms || rooms.length === 0) ? (
+        <div className="community-empty">
+          <div className="community-empty-icon">◉</div>
+          <div>No active rooms</div>
+        </div>
+      ) : (
+        <div className="community-grid">
+          {rooms.map(room => (
+            <div key={room.roomId} className="community-card">
+              <div className="community-card-cover">
+                <div className="community-card-cover-text">{room.name || 'Untitled Room'}</div>
+                <div className="community-card-badge">
+                  <span className="community-card-badge-icon">◉</span>
+                  <span>{room.status === 'active' ? 'LIVE' : 'END'}</span>
+                </div>
+              </div>
+              <div className="community-card-body">
+                <div className="community-card-title">{room.name}</div>
+                <div className="community-card-author">
+                  <span className="community-card-author-avatar">H</span>
+                  <span>@{room.hostUserId}</span>
+                </div>
+                {room.topicTags && room.topicTags.length > 0 && (
+                  <div className="community-card-tags">
+                    {room.topicTags.map(t => <span key={t} className="community-card-tag">#{t}</span>)}
+                  </div>
+                )}
+                {room.hostUserId !== currentMember.userId && (
+                  <button
+                    type="button"
+                    className="community-btn community-btn-primary"
+                    style={{ marginTop: 4, padding: '4px 8px', fontSize: 7 }}
+                    onClick={() => onJoin(room.roomId, currentMember.userId).catch(e => onError(e.message))}
+                  >JOIN</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── 房间内视图（播放同步 + 房主控制）──────────────────────
+function RoomInterior({ roomState, currentMember, onEnd, onSkip }) {
+  const isHost = roomState.hostUserId === currentMember.userId;
+
+  return (
+    <>
+      <div className="community-hero">
+        <div className="community-hero-cover">{roomState.isPlaying ? '▶' : '❚❚'}</div>
+        <div className="community-hero-meta">
+          <div className="community-hero-label">LISTENING ROOM</div>
+          <div className="community-hero-title">{roomState.name || roomState.roomId}</div>
+          <div className="community-hero-stats">
+            <span className="community-hero-stat">
+              host <span className="community-hero-stat-value">@{roomState.hostUserId}</span>
+            </span>
+            <span className="community-hero-stat">
+              status <span className="community-hero-stat-value">{roomState.isPlaying ? 'playing' : 'paused'}</span>
+            </span>
+            {roomState.currentSong && (
+              <span className="community-hero-stat">
+                ♪ <span className="community-hero-stat-value">{roomState.currentSong}</span>
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {isHost && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            className="community-btn"
+            onClick={() => onSkip(roomState.roomId)}
+          >SKIP</button>
+          <button
+            type="button"
+            className="community-btn"
+            onClick={() => onEnd(roomState.roomId, currentMember.userId)}
+          >END ROOM</button>
+        </div>
+      )}
+
+      {roomState.playlists && roomState.playlists.length > 0 && (
+        <div className="community-list">
+          {roomState.playlists.map((pl, i) => (
+            <div key={pl.id || i} className="community-list-item">
+              <div className="community-list-thumb">♪</div>
+              <div className="community-list-body">
+                <div className="community-list-title">{pl.name || `Playlist ${i + 1}`}</div>
+                <div className="community-list-summary">{pl.trackCount || 0} tracks</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── 邀请 Tab — 发起 + 列表 + 响应（F9）──────────────────
+function InvitationsTab({ invitations, currentMember, onRespond, onBringPlaylist, onInvite, onError }) {
+  const [inviteToUserId, setInviteToUserId] = useState('');
+  const [inviting, setInviting] = useState(false);
+
+  if (!currentMember) {
+    return (
+      <div className="community-empty">
+        <div className="community-empty-icon">✉</div>
+        <div>Join community to use invitations.</div>
+      </div>
+    );
+  }
+
+  const handleInvite = async (e) => {
+    e.preventDefault();
+    if (!inviteToUserId.trim()) return;
+    setInviting(true);
+    try {
+      await onInvite({ fromUserId: currentMember.userId, toUserId: inviteToUserId.trim() });
+      setInviteToUserId('');
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const sent = invitations.filter(inv => inv.fromUserId === currentMember.userId);
+  const received = invitations.filter(inv => inv.toUserId === currentMember.userId);
+
+  return (
+    <>
+      <form className="community-composer" onSubmit={handleInvite}>
+        <div className="community-composer-label">INVITE AN AGENT</div>
+        <div className="community-composer-row">
+          <input
+            className="community-composer-input"
+            type="text"
+            placeholder="target user id"
+            value={inviteToUserId}
+            onChange={e => setInviteToUserId(e.target.value)}
+            aria-label="target user id"
+            required
+          />
+          <button
+            type="submit"
+            className="community-btn community-btn-primary"
+            disabled={inviting || !inviteToUserId.trim()}
+          >{inviting ? 'INVITING...' : 'INVITE'}</button>
+        </div>
+      </form>
+
+      {received.length > 0 && (
+        <>
+          <div className="community-composer-label">RECEIVED</div>
+          <div className="community-list">
+            {received.map(inv => (
+              <div key={inv.id} className="community-list-item">
+                <div className="community-list-thumb">✉</div>
+                <div className="community-list-body">
+                  <div className="community-list-title">@{inv.fromUserId}</div>
+                  <div className="community-list-summary">
+                    {inv.contextType} · {inv.status}
+                  </div>
+                </div>
+                {inv.status === 'pending' && (
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      type="button"
+                      className="community-btn community-btn-primary"
+                      style={{ padding: '4px 8px', fontSize: 7 }}
+                      onClick={() => onRespond(inv.id, 'accepted').catch(e => onError(e.message))}
+                    >ACCEPT</button>
+                    <button
+                      type="button"
+                      className="community-btn"
+                      style={{ padding: '4px 8px', fontSize: 7 }}
+                      onClick={() => onRespond(inv.id, 'rejected').catch(e => onError(e.message))}
+                    >REJECT</button>
+                  </div>
+                )}
+                {inv.status === 'active' && (
+                  <button
+                    type="button"
+                    className="community-btn"
+                    style={{ padding: '4px 8px', fontSize: 7 }}
+                    onClick={() => onBringPlaylist(inv.id).catch(e => onError(e.message))}
+                  >BRING PLAYLIST</button>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {sent.length > 0 && (
+        <>
+          <div className="community-composer-label">SENT</div>
+          <div className="community-list">
+            {sent.map(inv => (
+              <div key={inv.id} className="community-list-item">
+                <div className="community-list-thumb">↗</div>
+                <div className="community-list-body">
+                  <div className="community-list-title">@{inv.toUserId}</div>
+                  <div className="community-list-summary">
+                    {inv.contextType} · {inv.status}
+                  </div>
+                </div>
+                <div className="community-list-meta">{inv.status}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {received.length === 0 && sent.length === 0 && (
+        <div className="community-empty">
+          <div className="community-empty-icon">✉</div>
+          <div>No invitations yet</div>
+        </div>
+      )}
+    </>
   );
 }
