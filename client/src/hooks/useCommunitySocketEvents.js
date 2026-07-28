@@ -7,8 +7,8 @@
  * - 依赖数组完整列出 ctx 方法，保证 value 变化时重新订阅
  * - socket 为 null 时直接 return（守卫）
  *
- * 订阅 5 个事件：community:post-new / community:agent-comment /
- * community:push / community:cluster-updated / community:invitation
+ * 订阅 6 个事件：community:post-new / community:agent-comment /
+ * community:push / community:cluster-updated / community:invitation / room:state
  *
  * 在 App.jsx 调用，不在 CommunityProvider 内部调用。
  */
@@ -18,7 +18,7 @@ import { useCommunity } from '../contexts/CommunityContext.jsx';
 
 export function useCommunitySocketEvents(socket) {
   const {
-    onPostNew, onAgentComment, onPush, onClusterUpdated, onInvitation,
+    onPostNew, onAgentComment, onPush, onClusterUpdated, onInvitation, onRoomState,
   } = useCommunity();
 
   useEffect(() => {
@@ -29,6 +29,7 @@ export function useCommunitySocketEvents(socket) {
     socket.on(E.COMMUNITY_PUSH, onPush);
     socket.on(E.COMMUNITY_CLUSTER_UPDATED, onClusterUpdated);
     socket.on(E.COMMUNITY_INVITATION, onInvitation);
+    socket.on(E.ROOM_STATE, onRoomState);
 
     return () => {
       socket.off(E.COMMUNITY_POST_NEW);
@@ -36,6 +37,7 @@ export function useCommunitySocketEvents(socket) {
       socket.off(E.COMMUNITY_PUSH);
       socket.off(E.COMMUNITY_CLUSTER_UPDATED);
       socket.off(E.COMMUNITY_INVITATION);
+      socket.off(E.ROOM_STATE);
     };
-  }, [socket, onPostNew, onAgentComment, onPush, onClusterUpdated, onInvitation]);
+  }, [socket, onPostNew, onAgentComment, onPush, onClusterUpdated, onInvitation, onRoomState]);
 }

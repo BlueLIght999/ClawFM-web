@@ -24,6 +24,12 @@ const DEFAULT_COMMUNITY_STATE = {
   notifications: [],
   // 我的 agent 配置（F7）
   agentConfig: null, // { canComment, allowedTopics, canBeInvited, sharePlaylists }
+  // 活跃房间列表（F5）
+  rooms: [],
+  // 当前所在房间的实时状态（F5 room:state 推送）
+  roomState: null, // { roomId, isPlaying, currentSong, playlists, ... }
+  // 我相关的邀请列表（F9）
+  invitations: [],
 };
 
 /**
@@ -168,6 +174,101 @@ export function CommunityProvider({ socket, children }) {
     return data;
   }, [updateState]);
 
+  // ── F9 邀请 HTTP 方法 ────────────────────────────────────
+  /** 发起邀请（邀请某人的 agent） */
+  const invite = useCallback(async ({ fromUserId, toUserId, contextType, contextId }) => {
+    const res = await fetch('/api/community/invitations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fromUserId, toUserId, contextType, contextId }),
+    });
+    if (!res.ok) throw new Error('invite_failed');
+    return (await res.json()).data;
+  }, []);
+
+  /** 响应邀请（接受/拒绝） */
+  const respondInvitation = useCallback(async (invitationId, status) => {
+    const res = await fetch(`/api/community/invitations/${invitationId}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) throw new Error('respond_invitation_failed');
+    const data = (await res.json()).data;
+    // 更新本地邀请列表状态
+    setState(prev => ({
+      ...prev,
+      invitations: prev.invitations.map(inv =>
+        inv.id === invitationId ? { ...inv, status } : inv
+      ),
+    }));
+    return data;
+  }, []);
+
+  /** 拉取我相关的邀请列表 */
+  const fetchInvitations = useCallback(async (userId) => {
+    const res = await fetch(`/api/community/invitations?userId=${encodeURIComponent(userId)}`);
+    if (!res.ok) throw new Error('fetch_invitations_failed');
+    const invitations = (await res.json()).data;
+    updateState({ invitations });
+    return invitations;
+  }, [updateState]);
+
+  /** 触发被邀请方 agent 把歌单带入上下文 */
+  const bringPlaylist = useCallback(async (invitationId) => {
+    const res = await fetch(`/api/community/invitations/${invitationId}/bring-playlist`, { method: 'POST' });
+    if (!res.ok) throw new Error('bring_playlist_failed');
+    return (await res.json()).data;
+  }, []);
+
+  // ── F5 房间 HTTP 方法 ────────────────────────────────────
+  /** 拉取活跃房间列表 */
+  const fetchRooms = useCallback(async () => {
+    const res = await fetch('/api/community/rooms');
+    if (!res.ok) throw new Error('fetch_rooms_failed');
+    const rooms = (await res.json()).data;
+    updateState({ rooms });
+    return rooms;
+  }, [updateState]);
+
+  /** 创建房间 */
+  const createRoom = useCallback(async ({ hostUserId, name, topicTags }) => {
+    const res = await fetch('/api/community/rooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hostUserId, name, topicTags }),
+    });
+    if (!res.ok) throw new Error('create_room_failed');
+    return (await res.json()).data;
+  }, []);
+
+  /** 加入房间（HTTP 注册 + socket join） */
+  const joinRoomHttp = useCallback(async (roomId, userId) => {
+    const res = await fetch(`/api/community/rooms/${roomId}/join`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    });
+    if (!res.ok) throw new Error('join_room_failed');
+    const room = (await res.json()).data;
+    joinRoom(roomId); // socket 层加入房间
+    updateState({ roomState: null }); // 重置房间状态，等待 room:state 推送
+    return room;
+  }, [joinRoom, updateState]);
+
+  /** 结束房间（房主） */
+  const endRoom = useCallback(async (roomId, userId) => {
+    const res = await fetch(`/api/community/rooms/${roomId}/end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    });
+    if (!res.ok) throw new Error('end_room_failed');
+    leaveRoom(roomId);
+    updateState({ roomState: null });
+    return (await res.json()).data;
+  }, [leaveRoom, updateState]);
+
   // ── Socket 事件处理器（由 useCommunitySocketEvents 调用）────
   /** 收到新帖（community:post-new）— 插到 feed 顶部，去重 */
   const onPostNew = useCallback((post) => {
@@ -221,6 +322,11 @@ export function CommunityProvider({ socket, children }) {
     }));
   }, []);
 
+  /** 收到房间状态更新（room:state）— 更新当前房间状态 */
+  const onRoomState = useCallback((payload) => {
+    setState(prev => ({ ...prev, roomState: payload }));
+  }, []);
+
   /** 清空通知 */
   const clearNotifications = useCallback(() => {
     updateState({ notifications: [] });
@@ -234,8 +340,12 @@ export function CommunityProvider({ socket, children }) {
     // http
     createMember, refreshProfile, createPost, fetchFeed, likePost,
     fetchInbox, fetchClusters, triggerAgentComment, updateAgentConfig,
+    // F9 invitation http
+    invite, respondInvitation, fetchInvitations, bringPlaylist,
+    // F5 room http
+    fetchRooms, createRoom, joinRoomHttp, endRoom,
     // socket event handlers
-    onPostNew, onAgentComment, onPush, onClusterUpdated, onInvitation,
+    onPostNew, onAgentComment, onPush, onClusterUpdated, onInvitation, onRoomState,
     clearNotifications,
   };
 
