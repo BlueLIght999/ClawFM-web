@@ -48,8 +48,12 @@ export function slotMemory(repositories = null) {
     .map(a => `- ${a.name} (${a.count} plays)`)
     .join('\n');
 
+  const seedSongs = seedPool.slice(0, 10)
+    .map(s => `- ${s.title || s.songId || s.id || 'unknown'} — ${s.artist || 'unknown'}`)
+    .join('\n');
+
   const seedInfo = seedPool.length > 0
-    ? `Seed pool: ${seedPool.length} songs from user's playlists and liked songs.`
+    ? `Seed pool: ${seedPool.length} songs from user's playlists and liked songs.\n${seedSongs}`
     : '';
 
   return [
