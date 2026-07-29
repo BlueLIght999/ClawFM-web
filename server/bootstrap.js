@@ -322,9 +322,21 @@ function createApplicationServices({ legacy, adapters, repositories, eventPublis
   // P0-1: inject music so router.js can execute music search paths (not CHAT_FALLBACK)
   const intentRouter = createLegacyIntentRouterAdapter(routeIntent, { mergedChat: mergedIntentChatAdapter, music });
 
+  // B-F7: inject repositories so slotMemory can populate Recently Played / Top Artists / Seed pool
+  const contextBuilder = {
+    assemble: (params) => assemblePrompt({
+      ...params,
+      repositories: {
+        listenHistory: legacyListenHistoryRepository,
+        profile: legacyListenerProfileRepository,
+        seedPool: legacySeedPoolRepository,
+      },
+    }),
+  };
+
   const agentTurnService = createAgentTurnService({
     intentRouter, conversation: conversationService,
-    contextBuilder: { assemble: assemblePrompt }, weather,
+    contextBuilder, weather,
     queue, scheduler, djStatus: { isConfigured: llm.isConfigured },
     userActivity: { setLastUserChat: legacy.setLastUserChat },
     persona: loadDjPersona(),
@@ -343,7 +355,7 @@ function createApplicationServices({ legacy, adapters, repositories, eventPublis
     functionCalling: functionCallingAdapter,
     toolRegistry,
     persona: loadDjPersona(),
-    contextBuilder: { assemble: assemblePrompt },
+    contextBuilder,
     weather, queue,
     userActivity: { setLastUserChat: legacy.setLastUserChat },
     djStatus: { isConfigured: llm.isConfigured },
