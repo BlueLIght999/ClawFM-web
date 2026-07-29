@@ -66,7 +66,7 @@ export class Recommender {
     const { allSongs, activeBlockHints } = await filler.fillQueue(targetSize, hints, this._planProgress);
 
     this._commitFillResult(allSongs, activeBlockHints);
-    this._maybeBuildSeedPool();
+    await this._maybeBuildSeedPool();
     return allSongs;
   }
 
@@ -110,10 +110,14 @@ export class Recommender {
     }
   }
 
-  _maybeBuildSeedPool() {
+  async _maybeBuildSeedPool() {
     if (!this._seedPoolPending) return;
     this._seedPoolPending = false;
-    this._buildSeedPool().catch(e => console.error('[Recommender] Seed pool build failed:', e.message));
+    try {
+      await this._buildSeedPool();
+    } catch (e) {
+      console.error('[Recommender] Seed pool build failed:', e.message);
+    }
   }
 
   async _buildSeedPool() {
