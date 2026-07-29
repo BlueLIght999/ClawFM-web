@@ -8,6 +8,7 @@ import {
 
 const INITIAL_RESTORE_QUEUE_SIZE = 15;
 const PLAN_UPDATE_EVENT = 'plan:update';
+const LOGIN_REQUIRED_EVENT = 'radio:login-required';
 
 function queueUpdateIfNeeded(queue, songs) {
   if ((songs || []).length > 0 || !queue.isEmpty) {
@@ -132,6 +133,11 @@ export function createAuthenticationService({
 
       const status = authLoginStatusFromResult(await authClient.checkLoginStatus());
       if (!status.uid) {
+        // Cookie 过期/失效：通知前端需要重新登录，避免静默卡在空列表状态
+        eventPublisher.emit(LOGIN_REQUIRED_EVENT, {
+          reason: 'cookie_expired',
+          cookiePreview: cookiePreview(cookie),
+        });
         return {
           cookieFound: true,
           cookiePreview: cookiePreview(cookie),
