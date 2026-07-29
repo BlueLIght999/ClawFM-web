@@ -182,7 +182,7 @@ async function handlePersonalizedRecommendation({
     handled: false,
     snapshot,
     queueUpdate: queueUpdate(queue),
-    toolResults: `DJ used personalized recommendation pipeline${preference ? ` for "${preference}"` : ''}. Added ${added.length} songs to queue. Listener's top artists: ${topArtistNames(profile, 5, 'none yet')}. Seed pool: ${recommender.seedPool?.length || 0} songs. Queue now has ${queue.future.length} upcoming tracks. Pre-recommendation snapshot saved. Respond naturally in Chinese 閳?mention 1-2 highlights, don't list all. If added=0, apologize briefly.`,
+    toolResults: `DJ used personalized recommendation pipeline${preference ? ` for "${preference}"` : ''}. Added ${added.length} songs to queue. Listener's top artists: ${topArtistNames(profile, 5, 'none yet')}. Seed pool: ${recommender.seedPool?.length || 0} songs. Queue now has ${queue.future.length} upcoming tracks. Pre-recommendation snapshot saved. Respond naturally in Chinese — mention 1-2 highlights, don't list all. If added=0, apologize briefly.`,
   };
 }
 
@@ -192,13 +192,13 @@ async function handleRecommendationAction({ routing, snapshot, queue, recommende
       return {
         handled: false,
         snapshot,
-        toolResults: `Listener rejected the last batch of recommendations. Pre-recommendation queue snapshot is available (${snapshot.future.length} songs). You MUST ask the listener: "瑕佷笉瑕佸洖鍒版帹鑽愪箣鍓嶇殑姝屽崟锛岃繕鏄垜鍐嶆崲涓€鎵圭粰浣狅紵" Keep it brief and natural in Chinese. Do NOT take any action yet 鈥?just ask the question.`,
+        toolResults: `Listener rejected the last batch of recommendations. Pre-recommendation queue snapshot is available (${snapshot.future.length} songs). You MUST ask the listener: "要不要回到推荐之前的歌单，还是我再换一批给你？" Keep it brief and natural in Chinese. Do NOT take any action yet — just ask the question.`,
       };
     }
     return {
       handled: false,
       snapshot: null,
-      toolResults: 'Listener seems unhappy with the music but no snapshot is available to roll back. Sympathize briefly and offer to find something different. Do NOT take any action 鈥?just respond naturally in Chinese.',
+      toolResults: 'Listener seems unhappy with the music but no snapshot is available to roll back. Sympathize briefly and offer to find something different. Do NOT take any action — just respond naturally in Chinese.',
     };
   }
 
@@ -209,7 +209,7 @@ async function handleRecommendationAction({ routing, snapshot, queue, recommende
         handled: false,
         snapshot: null,
         queueUpdate: queueUpdate(queue),
-        toolResults: `Restored the pre-recommendation queue (${snapshot.future.length} songs). Acknowledge briefly in Chinese 鈥?"宸茬粡鍥炲埌涔嬪墠鐨勬瓕鍗曚簡" style.`,
+        toolResults: `Restored the pre-recommendation queue (${snapshot.future.length} songs). Acknowledge briefly in Chinese — "已经回到之前的歌单了" style.`,
       };
     }
     return {
@@ -226,7 +226,7 @@ async function handleRecommendationAction({ routing, snapshot, queue, recommende
       handled: false,
       snapshot: next,
       queueUpdate: queueUpdate(queue),
-      toolResults: `Re-recommended ${added.length} fresh tracks using different sources. Acknowledge naturally in Chinese 鈥?"杩欐鎹簡涓€鎵归鏍硷紝甯屾湜浣犲枩娆? style. Do not list all songs.`,
+      toolResults: `Re-recommended ${added.length} fresh tracks using different sources. Acknowledge naturally in Chinese — "这次换了一批风格，希望你喜欢" style. Do not list all songs.`,
     };
   }
 
