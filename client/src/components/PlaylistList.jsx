@@ -16,6 +16,8 @@ export default function PlaylistList({
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [showAllSidebar, setShowAllSidebar] = useState(false);
+  const [playingId, setPlayingId] = useState(null);
+  const [playPendingId, setPlayPendingId] = useState(null);
   const sidebar = variant === 'sidebar';
   const contentVisible = sidebar || expanded;
   const sidebarPlaylists = showAllSidebar
@@ -37,19 +39,24 @@ export default function PlaylistList({
     fetchPlaylists();
   }, [fetchPlaylists]);
 
-  useEffect(() => {
-    if (!socket) return undefined;
-    socket.on(E.QUEUE_UPDATE, fetchPlaylists);
-    return () => socket.off(E.QUEUE_UPDATE, fetchPlaylists);
-  }, [socket, fetchPlaylists]);
+  // 移除 QUEUE_UPDATE 监听：歌单列表不随播放队列变化，避免每次切歌冗余拉取导致闪烁
 
   const handlePlay = useCallback(async (playlist) => {
+    setPlayPendingId(playlist.id);
+    setError(null);
     try {
       const response = await fetch(`/api/playlist/${playlist.id}/play`, { method: 'POST' });
       const data = await response.json();
-      if (data.ok) onPlay?.(playlist);
+      if (data.ok) {
+        setPlayingId(playlist.id);
+        onPlay?.(playlist);
+      } else {
+        setError(data.error || 'play_playlist_failed');
+      }
     } catch (requestError) {
       setError(requestError.message);
+    } finally {
+      setPlayPendingId(null);
     }
   }, [onPlay]);
 
@@ -60,7 +67,7 @@ export default function PlaylistList({
           <h2 className="radio-sidebar-title" id="playlist-title">PLAYLISTS</h2>
           <span className="radio-sidebar-count">{playlists.length}</span>
         </div>
-        <PlaylistContent playlists={sidebarPlaylists} loading={loading} error={error} onPlay={handlePlay} />
+        <PlaylistContent playlists={sidebarPlaylists} loading={loading} error={error} onPlay={handlePlay} playingId={playingId} playPendingId={playPendingId} />
         {canToggleSidebar && (
           <button type="button" className="playlist-more"
             aria-expanded={showAllSidebar}
@@ -83,7 +90,7 @@ export default function PlaylistList({
         <span>{expanded ? '[-]' : '[+]'} PLAYLISTS</span>
         <span>{playlists.length} LISTS</span>
       </button>
-      {contentVisible && <PlaylistContent playlists={playlists} loading={loading} error={error} onPlay={handlePlay} />}
+      {contentVisible && <PlaylistContent playlists={playlists} loading={loading} error={error} onPlay={handlePlay} playingId={playingId} playPendingId={playPendingId} />}
     </section>
   );
 }
