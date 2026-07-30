@@ -16,8 +16,8 @@
     "format:check": "prettier --check \"**/*.js\"",
     "dup:check": "jscpd .",
     "audit:check": "npm audit --audit-level=high",
-    "arch:check": "depcruise --config .dependency-cruiser.cjs domain application infrastructure services socket db utils evaluation",
-    "arch:graph": "depcruise --config .dependency-cruiser.cjs --output-type dot domain application infrastructure services socket db utils evaluation | node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>require('fs').writeFileSync('dependency-graph.dot',s))\"",
+    "arch:check": "depcruise --config .dependency-cruiser.cjs *.js agent domain application infrastructure services socket db utils evaluation",
+    "arch:graph": "depcruise --config .dependency-cruiser.cjs --output-type dot *.js agent domain application infrastructure services socket db utils evaluation | node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>require('fs').writeFileSync('dependency-graph.dot',s))\"",
     "quality": "npm run lint && npm run arch:check && npm run dup:check && npm run test"
   },
   "dependencies": {

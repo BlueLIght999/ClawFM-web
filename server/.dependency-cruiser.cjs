@@ -127,6 +127,7 @@ module.exports = {
           '(^|/)server\\.js$',
           '^application/ports/',
           '^agent/application/ports/',
+          'Port\\.js$',
           '^agent/index\\.js$',
           '^evaluation/runBadCaseAttribution\\.js$',
           '^evaluation/runProductEffectEvaluation\\.js$',
@@ -139,7 +140,7 @@ module.exports = {
 
   options: {
     doNotFollow: { path: 'node_modules' },
-    exclude: { path: '(node_modules|__tests__|netease-api)' },
+    exclude: { path: '(node_modules|__tests__|netease-api|vitest\\.config\\.js|eslint\\.config\\.js)' },
     tsPreCompilationDeps: false,
     combinedDependencies: false,
   },
