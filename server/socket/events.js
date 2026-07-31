@@ -55,6 +55,8 @@ export const EVENTS = {
   COMMUNITY_CLUSTER_UPDATED: 'community:cluster-updated',
   COMMUNITY_POST_NEW: 'community:post-new',     // 动态时间线新帖
   COMMUNITY_AGENT_COMMENT: 'community:agent-comment', // agent 代发评论（带署名）
+  COMMUNITY_COMMENT_NEW: 'community:comment-new', // 有人评论了我的帖子（定向）
+  COMMUNITY_FOLLOW: 'community:follow',         // 有人关注了我（定向）
   COMMUNITY_INVITATION: 'community:invitation', // 收到邀请
   ROOM_STATE: 'room:state',                     // 一起听房间状态（房主播放同步）
   ROOM_CHAT: 'room:chat',                       // 房间内聊天（双向）

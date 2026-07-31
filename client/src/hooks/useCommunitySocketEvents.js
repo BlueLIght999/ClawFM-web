@@ -18,7 +18,8 @@ import { useCommunity } from '../contexts/CommunityContext.jsx';
 
 export function useCommunitySocketEvents(socket) {
   const {
-    onPostNew, onAgentComment, onPush, onClusterUpdated, onInvitation, onRoomState,
+    onPostNew, onAgentComment, onPush, onClusterUpdated, onInvitation,
+    onCommentNew, onFollow, onRoomState,
   } = useCommunity();
 
   useEffect(() => {
@@ -26,6 +27,8 @@ export function useCommunitySocketEvents(socket) {
 
     socket.on(E.COMMUNITY_POST_NEW, onPostNew);
     socket.on(E.COMMUNITY_AGENT_COMMENT, onAgentComment);
+    socket.on(E.COMMUNITY_COMMENT_NEW, onCommentNew);
+    socket.on(E.COMMUNITY_FOLLOW, onFollow);
     socket.on(E.COMMUNITY_PUSH, onPush);
     socket.on(E.COMMUNITY_CLUSTER_UPDATED, onClusterUpdated);
     socket.on(E.COMMUNITY_INVITATION, onInvitation);
@@ -34,10 +37,12 @@ export function useCommunitySocketEvents(socket) {
     return () => {
       socket.off(E.COMMUNITY_POST_NEW);
       socket.off(E.COMMUNITY_AGENT_COMMENT);
+      socket.off(E.COMMUNITY_COMMENT_NEW);
+      socket.off(E.COMMUNITY_FOLLOW);
       socket.off(E.COMMUNITY_PUSH);
       socket.off(E.COMMUNITY_CLUSTER_UPDATED);
       socket.off(E.COMMUNITY_INVITATION);
       socket.off(E.ROOM_STATE);
     };
-  }, [socket, onPostNew, onAgentComment, onPush, onClusterUpdated, onInvitation, onRoomState]);
+  }, [socket, onPostNew, onAgentComment, onCommentNew, onFollow, onPush, onClusterUpdated, onInvitation, onRoomState]);
 }

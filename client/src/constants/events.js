@@ -36,6 +36,8 @@ export const E = {
   COMMUNITY_CLUSTER_UPDATED: 'community:cluster-updated',
   COMMUNITY_POST_NEW: 'community:post-new',
   COMMUNITY_AGENT_COMMENT: 'community:agent-comment',
+  COMMUNITY_COMMENT_NEW: 'community:comment-new',
+  COMMUNITY_FOLLOW: 'community:follow',
   COMMUNITY_INVITATION: 'community:invitation',
   ROOM_STATE: 'room:state',
   ROOM_CHAT: 'room:chat',
