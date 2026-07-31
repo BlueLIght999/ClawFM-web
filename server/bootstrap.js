@@ -276,6 +276,7 @@ export function createServices(io) {
     communityRepository,
     cookieCipherPort,
     communityEventPublisher,
+    authRepository: legacyAuthRepository,
   };
 }
 

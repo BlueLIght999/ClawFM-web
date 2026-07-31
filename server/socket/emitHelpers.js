@@ -47,7 +47,15 @@ export function emitStreamingConversationResult(socket, result) {
 
 export function emitAuthenticationResult(socket, result) {
   if (!result) return;
-  if (result.loginSuccess) socket.emit('auth:login-success', result.loginSuccess);
+  if (result.loginSuccess) {
+    socket.emit('auth:login-success', result.loginSuccess);
+    // 登录成功时把 uid 存入 socket.data，供社区 community:identify 鉴权校验
+    const uid = result.loginSuccess.profile?.userId;
+    if (uid) {
+      socket.data = socket.data || {};
+      socket.data.uid = String(uid);
+    }
+  }
   if (result.qrCreated) socket.emit('auth:qr-created', result.qrCreated);
   if (result.qrStatus) socket.emit('auth:qr-status', result.qrStatus);
   if (result.qrExpired) socket.emit('auth:qr-expired');

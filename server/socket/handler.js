@@ -268,7 +268,7 @@ export function setupSocketHandler(io, services) {
   wireSchedulerCallbacks(io, deps);
   deps.queue.init();
 
-  const communityHandler = createCommunityHandler({ io, roomService: deps.roomService, logger: deps.logger });
+  const communityHandler = createCommunityHandler({ io, roomService: deps.roomService, authRepository: deps.authRepository, logger: deps.logger });
 
   io.on('connection', async (socket) => {
     wireClientReady(socket, io, deps);
