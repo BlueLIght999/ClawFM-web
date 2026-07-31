@@ -6,7 +6,7 @@
  * - HTTP 调用：相对路径 /api/community/*（dev 代理到 3333）
  * - 状态分片：member / feed / inbox / clusters / notifications
  */
-import { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { E } from '../constants/events.js';
 
 const CommunityContext = createContext(null);
@@ -14,13 +14,21 @@ const CommunityContext = createContext(null);
 const DEFAULT_COMMUNITY_STATE = {
   // 当前成员（登录后填充）
   currentMember: null, // { userId, nickname, avatarUrl }
+  // 当前登录网易云 uid（auth:login-success 后设置，社区 userId 须与之一致）
+  authUid: null,
   // Feed 帖子列表（最新在前）
   feed: [],
+  // 关注流（我关注的人的帖子，社交发现）
+  followingFeed: [],
+  // 评论缓存：{ [postId]: comment[] }，按需懒加载
+  commentsByPost: {},
+  // 成员资料缓存：{ [userId]: { ...member, isFollowing, followersCount, followingCount } }
+  memberCache: {},
   // 收件箱（F4 分发推送，离线可见）
   inbox: [],
   // 簇列表（F3 聚类结果）
   clusters: [],
-  // 实时通知（F4 push / F8 agent-comment / F9 invitation）— 仅内存，不持久
+  // 实时通知（F4 push / F8 agent-comment / F9 invitation / comment-new / follow）— 仅内存
   notifications: [],
   // 我的 agent 配置（F7）
   agentConfig: null, // { canComment, allowedTopics, canBeInvited, sharePlaylists }
@@ -65,8 +73,8 @@ export function CommunityProvider({ socket, children }) {
   }, [socket]);
 
   // ── HTTP 方法（REST API）────────────────────────────────────
-  /** 创建成员 + 存网易云凭据（F1）。成功后 identify。 */
-  const createMember = useCallback(async ({ userId, nickname, avatarUrl, neteaseUid, cookie }) => {
+  /** 创建成员（F1）。后端自动绑定网易云凭据。成功后 identify + 持久化。 */
+  const createMember = useCallback(async ({ userId, nickname, avatarUrl }) => {
     const res = await fetch('/api/community/members', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -74,17 +82,52 @@ export function CommunityProvider({ socket, children }) {
     });
     if (!res.ok) throw new Error('create_member_failed');
     const member = (await res.json()).data;
-    if (neteaseUid && cookie) {
-      await fetch(`/api/community/members/${userId}/credentials`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ neteaseUid, cookie }),
-      });
-    }
+    // 持久化到 localStorage（刷新后恢复身份 + re-identify）
+    try { localStorage.setItem('community:member', JSON.stringify(member)); } catch { /* ignore */ }
     updateState({ currentMember: member });
     identify(userId);
     return member;
   }, [identify, updateState]);
+
+  // 刷新恢复：从 localStorage 读 currentMember，自动 re-identify（修复 B-C7）
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('community:member');
+      if (saved) {
+        const member = JSON.parse(saved);
+        updateState({ currentMember: member });
+        identify(member.userId);
+      }
+    } catch { /* ignore */ }
+  }, [identify, updateState]);
+
+  // 登录成功后自动加入社区（用网易云 uid 作为社区 userId，后端自动绑定凭据）
+  useEffect(() => {
+    if (!socket) return undefined;
+    const handleLoginSuccess = async (payload) => {
+      const profile = payload?.profile || payload;
+      const uid = profile?.userId;
+      if (!uid) return;
+      updateState({ authUid: String(uid) });
+      // 已有当前成员且 uid 匹配则只 re-identify
+      if (stateRef.current?.currentMember?.userId === String(uid)) {
+        identify(String(uid));
+        return;
+      }
+      // 自动创建社区身份（幂等，ON CONFLICT DO UPDATE）
+      try {
+        await createMember({
+          userId: String(uid),
+          nickname: profile.nickname || '',
+          avatarUrl: profile.avatarUrl || '',
+        });
+      } catch {
+        identify(String(uid));
+      }
+    };
+    socket.on('auth:login-success', handleLoginSuccess);
+    return () => socket.off('auth:login-success', handleLoginSuccess);
+  }, [socket, identify, createMember]);
 
   /** 刷新我的画像（F1 P-B）。返回 { profile, degraded }。 */
   const refreshProfile = useCallback(async (userId) => {
@@ -120,16 +163,17 @@ export function CommunityProvider({ socket, children }) {
     return posts;
   }, []);
 
-  /** 点赞 */
+  /** 点赞 toggle（社交化）。后端返回 { liked, likes }，合并到 feed 帖子。 */
   const likePost = useCallback(async (postId) => {
     const res = await fetch(`/api/community/posts/${postId}/like`, { method: 'POST' });
     if (!res.ok) throw new Error('like_failed');
-    const updated = (await res.json()).data;
+    const { liked, likes } = (await res.json()).data;
     setState(prev => ({
       ...prev,
-      feed: prev.feed.map(p => p.id === postId ? updated : p),
+      feed: prev.feed.map(p => p.id === postId ? { ...p, liked, likes } : p),
+      followingFeed: prev.followingFeed.map(p => p.id === postId ? { ...p, liked, likes } : p),
     }));
-    return updated;
+    return { liked, likes };
   }, []);
 
   /** 拉收件箱（F4） */
@@ -218,6 +262,109 @@ export function CommunityProvider({ socket, children }) {
   const bringPlaylist = useCallback(async (invitationId) => {
     const res = await fetch(`/api/community/invitations/${invitationId}/bring-playlist`, { method: 'POST' });
     if (!res.ok) throw new Error('bring_playlist_failed');
+    return (await res.json()).data;
+  }, []);
+
+  // ── 社交方法：评论 / 关注 / 成员主页 / timeline ───────────
+  /** 拉取帖子评论（懒加载到 commentsByPost） */
+  const fetchComments = useCallback(async (postId) => {
+    const res = await fetch(`/api/community/posts/${postId}/comments`);
+    if (!res.ok) throw new Error('fetch_comments_failed');
+    const comments = (await res.json()).data;
+    setState(prev => ({ ...prev, commentsByPost: { ...prev.commentsByPost, [postId]: comments } }));
+    return comments;
+  }, []);
+
+  /** 发表评论（本地立即追加，保证响应感） */
+  const createComment = useCallback(async (postId, content) => {
+    const res = await fetch(`/api/community/posts/${postId}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) throw new Error('create_comment_failed');
+    const comment = (await res.json()).data;
+    setState(prev => {
+      const existing = prev.commentsByPost[postId] || [];
+      return { ...prev, commentsByPost: { ...prev.commentsByPost, [postId]: [...existing, comment] } };
+    });
+    return comment;
+  }, []);
+
+  /** 关注某人 */
+  const follow = useCallback(async (userId) => {
+    const res = await fetch(`/api/community/members/${userId}/follow`, { method: 'POST' });
+    if (!res.ok) throw new Error('follow_failed');
+    const data = (await res.json()).data;
+    // 更新 memberCache 中此人的 isFollowing
+    setState(prev => ({
+      ...prev,
+      memberCache: {
+        ...prev.memberCache,
+        [userId]: { ...(prev.memberCache[userId] || {}), isFollowing: true },
+      },
+    }));
+    return data;
+  }, []);
+
+  /** 取消关注 */
+  const unfollow = useCallback(async (userId) => {
+    const res = await fetch(`/api/community/members/${userId}/follow`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('unfollow_failed');
+    const data = (await res.json()).data;
+    setState(prev => ({
+      ...prev,
+      memberCache: {
+        ...prev.memberCache,
+        [userId]: { ...(prev.memberCache[userId] || {}), isFollowing: false },
+      },
+    }));
+    return data;
+  }, []);
+
+  /** 拉取成员资料（含 isFollowing + 关注统计），缓存到 memberCache */
+  const fetchMember = useCallback(async (userId) => {
+    const res = await fetch(`/api/community/members/${userId}`);
+    if (!res.ok) throw new Error('fetch_member_failed');
+    const member = (await res.json()).data;
+    setState(prev => ({ ...prev, memberCache: { ...prev.memberCache, [userId]: member } }));
+    return member;
+  }, []);
+
+  /** 拉取某用户的帖子 timeline */
+  const fetchUserPosts = useCallback(async (userId, { cursor = null, limit = 20 } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor !== null) params.set('cursor', String(cursor));
+    const res = await fetch(`/api/community/members/${userId}/posts?${params}`);
+    if (!res.ok) throw new Error('fetch_user_posts_failed');
+    return (await res.json()).data;
+  }, []);
+
+  /** 拉取关注流（我关注的人的帖子） */
+  const fetchFollowingFeed = useCallback(async ({ cursor = null, limit = 20 } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor !== null) params.set('cursor', String(cursor));
+    const res = await fetch(`/api/community/feed/following?${params}`);
+    if (!res.ok) throw new Error('fetch_following_feed_failed');
+    const posts = (await res.json()).data;
+    setState(prev => ({
+      ...prev,
+      followingFeed: cursor === null ? posts : [...prev.followingFeed, ...posts],
+    }));
+    return posts;
+  }, []);
+
+  /** 拉取某用户的粉丝列表 */
+  const fetchFollowers = useCallback(async (userId) => {
+    const res = await fetch(`/api/community/members/${userId}/followers`);
+    if (!res.ok) throw new Error('fetch_followers_failed');
+    return (await res.json()).data;
+  }, []);
+
+  /** 拉取某用户关注的人列表 */
+  const fetchFollowing = useCallback(async (userId) => {
+    const res = await fetch(`/api/community/members/${userId}/following`);
+    if (!res.ok) throw new Error('fetch_following_failed');
     return (await res.json()).data;
   }, []);
 
@@ -322,6 +469,35 @@ export function CommunityProvider({ socket, children }) {
     }));
   }, []);
 
+  /** 收到新评论（community:comment-new）— 加通知 + 若评论已展开则追加 */
+  const onCommentNew = useCallback((comment) => {
+    setState(prev => {
+      const postId = comment?.parentId;
+      const alreadyExpanded = postId != null && prev.commentsByPost[postId] != null;
+      return {
+        ...prev,
+        commentsByPost: alreadyExpanded
+          ? { ...prev.commentsByPost, [postId]: [...(prev.commentsByPost[postId] || []), comment] }
+          : prev.commentsByPost,
+        notifications: [
+          { type: 'comment-new', comment, at: Date.now() },
+          ...prev.notifications,
+        ].slice(0, 50),
+      };
+    });
+  }, []);
+
+  /** 收到被关注（community:follow）— 加通知 */
+  const onFollow = useCallback((payload) => {
+    setState(prev => ({
+      ...prev,
+      notifications: [
+        { type: 'follow', payload, at: Date.now() },
+        ...prev.notifications,
+      ].slice(0, 50),
+    }));
+  }, []);
+
   /** 收到房间状态更新（room:state）— 更新当前房间状态 */
   const onRoomState = useCallback((payload) => {
     setState(prev => ({ ...prev, roomState: payload }));
@@ -342,10 +518,14 @@ export function CommunityProvider({ socket, children }) {
     fetchInbox, fetchClusters, triggerAgentComment, updateAgentConfig,
     // F9 invitation http
     invite, respondInvitation, fetchInvitations, bringPlaylist,
+    // 社交：评论 / 关注 / 成员主页 / timeline / 关注流
+    fetchComments, createComment, follow, unfollow,
+    fetchMember, fetchUserPosts, fetchFollowingFeed, fetchFollowers, fetchFollowing,
     // F5 room http
     fetchRooms, createRoom, joinRoomHttp, endRoom,
     // socket event handlers
-    onPostNew, onAgentComment, onPush, onClusterUpdated, onInvitation, onRoomState,
+    onPostNew, onAgentComment, onPush, onClusterUpdated, onInvitation,
+    onCommentNew, onFollow, onRoomState,
     clearNotifications,
   };
 

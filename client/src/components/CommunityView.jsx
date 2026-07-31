@@ -12,6 +12,7 @@ import './community.css';
  */
 const TABS = [
   { id: 'feed', label: 'FEED' },
+  { id: 'following', label: 'FOLLOWING' },
   { id: 'compose', label: 'POST' },
   { id: 'inbox', label: 'INBOX' },
   { id: 'invitations', label: 'INVS' },
@@ -30,17 +31,20 @@ const POST_TYPES = [
 const NOTIFICATION_ICONS = {
   push: '◉',
   'agent-comment': '◈',
+  'comment-new': '◈',
+  follow: '✛',
   invitation: '✉',
 };
 
 export default function CommunityView() {
   const community = useCommunity();
   const {
-    currentMember, feed, inbox, clusters, notifications, agentConfig,
-    rooms, roomState, invitations,
-    fetchFeed, fetchInbox, fetchClusters,
+    currentMember, feed, followingFeed, commentsByPost, memberCache, inbox, clusters, notifications, agentConfig,
+    rooms, roomState, invitations, authUid,
+    fetchFeed, fetchInbox, fetchClusters, fetchFollowingFeed,
     createPost, likePost, triggerAgentComment, updateAgentConfig,
     createMember, clearNotifications,
+    fetchComments, createComment, follow, unfollow, fetchMember,
     fetchRooms, createRoom, joinRoomHttp, endRoom,
     invite, respondInvitation, fetchInvitations, bringPlaylist,
   } = community;
@@ -90,6 +94,12 @@ export default function CommunityView() {
     if (activeTab !== 'invitations' || !currentMember) return;
     fetchInvitations(currentMember.userId).catch(e => setError(e.message));
   }, [activeTab, currentMember, fetchInvitations]);
+
+  // 切到 following 时拉关注流
+  useEffect(() => {
+    if (activeTab !== 'following') return;
+    fetchFollowingFeed({ limit: 20 }).catch(e => setError(e.message));
+  }, [activeTab, fetchFollowingFeed]);
 
   const handleLoadMore = useCallback(async () => {
     if (!hasMoreFeed || loadingFeed) return;
@@ -155,7 +165,7 @@ export default function CommunityView() {
       )}
 
       {!currentMember && (
-        <JoinHero onCreate={createMember} onError={setError} />
+        <JoinHero onCreate={createMember} onError={setError} authUid={authUid} />
       )}
 
       {/* Tab 导航 */}
@@ -190,6 +200,35 @@ export default function CommunityView() {
           onTriggerAgentComment={triggerAgentComment}
           onInvite={invite}
           onError={setError}
+          commentsByPost={commentsByPost}
+          onFetchComments={fetchComments}
+          onCreateComment={createComment}
+          onFollow={follow}
+          onUnfollow={unfollow}
+          memberCache={memberCache}
+          onFetchMember={fetchMember}
+        />
+      )}
+
+      {activeTab === 'following' && (
+        <FeedTab
+          feed={followingFeed}
+          currentMember={currentMember}
+          hasMore={false}
+          loadingMore={false}
+          onLoadMore={() => {}}
+          onLike={likePost}
+          onTriggerAgentComment={triggerAgentComment}
+          onInvite={invite}
+          onError={setError}
+          commentsByPost={commentsByPost}
+          onFetchComments={fetchComments}
+          onCreateComment={createComment}
+          onFollow={follow}
+          onUnfollow={unfollow}
+          memberCache={memberCache}
+          onFetchMember={fetchMember}
+          emptyHint="Follow people to see their posts here"
         />
       )}
 
@@ -253,23 +292,22 @@ export default function CommunityView() {
 }
 
 // ── 加入社区 Hero（Suno CTA 风格）─────────────────────────
-function JoinHero({ onCreate, onError }) {
-  const [userId, setUserId] = useState('');
+function JoinHero({ onCreate, onError, authUid }) {
   const [nickname, setNickname] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const handleJoin = useCallback(async (e) => {
     e.preventDefault();
-    if (!userId.trim() || !nickname.trim()) return;
+    if (!authUid || !nickname.trim()) return;
     setSubmitting(true);
     try {
-      await onCreate({ userId: userId.trim(), nickname: nickname.trim() });
+      await onCreate({ userId: authUid, nickname: nickname.trim() });
     } catch (err) {
       onError(err.message || 'create_member_failed');
     } finally {
       setSubmitting(false);
     }
-  }, [userId, nickname, onCreate, onError]);
+  }, [authUid, nickname, onCreate, onError]);
 
   return (
     <form className="community-join-hero" onSubmit={handleJoin}>
@@ -283,15 +321,6 @@ function JoinHero({ onCreate, onError }) {
           <input
             className="community-composer-input"
             type="text"
-            placeholder="user id"
-            value={userId}
-            onChange={e => setUserId(e.target.value)}
-            aria-label="user id"
-            required
-          />
-          <input
-            className="community-composer-input"
-            type="text"
             placeholder="nickname"
             value={nickname}
             onChange={e => setNickname(e.target.value)}
@@ -301,7 +330,7 @@ function JoinHero({ onCreate, onError }) {
           <button
             type="submit"
             className="community-btn community-btn-primary"
-            disabled={submitting}
+            disabled={submitting || !authUid}
           >{submitting ? 'JOINING...' : 'JOIN'}</button>
         </div>
       </div>
@@ -310,12 +339,12 @@ function JoinHero({ onCreate, onError }) {
 }
 
 // ── Feed Tab — 卡片网格（Suno trending grid 风格）─────────
-function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike, onTriggerAgentComment, onInvite, onError }) {
+function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike, onTriggerAgentComment, onInvite, onError, commentsByPost, onFetchComments, onCreateComment, onFollow, onUnfollow, memberCache, onFetchMember, emptyHint }) {
   if (!feed || feed.length === 0) {
     return (
       <div className="community-empty">
         <div className="community-empty-icon">♪</div>
-        <div>No posts yet</div>
+        <div>{emptyHint || 'No posts yet'}</div>
       </div>
     );
   }
@@ -331,6 +360,13 @@ function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike
             onTriggerAgentComment={onTriggerAgentComment}
             onInvite={onInvite}
             onError={onError}
+            comments={commentsByPost?.[post.id]}
+            onFetchComments={onFetchComments}
+            onCreateComment={onCreateComment}
+            onFollow={onFollow}
+            onUnfollow={onUnfollow}
+            memberCache={memberCache}
+            onFetchMember={onFetchMember}
           />
         ))}
       </div>
@@ -347,10 +383,58 @@ function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike
 }
 
 // ── 帖子卡片（Suno song card 风格：封面 + 浮层 + hover 播放）───
-function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onInvite, onError }) {
+function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onInvite, onError, comments, onFetchComments, onCreateComment, onFollow, onUnfollow, memberCache, onFetchMember }) {
   const [liking, setLiking] = useState(false);
   const [agentPending, setAgentPending] = useState(false);
   const [invitePending, setInvitePending] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const [commenting, setCommenting] = useState(false);
+  const [followPending, setFollowPending] = useState(false);
+
+  const isSelf = !currentMember || post.userId === currentMember.userId;
+  const cachedMember = memberCache?.[post.userId];
+  const isFollowing = cachedMember?.isFollowing;
+
+  // 懒加载作者资料（含 isFollowing），用于关注按钮状态
+  useEffect(() => {
+    if (!onFetchMember || isSelf || cachedMember) return;
+    onFetchMember(post.userId).catch(() => { /* 非致命 */ });
+  }, [post.userId, isSelf, cachedMember, onFetchMember]);
+
+  const handleToggleComments = useCallback(async () => {
+    if (!showComments && !comments && onFetchComments) {
+      try { await onFetchComments(post.id); } catch (e) { onError(e.message); }
+    }
+    setShowComments(s => !s);
+  }, [showComments, comments, post.id, onFetchComments, onError]);
+
+  const handleCreateComment = useCallback(async (e) => {
+    e.preventDefault();
+    if (!commentText.trim() || !onCreateComment) return;
+    setCommenting(true);
+    try {
+      await onCreateComment(post.id, commentText.trim());
+      setCommentText('');
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setCommenting(false);
+    }
+  }, [post.id, commentText, onCreateComment, onError]);
+
+  const handleFollowToggle = useCallback(async () => {
+    if (!currentMember) { onError('join_community_first'); return; }
+    setFollowPending(true);
+    try {
+      if (isFollowing) await onUnfollow(post.userId);
+      else await onFollow(post.userId);
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setFollowPending(false);
+    }
+  }, [currentMember, isFollowing, post.userId, onFollow, onUnfollow, onError]);
 
   const handleLike = useCallback(async () => {
     setLiking(true);
@@ -400,6 +484,8 @@ function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onInvite
     ? `♪ ${post.song_title}`
     : (post.content || '').slice(0, 40) || post.type;
 
+  const commentCount = comments?.length ?? post.comments_count ?? 0;
+
   return (
     <article className="community-card">
       {/* 封面区 */}
@@ -408,20 +494,20 @@ function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onInvite
 
         {/* 右上角点赞数徽章（Suno 播放量浮层）*/}
         <div className="community-card-badge" title="likes">
-          <span className="community-card-badge-icon">♥</span>
+          <span className="community-card-badge-icon">{post.liked ? '♥' : '♡'}</span>
           <span>{post.likes || 0}</span>
         </div>
 
-        {/* hover 遮罩 + 播放/点赞按钮 */}
+        {/* hover 遮罩 + 点赞按钮（toggle，已赞高亮）*/}
         <div className="community-card-overlay">
           <button
             type="button"
-            className="community-card-play"
+            className={`community-card-play${post.liked ? ' liked' : ''}`}
             onClick={handleLike}
             disabled={liking}
-            title="Like"
+            title={post.liked ? 'Unlike' : 'Like'}
             aria-label="like post"
-          >{liking ? '···' : '♥'}</button>
+          >{liking ? '···' : (post.liked ? '♥' : '♡')}</button>
         </div>
       </div>
 
@@ -436,34 +522,112 @@ function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onInvite
           {post.is_agent && (
             <span className="community-card-agent-tag" title={`agent of @${post.agent_author_user_id}`}>AGENT</span>
           )}
+          {/* 关注按钮：非自己且已登录时展示，状态来自 memberCache.isFollowing */}
+          {currentMember && !isSelf && (
+            <button
+              type="button"
+              className={`community-btn community-follow-btn${isFollowing ? ' following' : ''}`}
+              onClick={handleFollowToggle}
+              disabled={followPending}
+              title={isFollowing ? 'Unfollow' : 'Follow'}
+              style={{ marginLeft: 'auto', padding: '2px 6px', fontSize: 7 }}
+            >{followPending ? '...' : (isFollowing ? '✓ FOLLOWING' : '+ FOLLOW')}</button>
+          )}
         </div>
         {tags.length > 0 && (
           <div className="community-card-tags">
             {tags.map(t => <span key={t} className="community-card-tag">#{t}</span>)}
           </div>
         )}
-        {currentMember && (
-          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-            <button
-              type="button"
-              className="community-btn"
-              onClick={handleAgentComment}
-              disabled={agentPending}
-              title="Let my agent comment (F8)"
-              style={{ padding: '4px 8px', fontSize: 7 }}
-            >{agentPending ? 'AGENT...' : 'AGENT COMMENT'}</button>
-            <button
-              type="button"
-              className="community-btn"
-              onClick={handleInvite}
-              disabled={invitePending || post.userId === currentMember.userId}
-              title="Invite TA's agent into my feed (F9)"
-              style={{ padding: '4px 8px', fontSize: 7 }}
-            >{invitePending ? 'INV...' : 'INVITE AGENT'}</button>
-          </div>
+        {/* 操作行：评论 toggle + agent comment + invite */}
+        <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className={`community-btn${showComments ? ' community-btn-primary' : ''}`}
+            onClick={handleToggleComments}
+            title="Comments"
+            style={{ padding: '4px 8px', fontSize: 7 }}
+          >◈ {commentCount}{showComments ? ' HIDE' : ' COMMENTS'}</button>
+          {currentMember && (
+            <>
+              <button
+                type="button"
+                className="community-btn"
+                onClick={handleAgentComment}
+                disabled={agentPending}
+                title="Let my agent comment (F8)"
+                style={{ padding: '4px 8px', fontSize: 7 }}
+              >{agentPending ? 'AGENT...' : 'AGENT COMMENT'}</button>
+              <button
+                type="button"
+                className="community-btn"
+                onClick={handleInvite}
+                disabled={invitePending || post.userId === currentMember.userId}
+                title="Invite TA's agent into my feed (F9)"
+                style={{ padding: '4px 8px', fontSize: 7 }}
+              >{invitePending ? 'INV...' : 'INVITE AGENT'}</button>
+            </>
+          )}
+        </div>
+        {/* 评论线程：展开时渲染列表 + 输入框 */}
+        {showComments && (
+          <CommentThread
+            comments={comments || []}
+            commentText={commentText}
+            commenting={commenting}
+            canComment={!!currentMember}
+            onCommentTextChange={setCommentText}
+            onSubmitComment={handleCreateComment}
+          />
         )}
       </div>
     </article>
+  );
+}
+
+// ── 评论线程（评论列表 + 输入框）────────────────────────────
+function CommentThread({ comments, commentText, commenting, canComment, onCommentTextChange, onSubmitComment }) {
+  return (
+    <div className="community-comment-thread">
+      {comments.length === 0 ? (
+        <div className="community-comment-empty">No comments yet</div>
+      ) : (
+        comments.map(c => (
+          <div key={c.id} className="community-comment-item">
+            <span className="community-comment-avatar">
+              {(c.nickname || c.userId || '?').charAt(0).toUpperCase()}
+            </span>
+            <div className="community-comment-body">
+              <div className="community-comment-author">
+                @{c.nickname || c.userId}
+                {c.is_agent && <span className="community-card-agent-tag" style={{ marginLeft: 4 }}>AGENT</span>}
+              </div>
+              <div className="community-comment-text">{c.content}</div>
+            </div>
+          </div>
+        ))
+      )}
+      {canComment ? (
+        <form className="community-comment-form" onSubmit={onSubmitComment}>
+          <input
+            className="community-composer-input"
+            type="text"
+            placeholder="Write a comment..."
+            value={commentText}
+            onChange={e => onCommentTextChange(e.target.value)}
+            aria-label="comment"
+            maxLength={2000}
+          />
+          <button
+            type="submit"
+            className="community-btn community-btn-primary"
+            disabled={commenting || !commentText.trim()}
+          >{commenting ? '...' : 'SEND'}</button>
+        </form>
+      ) : (
+        <div className="community-comment-empty">Join community to comment.</div>
+      )}
+    </div>
   );
 }
 

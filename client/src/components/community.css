@@ -587,6 +587,105 @@
   box-shadow: 0 0 12px var(--shadow-accent-glow);
 }
 
+/* === 社交：点赞已赞高亮 === */
+.community-card-play.liked {
+  background: #ff5a5f;
+  color: #fff;
+  box-shadow: 0 0 16px rgba(255, 90, 95, 0.6);
+}
+
+/* === 社交：关注按钮 === */
+.community-follow-btn {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  cursor: pointer;
+  letter-spacing: 0.5px;
+  transition: background 0.15s, color 0.15s;
+}
+.community-follow-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg-deep);
+}
+.community-follow-btn.following {
+  background: var(--bg-elevated);
+  border-color: var(--border-dim);
+  color: var(--text-dim);
+}
+.community-follow-btn.following:hover:not(:disabled) {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+.community-follow-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* === 社交：评论线程 === */
+.community-comment-thread {
+  margin-top: 6px;
+  padding: 6px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.community-comment-item {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 4px 2px;
+  border-bottom: 1px dashed var(--border-dim);
+}
+.community-comment-item:last-child {
+  border-bottom: none;
+}
+.community-comment-avatar {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: var(--text-secondary);
+}
+.community-comment-body {
+  flex: 1;
+  min-width: 0;
+}
+.community-comment-author {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  margin-bottom: 1px;
+}
+.community-comment-text {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  word-break: break-word;
+  line-height: 1.3;
+}
+.community-comment-empty {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 4px 2px;
+  text-align: center;
+}
+.community-comment-form {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+.community-comment-form .community-composer-input {
+  flex: 1;
+}
+
 /* === 加入社区 hero（未加入时）=== */
 .community-join-hero {
   display: flex;
