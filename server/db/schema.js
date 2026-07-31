@@ -263,6 +263,7 @@ export function queryOne(sql, params = []) {
 }
 
 // Helper: execute a statement (INSERT/UPDATE/DELETE)
+// 失败时抛错，避免调用方依赖 last_insert_rowid() 读到上一次成功插入的行
 export function execute(sql, params = []) {
   const d = getDb();
   const safe = params.map(p => {
@@ -274,6 +275,7 @@ export function execute(sql, params = []) {
     d.run(sql, safe);
   } catch (e) {
     console.error('[DB] execute error:', e.message, 'sql:', sql.slice(0, 80));
+    throw e;
   }
   // H4: debounce saveDb to avoid blocking event loop on every write
   if (saveDebouncer) saveDebouncer.schedule();

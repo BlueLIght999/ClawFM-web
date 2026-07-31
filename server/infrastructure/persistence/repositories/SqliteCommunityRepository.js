@@ -87,7 +87,7 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
          ON CONFLICT(user_id) DO UPDATE SET nickname=excluded.nickname, avatar_url=excluded.avatar_url`,
         [String(userId), nickname || '', avatarUrl || '']
       );
-      return one('SELECT * FROM community_members WHERE user_id = ?', [String(userId)]);
+      return toMember(one('SELECT * FROM community_members WHERE user_id = ?', [String(userId)]));
     },
 
     getMember(userId) {
