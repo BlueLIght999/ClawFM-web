@@ -41,7 +41,7 @@ export function createCommunityHandler({ io, roomService, logger } = {}) {
         if (!userId) return;
         const r = roomService.hostControl(roomId, userId, { skip: true, isPlaying: true });
         if (!r.ok) {
-          socket.emit(EVENTS.ERROR || 'community:error', { roomId, error: r.error });
+          socket.emit('community:error', { roomId, error: r.error });
         }
       });
     },

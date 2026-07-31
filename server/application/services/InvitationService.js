@@ -48,6 +48,12 @@ export function createInvitationService({ communityRepository, neteaseHistoryPor
       return { ok: false, error: t.error };
     }
     repo.updateInvitationStatus(Number(invitationId), toStatus);
+    // 通知邀请方与被邀请方状态变更（双方均可见）
+    const updated = repo.getInvitation(Number(invitationId));
+    eventPublisher?.emit?.('community:invitation', updated, inv.fromUserId);
+    if (inv.toUserId && inv.toUserId !== inv.fromUserId) {
+      eventPublisher?.emit?.('community:invitation', updated, inv.toUserId);
+    }
     return { ok: true, status: toStatus };
   }
 
