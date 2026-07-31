@@ -4,6 +4,8 @@ import request from 'supertest';
 import { createCommunityRouter } from '../infrastructure/http/communityRoutes.js';
 
 // mock services，专注测路由层（参数解析/状态码/响应格式），不碰真实 service 逻辑
+const mockAuth = { uid: 'u1' };
+
 function makeMockServices() {
   const profiles = new Map();
   return {
@@ -14,8 +16,30 @@ function makeMockServices() {
         return { ok: true, post: { id: 1, ...input, likes: 0, isAgent: false } };
       },
       getFeed: ({ limit, cursor }) => [{ id: 2 }, { id: 1 }].filter((p) => cursor === null || p.id < cursor).slice(0, limit),
-      getPostWithComments: (id) => (id === 1 ? { post: { id: 1 }, comments: [] } : null),
+      getPostWithComments: (id) => (id === 1 ? { post: { id: 1 }, comments: [{ id: 50, userId: 'u2', content: '好评论', parentId: 1 }] } : null),
       likePost: (id) => (id === 1 ? { id: 1, likes: 5 } : null),
+      toggleLike: (userId, id) => id === 1 ? { liked: true, likes: 6 } : null,
+      hasLiked: () => false,
+      listLikers: (id) => id === 1 ? [{ userId: 'u1', nickname: '阿七' }] : [],
+      createComment: (userId, postId, content) => {
+        if (postId !== 1) return { ok: false, error: 'parent_not_found' };
+        if (!content) return { ok: false, error: 'content_empty' };
+        return { ok: true, comment: { id: 100, userId, postId, content, type: 'comment', parentId: postId } };
+      },
+      follow: (followerId, followeeId) => {
+        if (!followerId || !followeeId) return { ok: false, error: 'user_ids_required' };
+        if (followerId === followeeId) return { ok: false, error: 'cannot_follow_self' };
+        return { ok: true, following: true };
+      },
+      unfollow: (followerId, followeeId) => {
+        if (!followerId || !followeeId) return { ok: false, error: 'user_ids_required' };
+        return { ok: true, following: false };
+      },
+      isFollowing: () => false,
+      listFollowers: () => [],
+      listFollowing: () => [],
+      listPostsByUser: (userId) => [{ id: 1, userId, type: 'reflection', content: '我的帖' }],
+      listFeedFromFollowing: (userId) => [{ id: 2, userId: 'u2', type: 'reflection', content: '关注的人的帖' }],
       listInbox: (userId) => [{ id: 1, userId, targetType: 'post', targetId: '5', fromCluster: 1, reason: 'test', read: false }],
     },
     memberProfileService: {
@@ -29,10 +53,16 @@ function makeMockServices() {
     },
     communityRepository: {
       createMember: ({ userId, nickname, avatarUrl }) => ({ userId, nickname, avatarUrl, clusterId: null, selfTags: [] }),
+      getMember: (userId) => userId === 'u1' || userId === 'u2'
+        ? { userId, nickname: userId === 'u1' ? '阿七' : '阿八', avatarUrl: '', clusterId: 1, selfTags: [] }
+        : null,
       upsertMemberAuth: () => {},
+      listFollowers: () => [{ userId: 'u2', nickname: '阿八' }],
+      listFollowing: () => [],
       listInbox: (userId) => [{ id: 1, userId, targetType: 'post', targetId: '5', fromCluster: 1, reason: 'test', read: false }],
     },
     cookieCipherPort: { encrypt: (c) => `enc:${c}`, decrypt: (s) => s.replace(/^enc:/, '') },
+    authRepository: { currentUid: () => mockAuth.uid, currentCookie: () => 'MUSIC_U=test' },
     clusterService: {
       getClusters: () => [{ clusterId: 1, label: 'rock·night_owl', memberCount: 2, memberUserIds: ['u1', 'u2'] }],
       getClusterMembers: (id) => id === '1'
@@ -80,7 +110,7 @@ function makeApp() {
 }
 
 let app;
-beforeEach(() => { app = makeApp(); });
+beforeEach(() => { mockAuth.uid = 'u1'; app = makeApp(); });
 
 describe('community routes', () => {
   it('POST /members creates member', async () => {
@@ -144,10 +174,116 @@ describe('community routes', () => {
     expect(res.status).toBe(404);
   });
 
-  it('POST /posts/:id/like returns updated post', async () => {
+  it('POST /posts/:id/like toggles like (returns liked+likes)', async () => {
     const res = await request(app).post('/api/community/posts/1/like');
     expect(res.status).toBe(200);
-    expect(res.body.data.likes).toBe(5);
+    expect(res.body.data.liked).toBe(true);
+    expect(res.body.data.likes).toBe(6);
+  });
+
+  it('POST /posts/:id/like 404 for missing post', async () => {
+    const res = await request(app).post('/api/community/posts/999/like');
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /posts/:id/like returns whether current user liked', async () => {
+    const res = await request(app).get('/api/community/posts/1/like');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveProperty('liked');
+  });
+
+  it('GET /posts/:id/likers returns liker members', async () => {
+    const res = await request(app).get('/api/community/posts/1/likers');
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].userId).toBe('u1');
+  });
+
+  // ── 评论（社交讨论） ──
+  it('GET /posts/:id/comments returns comments', async () => {
+    const res = await request(app).get('/api/community/posts/1/comments');
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].content).toBe('好评论');
+  });
+
+  it('GET /posts/:id/comments 404 for missing post', async () => {
+    const res = await request(app).get('/api/community/posts/999/comments');
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /posts/:id/comments creates comment', async () => {
+    const res = await request(app).post('/api/community/posts/1/comments').send({ content: '说得好' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.content).toBe('说得好');
+    expect(res.body.data.parentId).toBe(1);
+  });
+
+  it('POST /posts/:id/comments 400 when content empty', async () => {
+    const res = await request(app).post('/api/community/posts/1/comments').send({ content: '' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('content_empty');
+  });
+
+  it('POST /posts/:id/comments 404 when parent missing', async () => {
+    const res = await request(app).post('/api/community/posts/999/comments').send({ content: 'x' });
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('parent_not_found');
+  });
+
+  // ── 成员主页 / timeline / 关注关系 ──
+  it('GET /members/:userId returns member with follow stats', async () => {
+    const res = await request(app).get('/api/community/members/u1');
+    expect(res.status).toBe(200);
+    expect(res.body.data.userId).toBe('u1');
+    expect(res.body.data).toHaveProperty('isFollowing');
+    expect(res.body.data).toHaveProperty('followersCount');
+    expect(res.body.data).toHaveProperty('followingCount');
+  });
+
+  it('GET /members/:userId 404 for unknown member', async () => {
+    const res = await request(app).get('/api/community/members/ghost');
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /members/:userId/posts returns user timeline', async () => {
+    const res = await request(app).get('/api/community/members/u1/posts');
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].userId).toBe('u1');
+  });
+
+  it('POST /members/:userId/follow follows another user', async () => {
+    const res = await request(app).post('/api/community/members/u2/follow');
+    expect(res.status).toBe(201);
+    expect(res.body.data.following).toBe(true);
+  });
+
+  it('POST /members/:userId/follow 400 when following self', async () => {
+    const res = await request(app).post('/api/community/members/u1/follow');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('cannot_follow_self');
+  });
+
+  it('DELETE /members/:userId/follow unfollows', async () => {
+    const res = await request(app).delete('/api/community/members/u2/follow');
+    expect(res.status).toBe(200);
+    expect(res.body.data.following).toBe(false);
+  });
+
+  it('GET /members/:userId/followers returns follower list', async () => {
+    const res = await request(app).get('/api/community/members/u1/followers');
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].userId).toBe('u2');
+  });
+
+  it('GET /members/:userId/following returns following list', async () => {
+    const res = await request(app).get('/api/community/members/u1/following');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it('GET /feed/following returns posts from followed users', async () => {
+    const res = await request(app).get('/api/community/feed/following');
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].userId).toBe('u2');
   });
 
   it('POST /profile/:userId/refresh returns profile', async () => {
@@ -157,6 +293,7 @@ describe('community routes', () => {
   });
 
   it('POST /profile/:userId/refresh 400 when no credentials', async () => {
+    mockAuth.uid = 'noref';
     const res = await request(app).post('/api/community/profile/noref/refresh');
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('no_credentials');
@@ -199,6 +336,7 @@ describe('community routes', () => {
   });
 
   it('POST /rooms/:id/join returns room', async () => {
+    mockAuth.uid = 'u2';
     const res = await request(app).post('/api/community/rooms/room_1/join').send({ userId: 'u2' });
     expect(res.status).toBe(200);
     expect(res.body.data.roomId).toBe('room_1');
@@ -210,7 +348,7 @@ describe('community routes', () => {
     expect(res.body.data.isPlaying).toBe(true);
   });
 
-  it('POST /rooms/:id/control non-host denied', async () => {
+  it('POST /rooms/:id/control non-host denied', async () => {mockAuth.uid = 'u2';
     const res = await request(app).post('/api/community/rooms/room_1/control').send({ userId: 'u2', state: {} });
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('not_host_or_inactive');
@@ -275,13 +413,14 @@ describe('community routes', () => {
   });
 
   it('POST /posts/:id/agent-comment triggers member agent comment', async () => {
-    const res = await request(app).post('/api/community/posts/1/agent-comment').send({ byUserId: 'u2' });
+    const res = await request(app).post('/api/community/posts/1/agent-comment').send({ byUserId: 'u1' });
     expect(res.status).toBe(200);
     expect(res.body.data.commentId).toBe(99);
-    expect(res.body.data.content).toContain('u2');
+    expect(res.body.data.content).toContain('u1');
   });
 
   it('POST /posts/:id/agent-comment 400 when post missing', async () => {
+    mockAuth.uid = 'u2';
     const res = await request(app).post('/api/community/posts/999/agent-comment').send({ byUserId: 'u2' });
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('post_not_found');
