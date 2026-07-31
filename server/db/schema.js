@@ -221,6 +221,23 @@ function createTables(db) {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  // ── 社交关系：点赞记录 + 关注关系（真正社交能力） ──────────────
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_likes (
+      user_id TEXT NOT NULL,
+      post_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, post_id)
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_follows (
+      follower_id TEXT NOT NULL,
+      followee_id TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (follower_id, followee_id)
+    )
+  `);
 }
 
 export function saveDb() {
