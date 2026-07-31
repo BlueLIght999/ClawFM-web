@@ -396,6 +396,139 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
     endRoom(roomId) {
       run('UPDATE community_rooms SET active = 0 WHERE room_id = ?', [String(roomId)]);
     },
+
+    // ── 社交关系：点赞记录（谁赞过 / 幂等 toggle / 计数同步） ─────
+    toggleLike(userId, postId) {
+      const post = one('SELECT id, likes FROM community_posts WHERE id = ?', [Number(postId)]);
+      if (!post) return null;
+      const existing = one(
+        'SELECT user_id FROM community_likes WHERE user_id = ? AND post_id = ?',
+        [String(userId), Number(postId)]
+      );
+      if (existing) {
+        run('DELETE FROM community_likes WHERE user_id = ? AND post_id = ?', [String(userId), Number(postId)]);
+        run('UPDATE community_posts SET likes = MAX(0, likes - 1) WHERE id = ?', [Number(postId)]);
+        return { liked: false, likes: Math.max(0, Number(post.likes) - 1) };
+      }
+      run('INSERT OR IGNORE INTO community_likes (user_id, post_id) VALUES (?, ?)', [String(userId), Number(postId)]);
+      run('UPDATE community_posts SET likes = likes + 1 WHERE id = ?', [Number(postId)]);
+      return { liked: true, likes: Number(post.likes) + 1 };
+    },
+
+    hasLiked(userId, postId) {
+      const row = one(
+        'SELECT user_id FROM community_likes WHERE user_id = ? AND post_id = ?',
+        [String(userId), Number(postId)]
+      );
+      return !!row;
+    },
+
+    listLikers(postId) {
+      return q(
+        `SELECT m.user_id, m.nickname, m.avatar_url, m.cluster_id, m.self_tags
+         FROM community_likes l
+         JOIN community_members m ON m.user_id = l.user_id
+         WHERE l.post_id = ?
+         ORDER BY l.created_at DESC`,
+        [Number(postId)]
+      ).map((r) => ({
+        userId: String(r.user_id),
+        nickname: r.nickname || '',
+        avatarUrl: r.avatar_url || '',
+        clusterId: r.cluster_id === null || r.cluster_id === undefined ? null : Number(r.cluster_id),
+        selfTags: parseJsonArray(r.self_tags),
+      }));
+    },
+
+    // ── 社交关系：关注图谱（follower / followee） ────────────
+    follow(followerId, followeeId) {
+      run(
+        'INSERT OR IGNORE INTO community_follows (follower_id, followee_id) VALUES (?, ?)',
+        [String(followerId), String(followeeId)]
+      );
+      return { ok: true, following: true };
+    },
+
+    unfollow(followerId, followeeId) {
+      run(
+        'DELETE FROM community_follows WHERE follower_id = ? AND followee_id = ?',
+        [String(followerId), String(followeeId)]
+      );
+      return { ok: true, following: false };
+    },
+
+    isFollowing(followerId, followeeId) {
+      const row = one(
+        'SELECT follower_id FROM community_follows WHERE follower_id = ? AND followee_id = ?',
+        [String(followerId), String(followeeId)]
+      );
+      return !!row;
+    },
+
+    listFollowers(userId) {
+      return q(
+        `SELECT m.user_id, m.nickname, m.avatar_url, m.cluster_id, m.self_tags
+         FROM community_follows f
+         JOIN community_members m ON m.user_id = f.follower_id
+         WHERE f.followee_id = ?
+         ORDER BY f.created_at DESC`,
+        [String(userId)]
+      ).map((r) => ({
+        userId: String(r.user_id),
+        nickname: r.nickname || '',
+        avatarUrl: r.avatar_url || '',
+        clusterId: r.cluster_id === null || r.cluster_id === undefined ? null : Number(r.cluster_id),
+        selfTags: parseJsonArray(r.self_tags),
+      }));
+    },
+
+    listFollowing(userId) {
+      return q(
+        `SELECT m.user_id, m.nickname, m.avatar_url, m.cluster_id, m.self_tags
+         FROM community_follows f
+         JOIN community_members m ON m.user_id = f.followee_id
+         WHERE f.follower_id = ?
+         ORDER BY f.created_at DESC`,
+        [String(userId)]
+      ).map((r) => ({
+        userId: String(r.user_id),
+        nickname: r.nickname || '',
+        avatarUrl: r.avatar_url || '',
+        clusterId: r.cluster_id === null || r.cluster_id === undefined ? null : Number(r.cluster_id),
+        selfTags: parseJsonArray(r.self_tags),
+      }));
+    },
+
+    // ── 用户 timeline + 关注流（社交发现核心查询） ───────────
+    listPostsByUser(userId, { limit, cursor } = {}) {
+      const lim = Math.min(Math.max(Number(limit) || 20, 1), 100);
+      if (cursor === null || cursor === undefined) {
+        return q(
+          `SELECT * FROM community_posts WHERE user_id = ? AND parent_id IS NULL ORDER BY id DESC LIMIT ?`,
+          [String(userId), lim]
+        ).map(toPost);
+      }
+      return q(
+        `SELECT * FROM community_posts WHERE user_id = ? AND parent_id IS NULL AND id < ? ORDER BY id DESC LIMIT ?`,
+        [String(userId), Number(cursor), lim]
+      ).map(toPost);
+    },
+
+    listFeedFromFollowing(userId, { limit, cursor } = {}) {
+      const lim = Math.min(Math.max(Number(limit) || 20, 1), 100);
+      const subWhere = `p.parent_id IS NULL
+             AND p.user_id IN (SELECT followee_id FROM community_follows WHERE follower_id = ?)`;
+      if (cursor === null || cursor === undefined) {
+        return q(
+          `SELECT p.* FROM community_posts p WHERE ${subWhere} ORDER BY p.id DESC LIMIT ?`,
+          [String(userId), lim]
+        ).map(toPost);
+      }
+      return q(
+        `SELECT p.* FROM community_posts p WHERE ${subWhere} AND p.id < ? ORDER BY p.id DESC LIMIT ?`,
+        [String(userId), Number(cursor), lim]
+      ).map(toPost);
+    },
   };
 }
 
