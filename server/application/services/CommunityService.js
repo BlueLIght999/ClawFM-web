@@ -5,6 +5,7 @@
  * 不碰 DB 细节、不碰 HTTP/Socket（interface 层职责）。模型不透传：返回 camelCase DTO。
  */
 import { validatePost } from '../../domain/community/postRules.js';
+import { validateFollow } from '../../domain/community/followRules.js';
 
 /**
  * @param {object} deps
@@ -73,11 +74,98 @@ export function createCommunityService({ communityRepository, feedPersonalizer, 
   }
 
   /**
+   * 点赞 toggle（社交化）。幂等：已赞则取消，未赞则点赞。
+   * 同步 posts.likes 计数。post 不存在返回 null。
+   * @returns {{liked:boolean, likes:number} | null}
+   */
+  function toggleLike(userId, postId) {
+    return repo.toggleLike(String(userId), Number(postId));
+  }
+
+  function hasLiked(userId, postId) {
+    return repo.hasLiked(String(userId), Number(postId));
+  }
+
+  function listLikers(postId) {
+    return repo.listLikers(Number(postId));
+  }
+
+  /**
+   * 创建评论（type=comment）。校验父帖存在 + postRules。
+   * 评论不发 community:post-new（避免刷屏 feed），改发 community:comment-new 定向到父帖作者。
+   * @returns {{ok:true, comment:object} | {ok:false, error:string}}
+   */
+  function createComment(userId, postId, content) {
+    const parent = repo.getPost(Number(postId));
+    if (!parent) return { ok: false, error: 'parent_not_found' };
+    const result = validatePost({ type: 'comment', content, parentId: Number(postId) });
+    if (!result.ok) return result;
+    const id = repo.createPost({
+      userId: String(userId),
+      type: 'comment',
+      content: result.post.content,
+      parentId: Number(postId),
+      autoTags: [],
+      isAgent: false,
+      agentAuthorUserId: null,
+    });
+    const saved = repo.getPost(id);
+    // 定向通知父帖作者（非自评时）
+    if (parent.userId && String(parent.userId) !== String(userId)) {
+      eventPublisher?.emit?.('community:comment-new', saved, parent.userId);
+    }
+    return { ok: true, comment: saved };
+  }
+
+  // ── 关注关系（社交图谱） ───────────────────────────────────
+  function follow(followerId, followeeId) {
+    const check = validateFollow(followerId, followeeId);
+    if (!check.ok) return { ok: false, error: check.error };
+    repo.follow(String(followerId), String(followeeId));
+    eventPublisher?.emit?.('community:follow', { followerId, followeeId }, String(followeeId));
+    return { ok: true, following: true };
+  }
+
+  function unfollow(followerId, followeeId) {
+    const check = validateFollow(followerId, followeeId);
+    if (!check.ok) return { ok: false, error: check.error };
+    repo.unfollow(String(followerId), String(followeeId));
+    return { ok: true, following: false };
+  }
+
+  function isFollowing(followerId, followeeId) {
+    return repo.isFollowing(String(followerId), String(followeeId));
+  }
+
+  function listFollowers(userId) {
+    return repo.listFollowers(String(userId));
+  }
+
+  function listFollowing(userId) {
+    return repo.listFollowing(String(userId));
+  }
+
+  // ── timeline + 关注流 ─────────────────────────────────────
+  function listPostsByUser(userId, opts) {
+    return repo.listPostsByUser(String(userId), opts || {});
+  }
+
+  function listFeedFromFollowing(userId, opts) {
+    return repo.listFeedFromFollowing(String(userId), opts || {});
+  }
+
+  /**
    * 收件箱（F4 离线推送可见）。直接走 repo 即可，service 仅作统一入口。
    */
   function listInbox(userId) {
     return repo.listInbox(userId);
   }
 
-  return { createPost, getFeed, getPost, getPostWithComments, listComments, likePost, listInbox };
+  return {
+    createPost, getFeed, getPost, getPostWithComments, listComments,
+    likePost, toggleLike, hasLiked, listLikers, createComment,
+    follow, unfollow, isFollowing, listFollowers, listFollowing,
+    listPostsByUser, listFeedFromFollowing,
+    listInbox,
+  };
 }

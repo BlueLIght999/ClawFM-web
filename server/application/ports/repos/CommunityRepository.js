@@ -60,6 +60,18 @@
  * @property {(roomId: string) => object|null} getRoom
  * @property {(activeOnly: boolean) => Array} listRooms
  * @property {(roomId: string) => void} endRoom
+ *
+ * ── 社交关系（点赞记录 + 关注图谱 + timeline） ──
+ * @property {(userId: string, postId: number) => {liked:boolean, likes:number}|null} toggleLike — 切换点赞状态，同步 posts.likes 计数；post 不存在返回 null
+ * @property {(userId: string, postId: number) => boolean} hasLiked
+ * @property {(postId: number) => CommunityMember[]} listLikers — 点赞者成员信息（不含敏感字段）
+ * @property {(followerId: string, followeeId: string) => {ok:boolean, following:boolean}} follow — 幂等关注
+ * @property {(followerId: string, followeeId: string) => {ok:boolean, following:boolean}} unfollow — 幂等取关
+ * @property {(followerId: string, followeeId: string) => boolean} isFollowing
+ * @property {(userId: string) => CommunityMember[]} listFollowers — 谁 follow 了此用户
+ * @property {(userId: string) => CommunityMember[]} listFollowing — 此用户 follow 了谁
+ * @property {(userId: string, opts: {limit:number, cursor:number|null}) => CommunityPost[]} listPostsByUser — 用户主页 timeline（仅顶层帖）
+ * @property {(userId: string, opts: {limit:number, cursor:number|null}) => CommunityPost[]} listFeedFromFollowing — 关注流（关注者的顶层帖）
  */
 
 export {};
