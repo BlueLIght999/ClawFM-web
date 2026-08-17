@@ -268,6 +268,70 @@ describe('neteaseApi — checkLoginStatus normalization', () => {
   });
 });
 
+describe('neteaseApi — cookie sanitization (set-cookie attributes stripped)', () => {
+  beforeEach(() => {
+    mockCurrentCookie.mockReturnValue('');
+    neteaseApi.setCookie('');
+    vi.clearAllMocks(); // 须在 setCookie 之后，否则 setCookie('') 触发的 saveSession 计入调用数
+    global.fetch = vi.fn();
+  });
+
+  it('stripsSetCookieAttributes_beforeStoring', async () => {
+    const dirty = 'MUSIC_U=abc; Max-Age=0; Expires=Thu, 01 Jan 1970; Path=/; HttpOnly; __csrf=xyz';
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, cookie: dirty }));
+    await neteaseApi.getSongDetail('1');
+    expect(neteaseApi.getCookie()).toBe('MUSIC_U=abc; __csrf=xyz');
+    expect(mockSaveSession).toHaveBeenCalledWith('MUSIC_U=abc; __csrf=xyz', expect.any(Object));
+  });
+
+  it('dropsOnlyAttributes_keepsRealPairs_whenFromArray', async () => {
+    const arr = ['MUSIC_U=v1', 'Max-Age=0', 'Expires=x', 'path=/'];
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, cookie: arr }));
+    await neteaseApi.getSongDetail('1');
+    expect(neteaseApi.getCookie()).toBe('MUSIC_U=v1');
+  });
+
+  it('doesNotSaveWhenCleanedEmpty', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, cookie: 'Max-Age=0; Path=/' }));
+    await neteaseApi.getSongDetail('1');
+    expect(neteaseApi.getCookie()).toBe('');
+    expect(mockSaveSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('neteaseApi — checkLoginStatus persists uid (community auth depends on netease_auth.user_id)', () => {
+  beforeEach(() => {
+    mockCurrentCookie.mockReturnValue('MUSIC_U=cur');
+    neteaseApi.setCookie('MUSIC_U=cur');
+    vi.clearAllMocks(); // 须在 setCookie 之后，setCookie 本身会 saveSession(cookie)
+  });
+
+  it('savesUidProfile_whenLoggedInNonAnonymous', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({
+      data: { profile: { userId: 7, nickname: '阿七', avatarUrl: 'http://a' }, account: { id: 7 }, code: 200 },
+    }));
+    const result = await neteaseApi.checkLoginStatus();
+    expect(result.profile.nickname).toBe('阿七');
+    expect(mockSaveSession).toHaveBeenCalledWith('MUSIC_U=cur', {
+      userId: '7', nickname: '阿七', avatarUrl: 'http://a',
+    });
+  });
+
+  it('doesNotPersistUid_forAnonymousUser', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({
+      data: { account: { id: 999, anonimousUser: true }, code: 200 },
+    }));
+    await neteaseApi.checkLoginStatus();
+    expect(mockSaveSession).not.toHaveBeenCalled();
+  });
+
+  it('doesNotPersist_whenNoUidPresent', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ data: { profile: null, account: null }, code: 200 }));
+    await neteaseApi.checkLoginStatus();
+    expect(mockSaveSession).not.toHaveBeenCalled();
+  });
+});
+
 describe('neteaseApi — searchPlaylists and searchArtists', () => {
   beforeEach(() => {
     vi.clearAllMocks();

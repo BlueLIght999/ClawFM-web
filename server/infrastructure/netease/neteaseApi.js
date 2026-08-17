@@ -74,10 +74,49 @@ function buildAuthHeaders() {
   return headers;
 }
 
+// set-cookie 属性名，清洗时丢弃（login_qr_check 的 cookie.join(';') 会带入这些）
+const COOKIE_ATTR_NAMES = new Set([
+  'max-age', 'expires', 'path', 'domain', 'samesite', 'secure', 'httponly', '',
+]);
+
+/**
+ * 清洗 cookie 字符串：只保留键值对，去掉 set-cookie 属性（Max-Age/Expires/Path 等）。
+ * NeteaseCloudMusicApi 的 login_qr_check 把完整 set-cookie join 进 body.cookie，
+ * 污染的 cookie 会导致 /login/status 解析失败返回 profile:null。
+ */
+function sanitizeCookie(raw) {
+  if (!raw) return '';
+  if (Array.isArray(raw)) raw = raw.join('; ');
+  return raw
+    .split(';')
+    .map(s => s.trim())
+    .filter(pair => {
+      // 取 '=' 前的标识符（无 '=' 的裸 token 用其本身）判断是否为 set-cookie 属性名。
+      // 这样既能过滤 'Max-Age=0' 也能过滤无值的 'HttpOnly'，同时保留真实键值对与裸 token。
+      const eq = pair.indexOf('=');
+      const name = eq < 0 ? pair : pair.slice(0, eq);
+      return !COOKIE_ATTR_NAMES.has(name.trim().toLowerCase());
+    })
+    .join('; ');
+}
+
 function updateCookieFromBody(body) {
   if (!body.cookie) return;
-  cachedCookie = body.cookie;
-  authRepository.saveSession(body.cookie, { userId: String(body.account?.id || body.profile?.userId || '') });
+  const cleaned = sanitizeCookie(body.cookie);
+  if (!cleaned) return;
+  cachedCookie = cleaned;
+  // /login/status 等接口把 account/profile 嵌套在 data 下，需兼容两种层级
+  const account = body.account || body.data?.account;
+  const profile = body.profile || body.data?.profile;
+  const uid = String(account?.id || profile?.userId || profile?.accountId || '');
+  // 仅在 uid 有值时落库 user_id，避免后续 API 调用（/song/detail 等）
+  // 的响应不含 account/profile 时把已有 user_id 覆盖为空
+  if (uid) {
+    authRepository.saveSession(cleaned, { userId: uid, nickname: profile?.nickname || '', avatarUrl: profile?.avatarUrl || '' });
+  } else {
+    // uid 不可用时只更新 cookie，不覆盖 user_id
+    authRepository.saveSession(cleaned, {});
+  }
 }
 
 async function parseJsonResponse(res) {
@@ -150,9 +189,21 @@ export async function checkLoginStatus() {
   const res = await callApi('/login/status');
   // Normalize: API nests under .data
   const data = res.data || res;
+  const profile = data.profile || null;
+  const account = data.account || null;
+  // /login/status 响应不含 cookie 字段，updateCookieFromBody 不会触发；
+  // 但 uid/nickname 必须落库（社区鉴权依赖 netease_auth.user_id），用现有 cookie 主动写一次。
+  // 仅在非匿名用户时落库，避免把匿名 account.id 写成登录 uid。
+  const isAnonymous = account?.anonimousUser === true;
+  if (!isAnonymous) {
+    const uid = String(account?.id || profile?.userId || profile?.accountId || '');
+    if (uid) {
+      authRepository.saveSession(getCookie(), { userId: uid, nickname: profile?.nickname || '', avatarUrl: profile?.avatarUrl || '' });
+    }
+  }
   return {
-    profile: data.profile || null,
-    account: data.account || null,
+    profile,
+    account,
     code: data.code || res.code || 200,
   };
 }
