@@ -168,6 +168,7 @@ registerHttpRoutes(app, {
   distributionService: services.distributionService,
   roomService: services.roomService,
   invitationService: services.invitationService,
+  authRepository: services.authRepository,
 });
 
 function displayTtsHealthBanner(ttsHealth) {

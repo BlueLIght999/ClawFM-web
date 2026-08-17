@@ -242,3 +242,34 @@ describe('HttpRoutes — lyrics', () => {
     expect(res.body.error).toBe('fail');
   });
 });
+
+describe('Community routes wiring — authRepository injection (server.js regression)', () => {
+  it('passes authRepository through so feed returns 200 when logged in', async () => {
+    const services = {
+      ...defaultServices,
+      communityService: { getFeed: () => [{ id: 1, type: 'reflection', content: 'hi' }] },
+      memberProfileService: {},
+      communityRepository: { getMember: () => null },
+      authRepository: { currentUid: () => 'u1', currentCookie: () => 'MUSIC_U=x' },
+    };
+    const app = createTestApp(services);
+    const res = await request(app).get('/api/community/feed');
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('fails closed (401) when authRepository not injected', async () => {
+    const services = {
+      ...defaultServices,
+      communityService: { getFeed: () => [] },
+      memberProfileService: {},
+      communityRepository: { getMember: () => null },
+      // 刻意不注入 authRepository，模拟 server.js 漏传导致 currentUid() 不可用的场景
+    };
+    const app = createTestApp(services);
+    const res = await request(app).get('/api/community/feed');
+    expect(res.status).toBe(401);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.error).toBe('auth_required');
+  });
+});
