@@ -8,7 +8,7 @@
 
 import { artistName } from '../hosting/artistName.js';
 import { songId } from './songId.js';
-import { rankSongsByTopArtists, seedSongMatchesPreference } from './recommenderRules.js';
+import { rankSongsByPreference, rankSongsByTopArtists, seedSongMatchesPreference } from './recommenderRules.js';
 import { createGenreSearchEngine } from '../routing/GenreSearchEngine.js';
 import { resolveActiveBlockHints } from './planBlockProgression.js';
 import { preferenceFallbackPlan } from './preferenceFallbackRules.js';
@@ -85,11 +85,12 @@ export async function collectFromStrategies(strategies, strategyNames, recentIds
 }
 
 export class QueueFillStrategies {
-  constructor({ music = null, queueStore = null, listenHistory = null, topArtists = [], seedPoolRepo = null } = {}) {
+  constructor({ music = null, queueStore = null, listenHistory = null, topArtists = [], topGenres = [], seedPoolRepo = null } = {}) {
     this.music = music;
     this.queueStore = queueStore;
     this.listenHistory = listenHistory;
     this.topArtists = topArtists;
+    this.topGenres = topGenres;
     this.seedPoolRepo = seedPoolRepo;
   }
 
@@ -97,6 +98,9 @@ export class QueueFillStrategies {
     const strategies = [];
     if (activeBlockHints) {
       strategies.push(() => this.fetchByGenreHints(recentIds, hourArtists, activeBlockHints));
+    } else if (this.topGenres.length > 0) {
+      // Deep-profile genres drive selection when the plan isn't pinning genres.
+      strategies.push(() => this.fetchByUserGenres(recentIds));
     }
     strategies.push(
       () => this.fetchPersonalFm(recentIds, hourArtists),
@@ -106,7 +110,9 @@ export class QueueFillStrategies {
     );
     const strategyNames = activeBlockHints
       ? ['genreHints', 'personalFm', 'similarSongs', 'dailyRecs', 'genreSearch']
-      : ['personalFm', 'similarSongs', 'dailyRecs', 'genreSearch'];
+      : this.topGenres.length > 0
+        ? ['userGenres', 'personalFm', 'similarSongs', 'dailyRecs', 'genreSearch']
+        : ['personalFm', 'similarSongs', 'dailyRecs', 'genreSearch'];
     return { strategies, strategyNames };
   }
 
@@ -122,8 +128,8 @@ export class QueueFillStrategies {
     const perStrategyQuota = Math.max(3, Math.ceil(targetSize / numStrategies));
     const allSongs = await collectFromStrategies(strategies, strategyNames, recentIds, targetSize, { perStrategyQuota });
 
-    // P1-4: Rank collected songs by user's top artists for preference relevance
-    const rankedSongs = rankSongsByTopArtists(allSongs, this.topArtists);
+    // P1-4: Rank collected songs by user's top artists + genre affinity
+    const rankedSongs = rankSongsByPreference(allSongs, this.topArtists, this.topGenres);
 
     return { allSongs: rankedSongs, activeBlockHints };
   }
@@ -239,6 +245,25 @@ export class QueueFillStrategies {
     return songs;
   }
 
+  async fetchByUserGenres(recentIds) {
+    const songs = [];
+    const genreEngine = createGenreSearchEngine(this.music);
+    for (const genre of this.topGenres.slice(0, 2)) {
+      if (songs.length >= 20) break;
+      try {
+        const tracks = (await genreEngine.search(genre, { limit: 8 })).filter(t => {
+          const sid = String(t.id);
+          return !recentIds.has(sid);
+        });
+        for (const t of tracks) {
+          if (songs.length >= 20) break;
+          songs.push(t);
+        }
+      } catch { /* skip failed genre search */ }
+    }
+    return songs;
+  }
+
   async fetchPersonalFm(_recentIds, hourArtists) {
     try {
       const tracks = await this.music.personalFm();
@@ -265,9 +290,14 @@ export class QueueFillStrategies {
 
   async fetchGenreSearch(_recentIds, _hourArtists) {
     try {
-      const artist = this.topArtists[Math.floor(Math.random() * Math.min(this.topArtists.length, 10))];
-      if (!artist) return [];
-      return (await this.music.search(artist.name, 10)).slice(0, 5);
+      // Prefer a profile genre when available; otherwise fall back to a top artist.
+      const candidates = [
+        ...this.topGenres.slice(0, 5),
+        ...this.topArtists.slice(0, 10).map(a => a.name),
+      ].filter(Boolean);
+      if (candidates.length === 0) return [];
+      const query = candidates[Math.floor(Math.random() * candidates.length)];
+      return (await this.music.search(query, 10)).slice(0, 5);
     } catch { return []; }
   }
 }

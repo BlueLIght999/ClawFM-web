@@ -22,6 +22,14 @@ export function computeTopArtists(artistCount) {
     .map(([name, count]) => ({ name, count }));
 }
 
+/** Pure function: sort genres by count, limit to top 10 names */
+export function computeTopGenres(genreCount) {
+  return Object.entries(genreCount)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 10)
+    .map(([name]) => name);
+}
+
 export class SeedPoolBuilder {
   constructor({ music = null, seedPoolRepo = null, profile = null, corpus = null } = {}) {
     this.music = music;
@@ -39,26 +47,28 @@ export class SeedPoolBuilder {
     const playlists = await this.music.userPlaylists(uid);
     const songs = new Map();
     const artistCount = {};
+    const genreCount = {};
 
-    await this._collectPlaylistSongs(playlists, songs, artistCount);
-    await this._collectLikedSongs(uid, songs, artistCount);
+    await this._collectPlaylistSongs(playlists, songs, artistCount, genreCount);
+    await this._collectLikedSongs(uid, songs, artistCount, genreCount);
 
     for (const [, song] of songs) {
       this.seedPoolRepo.upsert(song);
     }
 
     const topArtists = computeTopArtists(artistCount);
-    this._writeUserCorpus(songs.size, topArtists);
+    const topGenres = computeTopGenres(genreCount);
+    this._writeUserCorpus(songs.size, topArtists, topGenres);
 
-    return { songs: songs.size, topArtists };
+    return { songs: songs.size, topArtists, topGenres };
   }
 
-  async _collectPlaylistSongs(playlists, songs, artistCount) {
+  async _collectPlaylistSongs(playlists, songs, artistCount, genreCount) {
     for (const pl of playlists.slice(0, 10)) {
       try {
         const tracks = await this.music.playlistTracks(pl.id);
         for (const track of tracks) {
-          this._addSeedSong(track, songs, artistCount, `playlist:${pl.name}`);
+          this._addSeedSong(track, songs, artistCount, genreCount, `playlist:${pl.name}`);
         }
       } catch (e) {
         // P1: log error instead of silently swallowing — aids diagnosing empty seed pool
@@ -67,16 +77,15 @@ export class SeedPoolBuilder {
     }
   }
 
-  async _collectLikedSongs(uid, songs, artistCount) {
+  async _collectLikedSongs(uid, songs, artistCount, genreCount) {
     try {
       const likedSongs = await this.music.likedSongs(uid);
       for (const item of likedSongs.slice(0, 500)) {
         const seedSong = toSeedSongFromTrack(item, 'liked');
         if (!songs.has(seedSong.songId)) {
           songs.set(seedSong.songId, seedSong);
-          for (const name of seedSong.artist.split(',').map(a => a.trim()).filter(Boolean)) {
-            artistCount[name] = (artistCount[name] || 0) + 1;
-          }
+          this._countArtists(seedSong, artistCount);
+          this._countGenres(seedSong, genreCount);
         }
       }
     } catch (e) {
@@ -85,23 +94,35 @@ export class SeedPoolBuilder {
     }
   }
 
-  _addSeedSong(track, songs, artistCount, source) {
+  _addSeedSong(track, songs, artistCount, genreCount, source) {
     const seedSong = toSeedSongFromTrack(track, source);
     const sid = seedSong.songId;
     if (songs.has(sid)) return;
     songs.set(sid, seedSong);
+    this._countArtists(seedSong, artistCount);
+    this._countGenres(seedSong, genreCount);
+  }
+
+  _countArtists(seedSong, artistCount) {
     for (const name of seedSong.artist.split(',').map(a => a.trim()).filter(Boolean)) {
       artistCount[name] = (artistCount[name] || 0) + 1;
     }
   }
 
-  _writeUserCorpus(totalSongs, topArtists) {
+  _countGenres(seedSong, genreCount) {
+    for (const genre of seedSong.genreTags || []) {
+      const name = String(genre).trim();
+      if (name) genreCount[name] = (genreCount[name] || 0) + 1;
+    }
+  }
+
+  _writeUserCorpus(totalSongs, topArtists, topGenres) {
     try {
       const existingTaste = this.corpus.readTaste();
       if (isTasteTemplate(existingTaste)) {
         const tasteContent = buildTasteMarkdown({
           topArtists,
-          topGenres: [],
+          topGenres,
           totalSongs,
           date: new Date().toISOString().split('T')[0],
         });
