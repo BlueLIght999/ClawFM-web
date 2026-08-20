@@ -16,7 +16,7 @@ export function UpNextPanel({ songs = [], onSelect }) {
       ) : (
         <div className="up-next-list">
           {visibleSongs.map((song, index) => (
-            <button type="button" className="up-next-item" key={song.id || `${song.title}:${index}`}
+            <button type="button" className="up-next-item" key={`${song.id}-${index}`}
               aria-label={`Play ${song.title || 'Unknown Track'} next`} onClick={() => onSelect?.(index)}>
               <span className="up-next-index">{String(index + 1).padStart(2, '0')}</span>
               <span className="up-next-icon"><Music2 size={15} aria-hidden="true" /></span>

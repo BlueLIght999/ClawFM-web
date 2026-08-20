@@ -188,7 +188,7 @@ export default function PlayerBar({
                     animations.push(`queueWave 0.5s ease-in-out ${waveDelay}ms`);
                   }
                   return (
-                    <div key={s.id || i}
+                    <div key={`${s.id}-${i}`}
                       onClick={() => { if (socket) socket.emit('player:skip-to-index', { index: i }); }}
                       title={'Click to skip to this song'}
                       style={{
