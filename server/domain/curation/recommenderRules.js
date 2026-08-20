@@ -44,9 +44,16 @@ export function seedSongMatchesPreference(seedSong, preference) {
  * recommendations.
  */
 export function rankSongsByTopArtists(songs, topArtists) {
+  const { weightMap, topArtistNames } = buildArtistWeights(topArtists);
+  return [...(songs || [])].sort((a, b) =>
+    artistWeightedScore(b, weightMap, topArtistNames) -
+    artistWeightedScore(a, weightMap, topArtistNames)
+  );
+}
+
+function buildArtistWeights(topArtists) {
   const topList = (topArtists || []).slice(0, 15);
   const topArtistNames = new Set(topList.map(a => lower(a.name)));
-
   // Build weight map: #1 artist gets 5.0, exponential decay by rank
   // Formula ensures top1 single match beats any combination of lower-rank matches
   const weightMap = new Map();
@@ -54,11 +61,7 @@ export function rankSongsByTopArtists(songs, topArtists) {
     const baseWeight = 5.0 * Math.pow(0.6, idx); // 5.0, 3.0, 1.8, 1.08, 0.65, ...
     weightMap.set(lower(a.name), baseWeight);
   });
-
-  return [...(songs || [])].sort((a, b) =>
-    artistWeightedScore(b, weightMap, topArtistNames) -
-    artistWeightedScore(a, weightMap, topArtistNames)
-  );
+  return { weightMap, topArtistNames };
 }
 
 function artistWeightedScore(song, weightMap, topArtistNames) {
@@ -67,4 +70,33 @@ function artistWeightedScore(song, weightMap, topArtistNames) {
     .map(name => lower(name.trim()))
     .filter(name => topArtistNames.has(name))
     .reduce((sum, name) => sum + (weightMap.get(name) || 0), 0);
+}
+
+const GENRE_MATCH_WEIGHT = 1.2;
+
+/**
+ * Rank songs combining up-weighted top-artist preference with genre affinity.
+ *
+ * P: Deep-profile genres now participate. Each genre tag matching the user's
+ * topGenres adds GENRE_MATCH_WEIGHT (1.2) on top of the artist weight — enough
+ * to lift a likeable song above indifferent FM picks, but never above a
+ * top-artist match (which starts at 5.0 for the #1 artist).
+ */
+export function rankSongsByPreference(songs, topArtists, topGenres) {
+  const { weightMap, topArtistNames } = buildArtistWeights(topArtists);
+  const genreSet = new Set((topGenres || []).map(g => lower(g?.name ?? g)));
+
+  const scored = [...(songs || [])].map(song => {
+    const artistScore = artistWeightedScore(song, weightMap, topArtistNames);
+    const genreScore = (song.genreTags || [])
+      .map(t => lower(t?.name ?? t))
+      .filter(t => genreSet.has(t))
+      .length * GENRE_MATCH_WEIGHT;
+    return { song, total: artistScore + genreScore };
+  });
+
+  // Stable sort — equal total preserves original order.
+  return scored
+    .sort((a, b) => b.total - a.total)
+    .map(s => s.song);
 }
