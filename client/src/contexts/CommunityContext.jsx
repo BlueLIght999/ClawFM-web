@@ -129,6 +129,30 @@ export function CommunityProvider({ socket, children }) {
     return () => socket.off('auth:login-success', handleLoginSuccess);
   }, [socket, identify, createMember]);
 
+  // 刷新/重启后补拉一次登录态：若网易云会话仍有效则设置 authUid，并幂等补齐成员身份（修复“nickname 无法 join”）
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/auth/status')
+      .then(r => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const profile = data?.profile || data?.account?.profile;
+        // 优先取服务端持久化登录态字段 uid（无网络拉取依赖，与服务端 requireCommunityAuth 同源），
+        // 避免网易云 login/status 冷启动/波动导致 profile 缺失而无法 join。
+        const uid = data?.uid || profile?.userId;
+        if (!uid) return; // 未登录：保持现状，加入按钮提示需网易云登录
+        const uidStr = String(uid);
+        updateState({ authUid: uidStr });
+        const cur = stateRef.current?.currentMember;
+        if (cur?.userId === uidStr) { identify(uidStr); return; }
+        const nickname = profile?.nickname || cur?.nickname || '';
+        const avatarUrl = profile?.avatarUrl || cur?.avatarUrl || '';
+        createMember({ userId: uidStr, nickname, avatarUrl }).catch(() => identify(uidStr));
+      })
+      .catch(() => { /* 忽略非致命 */ });
+    return () => { cancelled = true; };
+  }, [createMember, identify, updateState]);
+
   /** 刷新我的画像（F1 P-B）。返回 { profile, degraded }。 */
   const refreshProfile = useCallback(async (userId) => {
     const res = await fetch(`/api/community/profile/${userId}/refresh`, { method: 'POST' });

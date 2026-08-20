@@ -55,15 +55,20 @@ function restoredSessionSummary({ cookie, status, plan, planError, queue, queueP
   };
 }
 
-async function currentStatusPayload(authClient) {
+async function currentStatusPayload(authClient, authRepository) {
+  // uid 取自本地持久化的 netease_auth（authRepository.currentUid），而非实时网易云会话。
+  // 这样即使网易云 login/status 冷启动/波动失败，前端仍能获得稳定 uid 用于社区 JOIN /
+  // 身份创建——与服务端 requireCommunityAuth 用的是同一来源（B-Fix nickname 无法 join）。
+  const uid = authRepository?.currentUid?.() || '';
   try {
     const status = authLoginStatusFromResult(await authClient.checkLoginStatus());
     return {
       loggedIn: status.loggedIn,
       profile: status.profile,
+      uid,
     };
   } catch (e) {
-    return { loggedIn: false, error: e.message };
+    return { loggedIn: false, error: e.message, uid };
   }
 }
 
@@ -115,7 +120,7 @@ export function createAuthenticationService({
      * Constraint: preserves `/api/auth/status` shape while centralizing NetEase response normalization.
      */
     async currentStatus() {
-      return currentStatusPayload(authClient);
+      return currentStatusPayload(authClient, authRepository);
     },
 
     /**

@@ -181,6 +181,7 @@ describe('AuthenticationService', () => {
     expect(result).toEqual({
       loggedIn: false,
       profile: { id: 99, anonimousUser: true },
+      uid: '',
     });
   });
 
