@@ -431,6 +431,12 @@
   gap: 0;
 }
 
+/* Playlists: 展开后限高内部滚动，避免歌单列表撑满整个侧栏 */
+.playlist-panel .playlist-items {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
 .playlist-item,
 .up-next-item {
   width: 100%;
