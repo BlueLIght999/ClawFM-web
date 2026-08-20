@@ -99,6 +99,7 @@ export class Recommender {
       queueStore: this.queueStore,
       listenHistory: this.listenHistory,
       topArtists: this.topArtists,
+      topGenres: this.topGenres,
     });
   }
 
@@ -130,9 +131,11 @@ export class Recommender {
       });
       const result = await builder.build(this.uid);
       this.topArtists = result.topArtists;
+      this.topGenres = result.topGenres || this.topGenres;
       this.profile.set('topArtists', this.topArtists);
+      if (result.topGenres) this.profile.set('topGenres', result.topGenres);
       this.seedPool = this.seedPoolRepo.all();
-      console.log(`[Recommender] Seed pool built: ${result.songs} songs, ${this.topArtists.length} top artists`);
+      console.log(`[Recommender] Seed pool built: ${result.songs} songs, ${this.topArtists.length} top artists, ${this.topGenres.length} top genres`);
     } catch (e) {
       console.error('[Recommender] Seed pool error:', e.message);
     }
