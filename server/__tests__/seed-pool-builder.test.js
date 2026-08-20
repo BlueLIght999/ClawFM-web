@@ -1,5 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SeedPoolBuilder, computeTopArtists } from '../domain/curation/SeedPoolBuilder.js';
+import { SeedPoolBuilder, computeTopArtists, computeTopGenres } from '../domain/curation/SeedPoolBuilder.js';
+
+describe('computeTopGenres — pure function', () => {
+  it('returnsEmpty_whenNoGenres', () => {
+    expect(computeTopGenres({})).toEqual([]);
+  });
+
+  it('returnsSortedNamesByCount_descending', () => {
+    const counts = { jazz: 3, rock: 5, pop: 1 };
+    expect(computeTopGenres(counts)).toEqual(['rock', 'jazz', 'pop']);
+  });
+
+  it('limitsTo10_genres', () => {
+    const counts = {};
+    for (let i = 0; i < 15; i++) counts[`g${i}`] = i;
+    expect(computeTopGenres(counts)).toHaveLength(10);
+  });
+});
 
 describe('computeTopArtists — pure function', () => {
   it('returnsEmpty_whenNoArtists', () => {
@@ -82,6 +99,20 @@ describe('SeedPoolBuilder', () => {
     const result = await builder.build('uid123');
     expect(result.topArtists[0]).toEqual({ name: 'Artist A', count: 2 });
     expect(result.topArtists[1]).toEqual({ name: 'Artist B', count: 1 });
+  });
+
+  it('computesTopGenres_fromCollectedSongs', async () => {
+    musicMock.userPlaylists.mockResolvedValue([{ id: 'pl1', name: 'P1' }]);
+    musicMock.playlistTracks.mockResolvedValue([
+      { id: 's1', ar: [{ name: 'A' }], al: {}, dt: 180, genres: ['jazz'] },
+      { id: 's2', ar: [{ name: 'A' }], al: {}, dt: 180, genres: ['rock'] },
+      { id: 's3', ar: [{ name: 'B' }], al: {}, dt: 180, genres: ['jazz'] },
+    ]);
+    musicMock.likedSongs.mockResolvedValue([]);
+
+    const result = await builder.build('uid123');
+    expect(result.topGenres[0]).toBe('jazz');
+    expect(result.topGenres[1]).toBe('rock');
   });
 
   it('collectsLikedSongs_intoSeedPool', async () => {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  rankSongsByPreference,
   rankSongsByTopArtists,
   seedSongMatchesPreference,
   toSeedSongFromTrack,
@@ -113,5 +114,37 @@ describe('recommenderRules', () => {
 
     const ranked = rankSongsByTopArtists(songs, topArtists);
     expect(ranked.length).toBe(2);
+  });
+
+  it('rankSongsByPreference_genreMatchLiftsSongAboveIndifferentPicks', () => {
+    const songs = [
+      { id: '1', artist: 'Nobody', genreTags: ['jazz'] },   // matches topGenres
+      { id: '2', artist: 'Nobody', genreTags: ['metal'] },  // no match
+      { id: '3', artist: 'Nobody', genreTags: [] },          // no match
+    ];
+
+    const ranked = rankSongsByPreference(songs, [], ['jazz']);
+    expect(ranked[0].id).toBe('1');
+  });
+
+  it('rankSongsByPreference_topArtistStillDominatesGenreMatch', () => {
+    // A top-artist song outranks a genre-match song (single genre = 1.2 < top1 = 5.0)
+    const songs = [
+      { id: '1', artist: 'NonTop', genreTags: ['jazz'] },
+      { id: '2', artist: 'Jay Chou', genreTags: ['metal'] },
+    ];
+    const topArtists = [{ name: 'Jay Chou', count: 50 }];
+
+    const ranked = rankSongsByPreference(songs, topArtists, ['jazz']);
+    expect(ranked[0].id).toBe('2');
+  });
+
+  it('rankSongsByPreference_caseInsensitiveGenreMatch', () => {
+    const songs = [
+      { id: '1', artist: 'X', genreTags: ['Rock'] },
+      { id: '2', artist: 'Y', genreTags: ['pop'] },
+    ];
+    const ranked = rankSongsByPreference(songs, [], ['rock']);
+    expect(ranked[0].id).toBe('1');
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { collectFromStrategies } from '../domain/curation/QueueFillStrategies.js';
+import { collectFromStrategies, QueueFillStrategies } from '../domain/curation/QueueFillStrategies.js';
 import { rankSongsByTopArtists } from '../domain/curation/recommenderRules.js';
 
 const song = (id, name, artist = 'unknown') => ({ id, name, ar: [{ name: artist }] });
@@ -70,6 +70,43 @@ describe('P1-3: collectFromStrategies — per-strategy quota prevents domination
     // Second strategy should have contributed songs
     const fromSecond = result.filter(s => s.id >= 2).length;
     expect(fromSecond).toBe(4); // 3 from first pass + 1 from second pass
+  });
+});
+
+describe('F: user-genre strategy from deep profile', () => {
+  const makeQfs = (topGenres) => {
+    const music = {
+      search: vi.fn().mockResolvedValue([song('g1', 'Jazz One'), song('g2', 'Jazz Two')]),
+      personalFm: vi.fn().mockResolvedValue([]),
+      similar: vi.fn().mockResolvedValue([]),
+      dailyRecommend: vi.fn().mockResolvedValue([]),
+    };
+    return new QueueFillStrategies({
+      music,
+      queueStore: { current: null },
+      listenHistory: { recentSongIds: () => [], artistPlayCount: () => [] },
+      topArtists: [],
+      topGenres,
+    });
+  };
+
+  it('buildStrategies_addsUserGenres_whenNoPlanHints', () => {
+    const qfs = makeQfs(['jazz', 'rock']);
+    const { strategyNames } = qfs.buildStrategies(null, new Set(), new Set());
+    expect(strategyNames[0]).toBe('userGenres');
+  });
+
+  it('buildStrategies_skipsUserGenres_whenNoProfileGenres', () => {
+    const qfs = makeQfs([]);
+    const { strategyNames } = qfs.buildStrategies(null, new Set(), new Set());
+    expect(strategyNames).not.toContain('userGenres');
+  });
+
+  it('fillQueue_pullsSongs via user genre search when topGenres present', async () => {
+    const qfs = makeQfs(['jazz']);
+    const { allSongs } = await qfs.fillQueue(4, null, {});
+    expect(allSongs.length).toBeGreaterThan(0);
+    expect(qfs.music.search).toHaveBeenCalled();
   });
 });
 
