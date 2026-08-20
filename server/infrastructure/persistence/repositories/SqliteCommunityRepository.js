@@ -39,6 +39,8 @@ function toPost(row) {
     content: row.content,
     songId: row.song_id || null,
     playlistId: row.playlist_id || null,
+    songTitle: row.song_title || null,
+    cover: row.cover || null,
     autoTags: parseJsonArray(row.auto_tags),
     likes: Number(row.likes) || 0,
     isAgent: Number(row.is_agent) === 1,
@@ -72,6 +74,32 @@ function toRoom(row) {
   };
 }
 
+function toDmThread(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    userA: String(row.user_a),
+    userB: String(row.user_b),
+    agentAuthorUserId: row.agent_author_user_id || null,
+    lastMessageAt: row.last_message_at || null,
+    lastMessage: row.last_message || null,
+    lastSenderUserId: row.last_sender ? String(row.last_sender) : null,
+    createdAt: row.created_at,
+  };
+}
+
+function toDmMessage(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    threadId: Number(row.thread_id),
+    senderUserId: String(row.sender_user_id),
+    isAgent: Number(row.is_agent) === 1,
+    content: row.content,
+    createdAt: row.created_at,
+  };
+}
+
 /**
  * @param {object} [deps] — 可注入 db helpers（测试用）
  */
@@ -80,7 +108,37 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
   const one = deps.queryOne || queryOne;
   const run = deps.execute || execute;
 
+  // 给帖子/评论补作者展示字段（昵称/头像），仅读公开字段
+  const enrichAuthors = (items) => {
+    if (!Array.isArray(items) || items.length === 0) return items;
+    const ids = [...new Set(items.map((p) => String(p.userId)).filter(Boolean))];
+    if (ids.length === 0) return items;
+    const rows = q(
+      `SELECT user_id, nickname, avatar_url FROM community_members WHERE user_id IN (${ids.map(() => '?').join(',')})`,
+      ids
+    );
+    const byId = new Map(rows.map((r) => [String(r.user_id), r]));
+    const out = items.map((p) => {
+      const m = byId.get(String(p.userId));
+      if (!m) return p;
+      return {
+        ...p,
+        nickname: p.nickname || m.nickname || '',
+        avatarUrl: p.avatarUrl || m.avatar_url || '',
+      };
+    });
+    return out;
+  };
+  const enrichPost = (post) => (post ? enrichAuthors([post])[0] : null);
+
   return {
+    /**
+     * 在仓储方法上包装作者信息注入（DDD read-model：帖子 DTO 附带作者昵称/头像）。
+     */
+    withAuthors(fn) {
+      return (...args) => enrichAuthors(fn(...args));
+    },
+
     createMember({ userId, nickname, avatarUrl }) {
       run(
         `INSERT INTO community_members (user_id, nickname, avatar_url) VALUES (?, ?, ?)
@@ -92,6 +150,26 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
 
     getMember(userId) {
       return toMember(one('SELECT * FROM community_members WHERE user_id = ?', [String(userId)]));
+    },
+
+    updateMemberProfile(userId, { nickname, avatarUrl } = {}) {
+      run(
+        'UPDATE community_members SET nickname = ?, avatar_url = ? WHERE user_id = ?',
+        [nickname || '', avatarUrl || '', String(userId)]
+      );
+      return toMember(one('SELECT * FROM community_members WHERE user_id = ?', [String(userId)]));
+    },
+
+    saveAvatar(userId, binary, mimeType) {
+      run(
+        'UPDATE community_members SET avatar_binary = ?, avatar_mime = ?, avatar_url = ? WHERE user_id = ?',
+        [binary, mimeType || 'image/png', `/api/community/members/${String(userId)}/avatar`, String(userId)]
+      );
+      return toMember(one('SELECT * FROM community_members WHERE user_id = ?', [String(userId)]));
+    },
+
+    getAvatarBinary(userId) {
+      return one('SELECT avatar_binary, avatar_mime FROM community_members WHERE user_id = ?', [String(userId)]);
     },
 
     touchMemberActive(userId) {
@@ -144,17 +222,18 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
     createPost(post) {
       const {
         userId, type, content, parentId, songId, playlistId,
-        autoTags, isAgent, agentAuthorUserId,
+        autoTags, isAgent, agentAuthorUserId, songTitle, cover,
       } = post;
       run(
         `INSERT INTO community_posts
-           (user_id, type, parent_id, content, song_id, playlist_id, auto_tags, is_agent, agent_author_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (user_id, type, parent_id, content, song_id, playlist_id, song_title, cover, auto_tags, is_agent, agent_author_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           String(userId), type,
           parentId === null || parentId === undefined ? null : Number(parentId),
           content,
           songId || null, playlistId || null,
+          songTitle || null, cover || null,
           JSON.stringify(Array.isArray(autoTags) ? autoTags : []),
           isAgent ? 1 : 0,
           agentAuthorUserId || null,
@@ -165,28 +244,34 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
     },
 
     getPost(id) {
-      return toPost(one('SELECT * FROM community_posts WHERE id = ?', [Number(id)]));
+      return enrichPost(toPost(one('SELECT * FROM community_posts WHERE id = ?', [Number(id)])));
     },
 
     listFeed({ limit, cursor } = {}) {
       const lim = Math.min(Math.max(Number(limit) || 20, 1), 100);
       if (cursor === null || cursor === undefined) {
-        return q(
-          `SELECT * FROM community_posts WHERE parent_id IS NULL ORDER BY id DESC LIMIT ?`,
-          [lim]
-        ).map(toPost);
+        return enrichAuthors(
+          q(
+            `SELECT * FROM community_posts WHERE parent_id IS NULL ORDER BY id DESC LIMIT ?`,
+            [lim]
+          ).map(toPost)
+        );
       }
-      return q(
-        `SELECT * FROM community_posts WHERE parent_id IS NULL AND id < ? ORDER BY id DESC LIMIT ?`,
-        [Number(cursor), lim]
-      ).map(toPost);
+      return enrichAuthors(
+        q(
+          `SELECT * FROM community_posts WHERE parent_id IS NULL AND id < ? ORDER BY id DESC LIMIT ?`,
+          [Number(cursor), lim]
+        ).map(toPost)
+      );
     },
 
     listComments(parentId) {
-      return q(
-        `SELECT * FROM community_posts WHERE parent_id = ? ORDER BY id ASC`,
-        [Number(parentId)]
-      ).map(toPost);
+      return enrichAuthors(
+        q(
+          `SELECT * FROM community_posts WHERE parent_id = ? ORDER BY id ASC`,
+          [Number(parentId)]
+        ).map(toPost)
+      );
     },
 
     likePost(id) {
@@ -503,15 +588,19 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
     listPostsByUser(userId, { limit, cursor } = {}) {
       const lim = Math.min(Math.max(Number(limit) || 20, 1), 100);
       if (cursor === null || cursor === undefined) {
-        return q(
-          `SELECT * FROM community_posts WHERE user_id = ? AND parent_id IS NULL ORDER BY id DESC LIMIT ?`,
-          [String(userId), lim]
-        ).map(toPost);
+        return enrichAuthors(
+          q(
+            `SELECT * FROM community_posts WHERE user_id = ? AND parent_id IS NULL ORDER BY id DESC LIMIT ?`,
+            [String(userId), lim]
+          ).map(toPost)
+        );
       }
-      return q(
-        `SELECT * FROM community_posts WHERE user_id = ? AND parent_id IS NULL AND id < ? ORDER BY id DESC LIMIT ?`,
-        [String(userId), Number(cursor), lim]
-      ).map(toPost);
+      return enrichAuthors(
+        q(
+          `SELECT * FROM community_posts WHERE user_id = ? AND parent_id IS NULL AND id < ? ORDER BY id DESC LIMIT ?`,
+          [String(userId), Number(cursor), lim]
+        ).map(toPost)
+      );
     },
 
     listFeedFromFollowing(userId, { limit, cursor } = {}) {
@@ -519,15 +608,81 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
       const subWhere = `p.parent_id IS NULL
              AND p.user_id IN (SELECT followee_id FROM community_follows WHERE follower_id = ?)`;
       if (cursor === null || cursor === undefined) {
+        return enrichAuthors(
+          q(
+            `SELECT p.* FROM community_posts p WHERE ${subWhere} ORDER BY p.id DESC LIMIT ?`,
+            [String(userId), lim]
+          ).map(toPost)
+        );
+      }
+      return enrichAuthors(
+        q(
+          `SELECT p.* FROM community_posts p WHERE ${subWhere} AND p.id < ? ORDER BY p.id DESC LIMIT ?`,
+          [String(userId), Number(cursor), lim]
+        ).map(toPost)
+      );
+    },
+
+    // ── 私信 / agent 私信（DM）─────────────────────────────
+    getOrCreateDmThread({ userA, userB, agentAuthorUserId }) {
+      const key = `${String(userA)}\u0000${String(userB)}`;
+      run(
+        `INSERT INTO community_dm_threads (thread_key, user_a, user_b, agent_author_user_id)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(thread_key) DO UPDATE SET agent_author_user_id = excluded.agent_author_user_id`,
+        [key, String(userA), String(userB), agentAuthorUserId || null]
+      );
+      return toDmThread(one('SELECT * FROM community_dm_threads WHERE thread_key = ?', [key]));
+    },
+
+    getDmThread(id) {
+      return toDmThread(one('SELECT * FROM community_dm_threads WHERE id = ?', [Number(id)]));
+    },
+
+    listDmThreads(userId) {
+      const rows = q(
+        `SELECT t.*,
+            (SELECT m.content FROM community_dm_messages m WHERE m.thread_id = t.id ORDER BY m.id DESC LIMIT 1) AS last_message,
+            (SELECT m.sender_user_id FROM community_dm_messages m WHERE m.thread_id = t.id ORDER BY m.id DESC LIMIT 1) AS last_sender
+         FROM community_dm_threads t
+         WHERE t.user_a = ? OR t.user_b = ?
+         ORDER BY COALESCE(t.last_message_at, t.created_at) DESC`,
+        [String(userId), String(userId)]
+      );
+      return rows.map(toDmThread);
+    },
+
+    listDmMessages(threadId, limit) {
+      const numThread = Number(threadId);
+      // 传 limit 时取「最近 N 条」并按时间正序返回（供 agent 上下文 / 最近消息）
+      if (limit) {
+        const lim = Math.min(Math.max(Number(limit), 1), 200);
         return q(
-          `SELECT p.* FROM community_posts p WHERE ${subWhere} ORDER BY p.id DESC LIMIT ?`,
-          [String(userId), lim]
-        ).map(toPost);
+          `SELECT * FROM community_dm_messages WHERE thread_id = ? ORDER BY id DESC LIMIT ?`,
+          [numThread, lim]
+        ).reverse().map(toDmMessage);
       }
       return q(
-        `SELECT p.* FROM community_posts p WHERE ${subWhere} AND p.id < ? ORDER BY p.id DESC LIMIT ?`,
-        [String(userId), Number(cursor), lim]
-      ).map(toPost);
+        `SELECT * FROM community_dm_messages WHERE thread_id = ? ORDER BY id ASC`,
+        [numThread]
+      ).map(toDmMessage);
+    },
+
+    createDmMessage({ threadId, senderUserId, isAgent, content }) {
+      run(
+        `INSERT INTO community_dm_messages (thread_id, sender_user_id, is_agent, content) VALUES (?, ?, ?, ?)`,
+        [Number(threadId), String(senderUserId), isAgent ? 1 : 0, content]
+      );
+      const row = one('SELECT * FROM community_dm_messages WHERE rowid = last_insert_rowid()');
+      return Number(row.id);
+    },
+
+    getDmMessage(id) {
+      return toDmMessage(one('SELECT * FROM community_dm_messages WHERE id = ?', [Number(id)]));
+    },
+
+    touchDmThreadLastMessage(threadId) {
+      run('UPDATE community_dm_threads SET last_message_at = CURRENT_TIMESTAMP WHERE id = ?', [Number(threadId)]);
     },
   };
 }

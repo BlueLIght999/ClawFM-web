@@ -43,8 +43,19 @@ CREATE TABLE community_listens (
 CREATE TABLE community_posts (
   id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, type TEXT NOT NULL,
   parent_id INTEGER, content TEXT NOT NULL, song_id TEXT, playlist_id TEXT,
-  auto_tags TEXT, likes INTEGER DEFAULT 0, is_agent INTEGER DEFAULT 0,
-  agent_author_user_id TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  song_title TEXT, cover TEXT, auto_tags TEXT, likes INTEGER DEFAULT 0,
+  is_agent INTEGER DEFAULT 0, agent_author_user_id TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE community_dm_threads (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, thread_key TEXT NOT NULL UNIQUE,
+  user_a TEXT NOT NULL, user_b TEXT NOT NULL, agent_author_user_id TEXT,
+  last_message_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE community_dm_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id INTEGER NOT NULL,
+  sender_user_id TEXT NOT NULL, is_agent INTEGER DEFAULT 0,
+  content TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 `;
 
@@ -158,5 +169,43 @@ describe('community sqlite repository', () => {
     repo.likePost(id);
     repo.likePost(id);
     expect(repo.getPost(id).likes).toBe(2);
+  });
+
+  describe('DM / agent DM', () => {
+    it('getOrCreateDmThread_reusesOnSameKey_andReturnsDto', () => {
+      const t1 = repo.getOrCreateDmThread({ userA: 'u1', userB: 'u2' });
+      const t2 = repo.getOrCreateDmThread({ userA: 'u1', userB: 'u2' });
+      expect(t2.id).toBe(t1.id);
+      expect(t1.userA).toBe('u1');
+      expect(t1.userB).toBe('u2');
+      expect(t1.agentAuthorUserId).toBeNull();
+    });
+
+    it('getOrCreateDmThread_agentSession_setsAgentAuthor', () => {
+      const t = repo.getOrCreateDmThread({ userA: 'u1', userB: 'u2', agentAuthorUserId: 'u2' });
+      expect(t.agentAuthorUserId).toBe('u2');
+    });
+
+    it('createDmMessage_andListDmMessages_roundTrip', () => {
+      const t = repo.getOrCreateDmThread({ userA: 'u1', userB: 'u2' });
+      const id = repo.createDmMessage({ threadId: t.id, senderUserId: 'u1', isAgent: false, content: 'hi' });
+      repo.createDmMessage({ threadId: t.id, senderUserId: 'u2', isAgent: true, content: 'yo' });
+      const msgs = repo.listDmMessages(t.id);
+      expect(msgs).toHaveLength(2);
+      expect(msgs[0].id).toBe(id);
+      expect(msgs[1].isAgent).toBe(true);
+      expect(repo.getDmMessage(id).content).toBe('hi');
+    });
+
+    it('listDmThreads_orderedByRecent_returnsBothSides', () => {
+      const t = repo.getOrCreateDmThread({ userA: 'u1', userB: 'u2' });
+      repo.createDmMessage({ threadId: t.id, senderUserId: 'u1', isAgent: false, content: 'first' });
+      repo.touchDmThreadLastMessage(t.id);
+      const mine = repo.listDmThreads('u1');
+      const theirs = repo.listDmThreads('u2');
+      expect(mine).toHaveLength(1);
+      expect(theirs).toHaveLength(1);
+      expect(mine[0].lastMessage).toContain('first');
+    });
   });
 });

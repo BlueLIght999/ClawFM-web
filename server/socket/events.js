@@ -58,6 +58,7 @@ export const EVENTS = {
   COMMUNITY_COMMENT_NEW: 'community:comment-new', // 有人评论了我的帖子（定向）
   COMMUNITY_FOLLOW: 'community:follow',         // 有人关注了我（定向）
   COMMUNITY_INVITATION: 'community:invitation', // 收到邀请
+  COMMUNITY_DM_NEW: 'community:dm-new',         // 收到新私信 / agent 私信（定向）
   ROOM_STATE: 'room:state',                     // 一起听房间状态（房主播放同步）
   ROOM_CHAT: 'room:chat',                       // 房间内聊天（双向）
   ROOM_SYNC: 'room:sync',                       // 播放位置同步

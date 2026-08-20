@@ -946,4 +946,259 @@
     flex-direction: column;
     align-items: flex-start;
   }
+  /* DM 小屏纵向堆叠 */
+  .community-dm {
+    flex-direction: column;
+  }
+  .community-dm-sidebar,
+  .community-dm-main {
+    width: 100% !important;
+  }
+}
+
+/* === 像素风头像（真实头像 / name 派生占位）=== */
+.community-pixel-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+  font-family: var(--font-pixel);
+  flex-shrink: 0;
+  border: 1px solid var(--border-dim);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  object-fit: cover;
+  image-rendering: pixelated;
+}
+.community-pixel-avatar.large {
+  width: 64px;
+  height: 64px;
+  font-size: 26px;
+}
+.community-hero-cover .community-pixel-avatar {
+  width: 100%;
+  height: 100%;
+}
+
+/* === 头像上传 / 昵称编辑（改头像）=== */
+.community-avatar-edit {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  position: relative;
+}
+.community-avatar-edit .community-pixel-avatar {
+  width: 100%;
+  height: 100%;
+}
+.community-avatar-edit-badge {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  background: var(--accent);
+  color: #000;
+  border: 1px solid var(--border-dim);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.4);
+}
+.community-avatar-edit-btn {
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-dim);
+  cursor: pointer;
+  vertical-align: middle;
+}
+.community-avatar-edit-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.community-nickname-edit {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.community-nickname-edit .community-composer-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* === 私信 DIRECT（会话列表 + 消息视图）=== */
+.community-dm {
+  display: flex;
+  gap: 8px;
+  min-height: 420px;
+}
+.community-dm-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border-dim);
+  background: var(--bg-elevated);
+  padding: 8px;
+  box-sizing: border-box;
+}
+.community-dm-heading {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: var(--accent);
+  letter-spacing: 1.5px;
+}
+.community-dm-open {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.community-dm-open-buttons {
+  display: flex;
+  gap: 4px;
+}
+.community-dm-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.community-dm-thread {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+}
+.community-dm-thread:hover {
+  background: var(--shadow-accent-hover);
+  border-color: var(--border-dim);
+}
+.community-dm-thread.active {
+  border-color: var(--accent);
+  background: var(--shadow-accent-hover);
+}
+.community-dm-thread-body {
+  flex: 1;
+  min-width: 0;
+}
+.community-dm-thread-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.community-dm-thread-last {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+.community-dm-empty {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 12px;
+  text-align: center;
+}
+.community-dm-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border-dim);
+  background: var(--bg-elevated);
+  padding: 8px;
+  box-sizing: border-box;
+  min-width: 0;
+}
+.community-dm-header {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: var(--accent);
+  padding: 4px 2px 8px;
+  border-bottom: 1px dashed var(--border-dim);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.community-dm-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
+}
+.community-dm-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 85%;
+}
+.community-dm-msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.community-dm-msg-bubble {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--text-primary);
+  background: var(--bg-deep);
+  border: 1px solid var(--border-dim);
+  padding: 6px 8px;
+  word-break: break-word;
+}
+.community-dm-msg.mine {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.community-dm-msg.mine .community-dm-msg-bubble {
+  border-color: var(--accent);
+  color: var(--bg-deep);
+  background: var(--accent);
+}
+.community-dm-compose {
+  display: flex;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-dim);
+}
+.community-dm-compose .community-composer-input {
+  flex: 1;
 }

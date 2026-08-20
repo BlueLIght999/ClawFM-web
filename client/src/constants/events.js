@@ -39,6 +39,7 @@ export const E = {
   COMMUNITY_COMMENT_NEW: 'community:comment-new',
   COMMUNITY_FOLLOW: 'community:follow',
   COMMUNITY_INVITATION: 'community:invitation',
+  COMMUNITY_DM_NEW: 'community:dm-new',
   ROOM_STATE: 'room:state',
   ROOM_CHAT: 'room:chat',
   ROOM_SYNC: 'room:sync',

@@ -95,6 +95,7 @@ import { createDistributionService } from './application/services/DistributionSe
 import { createMemberAgentService } from './application/services/MemberAgentService.js';
 import { createInvitationService } from './application/services/InvitationService.js';
 import { createRoomService } from './application/services/RoomService.js';
+import { createDmService } from './application/services/DmService.js';
 import { registerCommunityTools } from './agent/application/services/CommunityTools.js';
 import { sqliteCommunityRepository } from './infrastructure/persistence/repositories/SqliteCommunityRepository.js';
 import { neteaseMemberHistoryAdapter } from './infrastructure/netease/NeteaseMemberHistoryAdapter.js';
@@ -234,6 +235,7 @@ export function createServices(io) {
     logger,
   });
   const roomService = createRoomService({ communityRepository, eventPublisher: communityEventPublisher, logger });
+  const dmService = createDmService({ communityRepository, memberAgentLoopPort, eventPublisher: communityEventPublisher, logger });
   // 注册社区 Agent 工具到现有 toolRegistry
   if (services.toolRegistry) {
     registerCommunityTools({ registry: services.toolRegistry, distributionService, memberAgentService, invitationService });
@@ -273,6 +275,7 @@ export function createServices(io) {
     memberAgentService,
     invitationService,
     roomService,
+    dmService,
     communityRepository,
     cookieCipherPort,
     communityEventPublisher,

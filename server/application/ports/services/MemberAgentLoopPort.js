@@ -5,6 +5,7 @@
  *
  * @typedef {object} MemberAgentLoopPort
  * @property {(persona: string, postContent: string) => Promise<string>} generateComment
+ * @property {(persona: string, dmContext: string) => Promise<string>} generateReply — 🆕 agent 私信回复
  */
 
 export {};

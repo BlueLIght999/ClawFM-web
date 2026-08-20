@@ -49,7 +49,7 @@ const io = new Server(httpServer, {
 
 app.use(cors());
 app.use(httpLogger());
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 
 const services = createServices(io);
 const readiness = createReadiness();
@@ -168,6 +168,7 @@ registerHttpRoutes(app, {
   distributionService: services.distributionService,
   roomService: services.roomService,
   invitationService: services.invitationService,
+  dmService: services.dmService,
   authRepository: services.authRepository,
 });
 

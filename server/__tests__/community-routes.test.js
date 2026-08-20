@@ -56,6 +56,9 @@ function makeMockServices() {
       getMember: (userId) => userId === 'u1' || userId === 'u2'
         ? { userId, nickname: userId === 'u1' ? '阿七' : '阿八', avatarUrl: '', clusterId: 1, selfTags: [] }
         : null,
+      updateMemberProfile: (userId, { nickname, avatarUrl } = {}) => ({ userId, nickname: nickname || '', avatarUrl: avatarUrl || '', clusterId: 1, selfTags: [] }),
+      saveAvatar: (userId, binary, mimeType) => ({ userId, nickname: '阿七', avatarUrl: `/api/community/members/${userId}/avatar`, clusterId: 1, selfTags: [] }),
+      getAvatarBinary: (userId) => userId === 'u1' ? { avatar_binary: Buffer.from('img'), avatar_mime: 'image/png' } : null,
       upsertMemberAuth: () => {},
       listFollowers: () => [{ userId: 'u2', nickname: '阿八' }],
       listFollowing: () => [],
@@ -495,5 +498,48 @@ describe('community routes', () => {
     const res = await request(app).post('/api/community/invitations/999/bring-playlist');
     expect(res.status).toBe(404);
     expect(res.body.error).toBe('invitation_not_found');
+  });
+
+  // ── 改头像 / 改昵称（B-Fix）──
+  it('PUT /members/:userId/profile updates nickname', async () => {
+    const res = await request(app).put('/api/community/members/u1/profile').send({ nickname: '新昵称' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.nickname).toBe('新昵称');
+  });
+
+  it('PUT /members/:userId/profile rejects overly long nickname', async () => {
+    const res = await request(app).put('/api/community/members/u1/profile').send({ nickname: 'x'.repeat(33) });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('nickname_invalid');
+  });
+
+  it('POST /members/:userId/avatar uploads base64 avatar', async () => {
+    const data = Buffer.from('fake-image-bytes').toString('base64');
+    const res = await request(app).post('/api/community/members/u1/avatar').send({ data, mimeType: 'image/png' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.avatarUrl).toBe('/api/community/members/u1/avatar');
+  });
+
+  it('POST /members/:userId/avatar rejects invalid base64', async () => {
+    const res = await request(app).post('/api/community/members/u1/avatar').send({ data: '%%%', mimeType: 'image/png' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('avatar_invalid_or_too_large');
+  });
+
+  it('GET /members/:userId/avatar returns binary with mime', async () => {
+    const res = await request(app).get('/api/community/members/u1/avatar');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('image/png');
+  });
+
+  it('GET /members/:userId/avatar 404 when none uploaded', async () => {
+    const res = await request(app).get('/api/community/members/u2/avatar');
+    expect(res.status).toBe(404);
+  });
+
+  it('PUT /members/:userId/profile forbids editing another user', async () => {
+    const res = await request(app).put('/api/community/members/u2/profile').send({ nickname: '篡改' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('forbidden');
   });
 });

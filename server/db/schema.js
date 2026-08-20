@@ -157,6 +157,8 @@ function createTables(db) {
       content TEXT NOT NULL,
       song_id TEXT,
       playlist_id TEXT,
+      song_title TEXT,
+      cover TEXT,
       auto_tags TEXT,
       likes INTEGER DEFAULT 0,
       is_agent INTEGER DEFAULT 0,
@@ -238,6 +240,54 @@ function createTables(db) {
       PRIMARY KEY (follower_id, followee_id)
     )
   `);
+
+  // ── 私信 / agent 私信（DM）────────────────────────────────
+  // thread_key = 规范序（min,max）确定两人会话；agent_author_user_id 非空 = 与某人 agent 的会话
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_dm_threads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      thread_key TEXT NOT NULL UNIQUE,
+      user_a TEXT NOT NULL,
+      user_b TEXT NOT NULL,
+      agent_author_user_id TEXT,
+      last_message_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS community_dm_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      thread_id INTEGER NOT NULL,
+      sender_user_id TEXT NOT NULL,
+      is_agent INTEGER DEFAULT 0,
+      content TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run(
+    'CREATE INDEX IF NOT EXISTS idx_dm_messages_thread ON community_dm_messages (thread_id, id)'
+  );
+
+  // 轻量迁移：为已存在表补 song_title / cover 列（PRD v0.3 封面/曲目标题）
+  ensureColumn(db, 'community_posts', 'song_title', 'TEXT');
+  ensureColumn(db, 'community_posts', 'cover', 'TEXT');
+  // 头像上传：为已有 community_members 表补图片二进制与 MIME 列
+  ensureColumn(db, 'community_members', 'avatar_binary', 'BLOB');
+  ensureColumn(db, 'community_members', 'avatar_mime', 'TEXT');
+}
+
+/**
+ * 轻量迁移：为已存在且缺列的表补加列（CREATE TABLE IF NOT EXISTS 无法补列）。
+ */
+function ensureColumn(db, table, column, ddl) {
+  try {
+    const res = db.exec(`PRAGMA table_info(${table})`);
+    const cols = res?.[0]?.values?.map((r) => String(r[1])) || [];
+    if (cols.includes(column)) return;
+    db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  } catch (e) {
+    console.error(`[DB] ensureColumn ${table}.${column} failed:`, e.message);
+  }
 }
 
 export function saveDb() {

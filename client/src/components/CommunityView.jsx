@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useCommunity } from '../contexts/CommunityContext.jsx';
 import './community.css';
 
@@ -14,6 +14,7 @@ const TABS = [
   { id: 'feed', label: 'FEED' },
   { id: 'following', label: 'FOLLOWING' },
   { id: 'compose', label: 'POST' },
+  { id: 'direct', label: 'DIRECT' },
   { id: 'inbox', label: 'INBOX' },
   { id: 'invitations', label: 'INVS' },
   { id: 'clusters', label: 'CLUSTERS' },
@@ -40,13 +41,14 @@ export default function CommunityView() {
   const community = useCommunity();
   const {
     currentMember, feed, followingFeed, commentsByPost, memberCache, inbox, clusters, notifications, agentConfig,
-    rooms, roomState, invitations, authUid,
+    rooms, roomState, invitations, authUid, dmThreads, dmMessagesByThread,
     fetchFeed, fetchInbox, fetchClusters, fetchFollowingFeed,
     createPost, likePost, triggerAgentComment, updateAgentConfig,
-    createMember, clearNotifications,
+    createMember, updateMemberProfile, updateAvatar, clearNotifications,
     fetchComments, createComment, follow, unfollow, fetchMember,
     fetchRooms, createRoom, joinRoomHttp, endRoom,
     invite, respondInvitation, fetchInvitations, bringPlaylist,
+    openDm, fetchDmThreads, fetchDmMessages, sendDm,
   } = community;
 
   const [activeTab, setActiveTab] = useState('feed');
@@ -54,6 +56,50 @@ export default function CommunityView() {
   const [loadingFeed, setLoadingFeed] = useState(false);
   const [feedCursor, setFeedCursor] = useState(null);
   const [hasMoreFeed, setHasMoreFeed] = useState(true);
+  const [dmActiveThreadId, setDmActiveThreadId] = useState(null);
+
+  // ── Profile 编辑（改头像 / 改昵称）──
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [nicknameDraft, setNicknameDraft] = useState('');
+  const [profileBusy, setProfileBusy] = useState(false);
+  const avatarInputRef = useRef(null);
+
+  /** 选择头像文件 → 读为 dataURL → 上传（base64）。 */
+  const handleAvatarChange = useCallback(async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !currentMember) return;
+    if (file.size > 2 * 1024 * 1024) { setError('avatar_too_large'); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        setProfileBusy(true);
+        await updateAvatar({ userId: currentMember.userId, dataUrl: reader.result });
+      } catch (err) {
+        setError(err.message || 'avatar_upload_failed');
+      } finally {
+        setProfileBusy(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  }, [currentMember, updateAvatar]);
+
+  /** 保存昵称。 */
+  const handleSaveProfile = useCallback(async (e) => {
+    e.preventDefault();
+    if (!currentMember) return;
+    const nickname = nicknameDraft.trim();
+    if (!nickname) { setError('nickname_required'); return; }
+    try {
+      setProfileBusy(true);
+      await updateMemberProfile({ userId: currentMember.userId, nickname });
+      setEditingProfile(false);
+    } catch (err) {
+      setError(err.message || 'update_profile_failed');
+    } finally {
+      setProfileBusy(false);
+    }
+  }, [currentMember, nicknameDraft, updateMemberProfile]);
 
   // 首屏拉取公共数据
   useEffect(() => {
@@ -101,6 +147,12 @@ export default function CommunityView() {
     fetchFollowingFeed({ limit: 20 }).catch(e => setError(e.message));
   }, [activeTab, fetchFollowingFeed]);
 
+  // 切到 direct 时拉私信会话列表
+  useEffect(() => {
+    if (activeTab !== 'direct') return;
+    fetchDmThreads().catch(e => setError(e.message));
+  }, [activeTab, fetchDmThreads]);
+
   const handleLoadMore = useCallback(async () => {
     if (!hasMoreFeed || loadingFeed) return;
     setLoadingFeed(true);
@@ -130,13 +182,55 @@ export default function CommunityView() {
       {/* Hero 区（Suno playlist hero 风格）*/}
       <div className="community-hero">
         <div className="community-hero-cover">
-          {currentMember ? (currentMember.avatarUrl ? '◉' : '♪') : '◆'}
+          {currentMember ? (
+            <button
+              type="button"
+              className="community-avatar-edit"
+              onClick={() => avatarInputRef.current?.click()}
+              title="Change avatar"
+              aria-label="Change avatar"
+              disabled={profileBusy}
+            >
+              <PixelAvatar name={currentMember.nickname || currentMember.userId} url={currentMember.avatarUrl} large />
+              <span className="community-avatar-edit-badge">{profileBusy ? '…' : '✎'}</span>
+            </button>
+          ) : '◆'}
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={handleAvatarChange}
+          />
         </div>
         <div className="community-hero-meta">
           <div className="community-hero-label">COMMUNITY</div>
-          <div className="community-hero-title">
-            {currentMember ? `@${currentMember.nickname || currentMember.userId}` : 'Join the Wave'}
-          </div>
+          {editingProfile && currentMember ? (
+            <form className="community-nickname-edit" onSubmit={handleSaveProfile}>
+              <input
+                className="community-composer-input"
+                value={nicknameDraft}
+                onChange={e => setNicknameDraft(e.target.value)}
+                aria-label="nickname"
+                maxLength={32}
+                autoFocus
+              />
+              <button className="community-btn" type="submit" disabled={profileBusy}>SAVE</button>
+            </form>
+          ) : (
+            <div className="community-hero-title">
+              {currentMember ? `@${currentMember.nickname || currentMember.userId}` : 'Join the Wave'}
+              {currentMember && (
+                <button
+                  type="button"
+                  className="community-avatar-edit-btn"
+                  onClick={() => { setNicknameDraft(currentMember.nickname || ''); setEditingProfile(true); }}
+                  title="Edit nickname"
+                  aria-label="Edit nickname"
+                >✎</button>
+              )}
+            </div>
+          )}
           <div className="community-hero-stats">
             <span className="community-hero-stat">
               <span className="community-hero-stat-value">{feed.length}</span> posts
@@ -199,6 +293,7 @@ export default function CommunityView() {
           onLike={likePost}
           onTriggerAgentComment={triggerAgentComment}
           onInvite={invite}
+          onOpenDm={openDm}
           onError={setError}
           commentsByPost={commentsByPost}
           onFetchComments={fetchComments}
@@ -220,6 +315,7 @@ export default function CommunityView() {
           onLike={likePost}
           onTriggerAgentComment={triggerAgentComment}
           onInvite={invite}
+          onOpenDm={openDm}
           onError={setError}
           commentsByPost={commentsByPost}
           onFetchComments={fetchComments}
@@ -287,6 +383,22 @@ export default function CommunityView() {
           onError={setError}
         />
       )}
+
+      {activeTab === 'direct' && (
+        <DirectTab
+          threads={dmThreads}
+          messagesByThread={dmMessagesByThread}
+          currentMember={currentMember}
+          activeThreadId={dmActiveThreadId}
+          onSelectThread={(id) => {
+            setDmActiveThreadId(id);
+            if (id) fetchDmMessages(id).catch(e => setError(e.message));
+          }}
+          onOpen={openDm}
+          onSend={sendDm}
+          onError={setError}
+        />
+      )}
     </div>
   );
 }
@@ -339,7 +451,7 @@ function JoinHero({ onCreate, onError, authUid }) {
 }
 
 // ── Feed Tab — 卡片网格（Suno trending grid 风格）─────────
-function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike, onTriggerAgentComment, onInvite, onError, commentsByPost, onFetchComments, onCreateComment, onFollow, onUnfollow, memberCache, onFetchMember, emptyHint }) {
+function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike, onTriggerAgentComment, onInvite, onOpenDm, onError, commentsByPost, onFetchComments, onCreateComment, onFollow, onUnfollow, memberCache, onFetchMember, emptyHint }) {
   if (!feed || feed.length === 0) {
     return (
       <div className="community-empty">
@@ -359,6 +471,7 @@ function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike
             onLike={onLike}
             onTriggerAgentComment={onTriggerAgentComment}
             onInvite={onInvite}
+            onOpenDm={onOpenDm}
             onError={onError}
             comments={commentsByPost?.[post.id]}
             onFetchComments={onFetchComments}
@@ -383,10 +496,11 @@ function FeedTab({ feed, currentMember, hasMore, loadingMore, onLoadMore, onLike
 }
 
 // ── 帖子卡片（Suno song card 风格：封面 + 浮层 + hover 播放）───
-function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onInvite, onError, comments, onFetchComments, onCreateComment, onFollow, onUnfollow, memberCache, onFetchMember }) {
+function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onInvite, onOpenDm, onError, comments, onFetchComments, onCreateComment, onFollow, onUnfollow, memberCache, onFetchMember }) {
   const [liking, setLiking] = useState(false);
   const [agentPending, setAgentPending] = useState(false);
   const [invitePending, setInvitePending] = useState(false);
+  const [dmPending, setDmPending] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [commenting, setCommenting] = useState(false);
@@ -473,6 +587,20 @@ function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onInvite
     }
   }, [post, currentMember, onInvite, onError]);
 
+  const handleDm = useCallback(async (agent) => {
+    if (!currentMember) { onError('join_community_first'); return; }
+    const targetUserId = post.userId;
+    if (targetUserId === currentMember.userId) { onError('cannot_dm_self'); return; }
+    setDmPending(true);
+    try {
+      await onOpenDm(targetUserId, agent);
+    } catch (err) {
+      onError(err.message || 'open_dm_failed');
+    } finally {
+      setDmPending(false);
+    }
+  }, [post, currentMember, onOpenDm, onError]);
+
   const tags = useMemo(() => {
     if (!post.auto_tags) return [];
     const raw = typeof post.auto_tags === 'string' ? post.auto_tags.split(',') : post.auto_tags;
@@ -490,7 +618,11 @@ function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onInvite
     <article className="community-card">
       {/* 封面区 */}
       <div className="community-card-cover">
-        <div className="community-card-cover-text">{coverText}</div>
+        {post.cover ? (
+          <img className="community-card-cover-img" src={post.cover} alt="" loading="lazy" />
+        ) : (
+          <div className="community-card-cover-text">{coverText}</div>
+        )}
 
         {/* 右上角点赞数徽章（Suno 播放量浮层）*/}
         <div className="community-card-badge" title="likes">
@@ -515,9 +647,7 @@ function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onInvite
       <div className="community-card-body">
         <div className="community-card-title">{post.content}</div>
         <div className="community-card-author">
-          <span className="community-card-author-avatar">
-            {(post.nickname || post.userId || '?').charAt(0).toUpperCase()}
-          </span>
+          <PixelAvatar name={post.nickname || post.userId} url={post.avatarUrl} />
           <span>@{post.nickname || post.userId}</span>
           {post.is_agent && (
             <span className="community-card-agent-tag" title={`agent of @${post.agent_author_user_id}`}>AGENT</span>
@@ -566,6 +696,22 @@ function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onInvite
                 title="Invite TA's agent into my feed (F9)"
                 style={{ padding: '4px 8px', fontSize: 7 }}
               >{invitePending ? 'INV...' : 'INVITE AGENT'}</button>
+              <button
+                type="button"
+                className="community-btn"
+                onClick={() => handleDm(false)}
+                disabled={dmPending || post.userId === currentMember.userId}
+                title="Private message @author"
+                style={{ padding: '4px 8px', fontSize: 7 }}
+              >{dmPending ? '...' : 'DM'}</button>
+              <button
+                type="button"
+                className="community-btn"
+                onClick={() => handleDm(true)}
+                disabled={dmPending || post.userId === currentMember.userId}
+                title="Private message @author's agent"
+                style={{ padding: '4px 8px', fontSize: 7 }}
+              >{dmPending ? '...' : 'DM AGENT'}</button>
             </>
           )}
         </div>
@@ -594,9 +740,7 @@ function CommentThread({ comments, commentText, commenting, canComment, onCommen
       ) : (
         comments.map(c => (
           <div key={c.id} className="community-comment-item">
-            <span className="community-comment-avatar">
-              {(c.nickname || c.userId || '?').charAt(0).toUpperCase()}
-            </span>
+            <PixelAvatar name={c.nickname || c.userId} url={c.avatarUrl} />
             <div className="community-comment-body">
               <div className="community-comment-author">
                 @{c.nickname || c.userId}
@@ -1274,5 +1418,193 @@ function InvitationsTab({ invitations, currentMember, onRespond, onBringPlaylist
         </div>
       )}
     </>
+  );
+}
+
+// ── 像素风头像（真实头像缺省时用 name 派生的像素占位）──────────
+function PixelAvatar({ name, url, large = false }) {
+  const key = String(name || '?');
+  const seed = [...key].reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) % 997, 7);
+  const hue = seed % 360;
+  const bg = `hsl(${hue}, 60%, 24%)`;
+  const fg = `hsl(${hue}, 95%, 72%)`;
+  const initial = (key.trim()[0] || '?').toUpperCase();
+  const cls = `community-pixel-avatar${large ? ' large' : ''}`;
+
+  if (url) {
+    return <img className={cls} src={url} alt={key} title={key} />;
+  }
+  return (
+    <span className={cls} style={{ background: bg, color: fg }} title={key} aria-label={key}>
+      {initial}
+    </span>
+  );
+}
+
+// ── DIRECT tab — 私信 / agent 私信（会话列表 + 消息视图 + 发送）──
+function DirectTab({ threads, messagesByThread, currentMember, activeThreadId, onSelectThread, onOpen, onSend, onError }) {
+  const [targetId, setTargetId] = useState('');
+  const [opening, setOpening] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  const activeThread = threads?.find(t => t.id === activeThreadId);
+  const messages = messagesByThread?.[activeThreadId] || [];
+
+  // 切换会话 / 新消息时滚动到最新
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [activeThreadId, messages.length]);
+
+  if (!currentMember) {
+    return (
+      <div className="community-empty">
+        <div className="community-empty-icon">✉</div>
+        <div>Join community to send direct messages.</div>
+      </div>
+    );
+  }
+
+  const handleOpen = async (e, agent) => {
+    e.preventDefault();
+    if (!targetId.trim()) return;
+    setOpening(true);
+    try {
+      const thread = await onOpen(targetId.trim(), !!agent);
+      setTargetId('');
+      onSelectThread(thread.id);
+    } catch (err) {
+      onError(err.message || 'open_dm_failed');
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  const handleSend = async (e) => {
+    e.preventDefault();
+    if (!draft.trim() || sending) return;
+    setSending(true);
+    try {
+      await onSend(activeThreadId, draft.trim());
+      setDraft('');
+    } catch (err) {
+      onError(err.message || 'send_dm_failed');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="community-dm">
+      {/* 左侧：会话列表 + 新会话入口 */}
+      <div className="community-dm-sidebar">
+        <div className="community-dm-heading">DIRECT</div>
+        <form
+          className="community-dm-open"
+          onSubmit={(e) => handleOpen(e, false)}
+        >
+          <input
+            className="community-composer-input"
+            type="text"
+            placeholder="open DM by user id"
+            value={targetId}
+            onChange={e => setTargetId(e.target.value)}
+            aria-label="target user id"
+          />
+          <div className="community-dm-open-buttons">
+            <button
+              type="submit"
+              className="community-btn community-btn-primary"
+              disabled={opening || !targetId.trim()}
+              style={{ padding: '4px 8px', fontSize: 7 }}
+            >{opening ? '...' : 'DM'}</button>
+            <button
+              type="button"
+              className="community-btn"
+              disabled={opening || !targetId.trim()}
+              onClick={(e) => handleOpen(e, true)}
+              title="Open a DM with TA's agent"
+              style={{ padding: '4px 8px', fontSize: 7 }}
+            >DM AGENT</button>
+          </div>
+        </form>
+        <div className="community-dm-threads">
+          {!threads || threads.length === 0 ? (
+            <div className="community-dm-empty">No conversations yet</div>
+          ) : (
+            threads.map(t => (
+              <button
+                key={t.id}
+                type="button"
+                className={`community-dm-thread${activeThreadId === t.id ? ' active' : ''}`}
+                onClick={() => onSelectThread(t.id)}
+              >
+                <PixelAvatar name={t.peer?.nickname || t.peer?.userId} url={t.peer?.avatarUrl} />
+                <div className="community-dm-thread-body">
+                  <div className="community-dm-thread-name">
+                    @{t.peer?.nickname || t.peer?.userId}
+                    {t.peer?.isAgent && <span className="community-card-agent-tag">AGENT</span>}
+                  </div>
+                  <div className="community-dm-thread-last">{t.lastMessage || ''}</div>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* 右侧：消息视图 */}
+      <div className="community-dm-main">
+        {!activeThread ? (
+          <div className="community-empty">
+            <div className="community-empty-icon">✉</div>
+            <div>Select or open a conversation</div>
+          </div>
+        ) : (
+          <>
+            <div className="community-dm-header">
+              @{activeThread.peer?.nickname || activeThread.peer?.userId}
+              {activeThread.peer?.isAgent && <span className="community-card-agent-tag">AGENT</span>}
+            </div>
+            <div className="community-dm-messages">
+              {messages.length === 0 ? (
+                <div className="community-dm-empty">Say hi to start the conversation.</div>
+              ) : (
+                messages.map(m => {
+                  const mine = m.senderUserId === currentMember.userId;
+                  return (
+                    <div key={m.id} className={`community-dm-msg${mine ? ' mine' : ''}`}>
+                      <div className="community-dm-msg-meta">
+                        <PixelAvatar name={m.nickname || m.senderUserId} url={m.avatarUrl} />
+                        <span>@{m.nickname || m.senderUserId}</span>
+                        {m.isAgent && <span className="community-card-agent-tag">AGENT</span>}
+                      </div>
+                      <div className="community-dm-msg-bubble">{m.content}</div>
+                    </div>
+                  );
+                })
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+            <form className="community-dm-compose" onSubmit={handleSend}>
+              <input
+                className="community-composer-input"
+                type="text"
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                placeholder="Type a message..."
+                aria-label="message"
+              />
+              <button
+                type="submit"
+                className="community-btn community-btn-primary"
+                disabled={sending || !draft.trim()}
+              >{sending ? '...' : 'SEND'}</button>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
   );
 }

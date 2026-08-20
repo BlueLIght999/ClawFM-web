@@ -9,11 +9,28 @@
  */
 import express from 'express';
 
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024; // 2MB（解码后）
+
 function ok(res, data, status = 200) {
   return res.status(status).json({ ok: true, data });
 }
 function fail(res, error, status = 400) {
   return res.status(status).json({ ok: false, error });
+}
+
+/** 校验并解码 base64 图片数据，返回 Buffer；超限/非法返回 null。 */
+function decodeImageData(data) {
+  if (!data || typeof data !== 'string') return null;
+  const body = data.includes(',') ? data.split(',')[1] : data;
+  const cleaned = body.replace(/\s/g, '');
+  if (!cleaned || cleaned.length % 4 !== 0) return null;
+  try {
+    const buf = Buffer.from(cleaned, 'base64');
+    if (buf.length === 0 || buf.length > AVATAR_MAX_BYTES) return null;
+    return buf;
+  } catch {
+    return null;
+  }
 }
 
 /** 校验当前网易云登录态，挂 req.communityUserId。未登录返回 401。 */
@@ -41,9 +58,10 @@ function assertSelf(req, res, claimedUserId) {
  */
 export function createCommunityRouter(services) {
   const { communityService, memberProfileService, communityRepository, cookieCipherPort,
-          clusterService, memberAgentService, distributionService, authRepository } = services;
+          clusterService, memberAgentService, distributionService, authRepository, dmService } = services;
   const router = express.Router();
-  router.use(express.json());
+  // 加大 body 限制以支持头像 base64 上传
+  router.use(express.json({ limit: '5mb' }));
   router.use(requireCommunityAuth(authRepository));
 
   // ── 成员 ────────────────────────────────────────────────
@@ -70,6 +88,42 @@ export function createCommunityRouter(services) {
     const cookieEncrypted = cookieCipherPort.encrypt(cookie);
     communityRepository.upsertMemberAuth({ userId, neteaseUid, cookieEncrypted });
     return ok(res, { userId, neteaseUid });
+  });
+
+  // 更新成员资料（昵称 / 头像 URL）
+  router.put('/members/:userId/profile', (req, res) => {
+    const { userId } = req.params;
+    if (!assertSelf(req, res, userId)) return;
+    const { nickname, avatarUrl } = req.body || {};
+    if (nickname !== undefined && (typeof nickname !== 'string' || nickname.trim().length > 32)) {
+      return fail(res, 'nickname_invalid');
+    }
+    const member = communityRepository.updateMemberProfile(userId, {
+      nickname: nickname !== undefined ? nickname.trim() : undefined,
+      avatarUrl: typeof avatarUrl === 'string' ? avatarUrl : undefined,
+    });
+    if (!member) return fail(res, 'not_found', 404);
+    return ok(res, member);
+  });
+
+  // 上传并保存头像（base64 JSON body：{ data, mimeType }）
+  router.post('/members/:userId/avatar', (req, res) => {
+    const { userId } = req.params;
+    if (!assertSelf(req, res, userId)) return;
+    const { data, mimeType } = req.body || {};
+    const buf = decodeImageData(data);
+    if (!buf) return fail(res, 'avatar_invalid_or_too_large');
+    const member = communityRepository.saveAvatar(userId, buf, typeof mimeType === 'string' ? mimeType : 'image/png');
+    if (!member) return fail(res, 'not_found', 404);
+    return ok(res, member, 201);
+  });
+
+  // 取上传的头像图片（<img src> 直连；未上传返回 404 -> 前端回落派生占位）
+  router.get('/members/:userId/avatar', (req, res) => {
+    const row = communityRepository.getAvatarBinary(req.params.userId);
+    if (!row || !row.avatar_binary) return fail(res, 'avatar_missing', 404);
+    res.set('Content-Type', row.avatar_mime || 'image/png');
+    return res.send(Buffer.from(row.avatar_binary));
   });
 
   // ── 画像（P-B）──────────────────────────────────────────
@@ -316,6 +370,66 @@ export function createCommunityRouter(services) {
         return ok(res, r);
       } catch {
         return fail(res, 'bring_playlist_failed', 500);
+      }
+    });
+  }
+
+  // ── 私信 / agent 私信（DM）─────────────────────────────────
+  if (dmService) {
+    // 补全与会话/消息展示相关的成员资料（昵称/头像），仅读公开字段
+    const withPeer = (thread) => {
+      if (!thread || !thread.peer) return thread;
+      const m = thread.peer.userId ? communityRepository.getMember(thread.peer.userId) : null;
+      return {
+        ...thread,
+        peer: {
+          ...thread.peer,
+          nickname: m?.nickname || '',
+          avatarUrl: m?.avatarUrl || '',
+        },
+      };
+    };
+    const withMsgAuthors = (messages) => (messages || []).map((msg) => {
+      const m = msg.senderUserId ? communityRepository.getMember(msg.senderUserId) : null;
+      return {
+        ...msg,
+        nickname: m?.nickname || '',
+        avatarUrl: m?.avatarUrl || '',
+      };
+    });
+
+    // POST /dm/open { otherUserId, agent? } — 开启/复用会话（agent=true 与对端 agent 私信）
+    router.post('/dm/open', (req, res) => {
+      const { otherUserId, agent } = req.body || {};
+      if (!otherUserId) return fail(res, 'user_id_required');
+      const r = dmService.openThread({ userId: req.communityUserId, otherUserId, agent: !!agent });
+      if (!r.ok) return fail(res, r.error, r.error === 'other_member_not_found' ? 404 : 400);
+      return ok(res, withPeer(r.thread), 201);
+    });
+
+    // GET /dm/threads — 我的会话列表
+    router.get('/dm/threads', (_req, res) => {
+      const threads = dmService.listThreads(req.communityUserId).map(withPeer);
+      return ok(res, threads);
+    });
+
+    // GET /dm/:threadId/messages — 拉某会话消息
+    router.get('/dm/:threadId/messages', (req, res) => {
+      const r = dmService.listMessages(req.communityUserId, Number(req.params.threadId));
+      if (!r.ok) return fail(res, r.error, r.error === 'thread_not_accessible' ? 403 : 400);
+      return ok(res, { thread: withPeer(r.thread), messages: withMsgAuthors(r.messages) });
+    });
+
+    // POST /dm/:threadId/messages { content } — 发送消息（agent 会话自动生成 agent 回复）
+    router.post('/dm/:threadId/messages', async (req, res) => {
+      const { content } = req.body || {};
+      try {
+        const r = await dmService.sendMessage({ userId: req.communityUserId, threadId: Number(req.params.threadId), content });
+        if (!r.ok) return fail(res, r.error, r.error === 'thread_not_accessible' ? 403 : 400);
+        const data = { message: withMsgAuthors([r.message])[0], agentReply: r.agentReply ? withMsgAuthors([r.agentReply])[0] : null };
+        return ok(res, data, 201);
+      } catch {
+        return fail(res, 'dm_send_failed', 500);
       }
     });
   }

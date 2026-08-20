@@ -38,6 +38,10 @@ const DEFAULT_COMMUNITY_STATE = {
   roomState: null, // { roomId, isPlaying, currentSong, playlists, ... }
   // 我相关的邀请列表（F9）
   invitations: [],
+  // 私信会话列表（DM / agent DM）：{ id, peer:{userId,nickname,avatarUrl,isAgent}, lastMessage, ... }
+  dmThreads: [],
+  // 私信会话消息缓存：{ [threadId]: message[] }（按需拉取）
+  dmMessagesByThread: {},
 };
 
 /**
@@ -88,6 +92,38 @@ export function CommunityProvider({ socket, children }) {
     identify(userId);
     return member;
   }, [identify, updateState]);
+
+  // ── 头像 / 资料更新 ────────────────────────────────────────
+  /** 更新昵称（与/或头像 URL）。成功后刷新 currentMember + localStorage。 */
+  const updateMemberProfile = useCallback(async ({ userId, nickname, avatarUrl }) => {
+    const res = await fetch(`/api/community/members/${encodeURIComponent(userId)}/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nickname, avatarUrl }),
+    });
+    if (!res.ok) throw new Error('update_profile_failed');
+    const member = (await res.json()).data;
+    try { localStorage.setItem('community:member', JSON.stringify(member)); } catch { /* ignore */ }
+    updateState({ currentMember: member });
+    return member;
+  }, [updateState]);
+
+  /** 上传头像（base64）。POST→服务端存 BLOB，成功后头像 URL 指向取图路由。 */
+  const updateAvatar = useCallback(async ({ userId, dataUrl }) => {
+    const [head, data] = String(dataUrl || '').split(',');
+    if (!data) throw new Error('avatar_data_missing');
+    const mimeType = /^data:(.*?);/.exec(head)?.[1] || 'image/png';
+    const res = await fetch(`/api/community/members/${encodeURIComponent(userId)}/avatar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data, mimeType }),
+    });
+    if (!res.ok) throw new Error('avatar_upload_failed');
+    const member = (await res.json()).data;
+    try { localStorage.setItem('community:member', JSON.stringify(member)); } catch { /* ignore */ }
+    updateState({ currentMember: member });
+    return member;
+  }, [updateState]);
 
   // 刷新恢复：从 localStorage 读 currentMember，自动 re-identify（修复 B-C7）
   useEffect(() => {
@@ -527,6 +563,87 @@ export function CommunityProvider({ socket, children }) {
     setState(prev => ({ ...prev, roomState: payload }));
   }, []);
 
+  // ── 私信 DM / agent DM HTTP 方法 ─────────────────────────
+  /** 开启/复用与某人的会话（agent=true 与对端 agent 私信）。返回 thread（含 peer 昵称/头像）。 */
+  const openDm = useCallback(async (otherUserId, agent = false) => {
+    const res = await fetch('/api/community/dm/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ otherUserId, agent }),
+    });
+    if (!res.ok) throw new Error('open_dm_failed');
+    const thread = (await res.json()).data;
+    setState(prev => ({
+      ...prev,
+      dmThreads: prev.dmThreads.some(t => t.id === thread.id)
+        ? prev.dmThreads.map(t => t.id === thread.id ? thread : t)
+        : [thread, ...prev.dmThreads],
+    }));
+    return thread;
+  }, []);
+
+  /** 拉我的会话列表 */
+  const fetchDmThreads = useCallback(async () => {
+    const res = await fetch('/api/community/dm/threads');
+    if (!res.ok) throw new Error('fetch_dm_threads_failed');
+    const threads = (await res.json()).data;
+    updateState({ dmThreads: threads });
+    return threads;
+  }, [updateState]);
+
+  /** 拉某会话消息，缓存到 dmMessagesByThread */
+  const fetchDmMessages = useCallback(async (threadId) => {
+    const res = await fetch(`/api/community/dm/${threadId}/messages`);
+    if (!res.ok) throw new Error('fetch_dm_messages_failed');
+    const { messages } = (await res.json()).data;
+    setState(prev => ({ ...prev, dmMessagesByThread: { ...prev.dmMessagesByThread, [threadId]: messages } }));
+    return messages;
+  }, []);
+
+  /** 发送消息。agent 会话后端会同步返回 agentReply。 */
+  const sendDm = useCallback(async (threadId, content) => {
+    const res = await fetch(`/api/community/dm/${threadId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) throw new Error('send_dm_failed');
+    const data = (await res.json()).data;
+    const { message, agentReply } = data;
+    const append = (id, msgs) => [...(msgs || []), ...(msgs && msgs.some(m => m.id === message.id) ? [] : [message]), ...(agentReply && (msgs || []).every(m => m.id !== agentReply.id) ? [agentReply] : [])];
+    setState(prev => ({
+      ...prev,
+      dmMessagesByThread: { ...prev.dmMessagesByThread, [threadId]: append(threadId, prev.dmMessagesByThread[threadId]) },
+      dmThreads: prev.dmThreads.map(t => t.id === threadId
+        ? { ...t, lastMessage: agentReply ? agentReply.content : message.content, lastSenderUserId: message.senderUserId, lastMessageAt: Date.now() }
+        : t),
+    }));
+    return data;
+  }, []);
+
+  /** 收到新私信/agent 私信（community:dm-new，定向）。缓存消息 + 刷新会话列表。 */
+  const onDmNew = useCallback(({ threadId, message }) => {
+    const numThreadId = Number(threadId);
+    setState(prev => {
+      // 消息去重后追加
+      let dmMessagesByThread = prev.dmMessagesByThread;
+      if (prev.dmMessagesByThread[numThreadId] != null) {
+        const existing = prev.dmMessagesByThread[numThreadId];
+        if (!existing.some(m => m.id === message?.id)) {
+          dmMessagesByThread = { ...prev.dmMessagesByThread, [numThreadId]: [...existing, message] };
+        }
+      }
+      // 有会话则更新 lastMessage，并置顶；无则触发一次线程刷新（后续也可手动拉）
+      const hasThread = prev.dmThreads.some(t => t.id === numThreadId);
+      const dmThreads = hasThread
+        ? prev.dmThreads.map(t => t.id === numThreadId
+            ? { ...t, lastMessage: message?.content ?? t.lastMessage, lastMessageAt: Date.now() }
+            : t)
+        : prev.dmThreads;
+      return { ...prev, dmMessagesByThread, dmThreads };
+    });
+  }, []);
+
   /** 清空通知 */
   const clearNotifications = useCallback(() => {
     updateState({ notifications: [] });
@@ -538,7 +655,7 @@ export function CommunityProvider({ socket, children }) {
     // socket emit
     identify, joinRoom, leaveRoom, roomSkip,
     // http
-    createMember, refreshProfile, createPost, fetchFeed, likePost,
+    createMember, updateMemberProfile, updateAvatar, refreshProfile, createPost, fetchFeed, likePost,
     fetchInbox, fetchClusters, triggerAgentComment, updateAgentConfig,
     // F9 invitation http
     invite, respondInvitation, fetchInvitations, bringPlaylist,
@@ -547,6 +664,8 @@ export function CommunityProvider({ socket, children }) {
     fetchMember, fetchUserPosts, fetchFollowingFeed, fetchFollowers, fetchFollowing,
     // F5 room http
     fetchRooms, createRoom, joinRoomHttp, endRoom,
+    // DM http + handler
+    openDm, fetchDmThreads, fetchDmMessages, sendDm, onDmNew,
     // socket event handlers
     onPostNew, onAgentComment, onPush, onClusterUpdated, onInvitation,
     onCommentNew, onFollow, onRoomState,

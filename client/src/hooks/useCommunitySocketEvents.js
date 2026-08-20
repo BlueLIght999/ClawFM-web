@@ -19,7 +19,7 @@ import { useCommunity } from '../contexts/CommunityContext.jsx';
 export function useCommunitySocketEvents(socket) {
   const {
     onPostNew, onAgentComment, onPush, onClusterUpdated, onInvitation,
-    onCommentNew, onFollow, onRoomState,
+    onCommentNew, onFollow, onRoomState, onDmNew,
   } = useCommunity();
 
   useEffect(() => {
@@ -32,6 +32,7 @@ export function useCommunitySocketEvents(socket) {
     socket.on(E.COMMUNITY_PUSH, onPush);
     socket.on(E.COMMUNITY_CLUSTER_UPDATED, onClusterUpdated);
     socket.on(E.COMMUNITY_INVITATION, onInvitation);
+    socket.on(E.COMMUNITY_DM_NEW, onDmNew);
     socket.on(E.ROOM_STATE, onRoomState);
 
     return () => {
@@ -42,7 +43,8 @@ export function useCommunitySocketEvents(socket) {
       socket.off(E.COMMUNITY_PUSH);
       socket.off(E.COMMUNITY_CLUSTER_UPDATED);
       socket.off(E.COMMUNITY_INVITATION);
+      socket.off(E.COMMUNITY_DM_NEW);
       socket.off(E.ROOM_STATE);
     };
-  }, [socket, onPostNew, onAgentComment, onCommentNew, onFollow, onPush, onClusterUpdated, onInvitation, onRoomState]);
+  }, [socket, onPostNew, onAgentComment, onCommentNew, onFollow, onPush, onClusterUpdated, onInvitation, onRoomState, onDmNew]);
 }

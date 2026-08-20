@@ -28,6 +28,9 @@
  * @typedef {object} CommunityRepository
  * @property {(m: {userId:string, nickname:string, avatarUrl:string}) => CommunityMember|null} createMember
  * @property {(userId: string) => CommunityMember|null} getMember
+ * @property {(userId: string, {nickname:string, avatarUrl:string}) => CommunityMember|null} updateMemberProfile — 更新昵称/头像 URL
+ * @property {(userId: string, binary: Uint8Array, mimeType: string) => CommunityMember|null} saveAvatar — 存上传头像二进制，并把 avatarUrl 指向取图路由
+ * @property {(userId: string) => {avatar_binary: Uint8Array|null, avatar_mime: string|null}|null} getAvatarBinary — 取上传头像二进制与 MIME
  * @property {(userId: string) => void} touchMemberActive
  * @property {(userId: string, clusterId: number) => void} setMemberCluster
  * @property {(userId: string, selfTags: string[]) => void} setMemberSelfTags
@@ -72,6 +75,15 @@
  * @property {(userId: string) => CommunityMember[]} listFollowing — 此用户 follow 了谁
  * @property {(userId: string, opts: {limit:number, cursor:number|null}) => CommunityPost[]} listPostsByUser — 用户主页 timeline（仅顶层帖）
  * @property {(userId: string, opts: {limit:number, cursor:number|null}) => CommunityPost[]} listFeedFromFollowing — 关注流（关注者的顶层帖）
+ *
+ * ── 私信 / agent 私信（DM） ──
+ * @property {(t: {userA:string, userB:string, agentAuthorUserId:string|null}) => object} getOrCreateDmThread — 规范序唯一键 upsert
+ * @property {(id: number) => object|null} getDmThread
+ * @property {(userId: string) => Array} listDmThreads — 我的会话 + lastMessage/unread
+ * @property {(threadId: number, limit?: number) => Array} listDmMessages
+ * @property {(m: {threadId:number, senderUserId:string, isAgent:boolean, content:string}) => number} createDmMessage
+ * @property {(id: number) => object|null} getDmMessage
+ * @property {(threadId: number) => void} touchDmThreadLastMessage
  */
 
 export {};
