@@ -215,7 +215,10 @@ export async function getUserPlaylists(uid) {
 }
 
 export async function getPlaylistTracks(id) {
-  const res = await callApi('/playlist/track/all', { id });
+  // 用 /playlist/detail 替代 /playlist/track/all：
+  // detail 官方最多返回 1000 首、响应体更轻、聚合更快，显著降低 GET 超时（track/all 全量返回大歌单易卡 10s 超时）。
+  // 返回的 playlist.tracks 解析由 songsFromPlaylistResult 兼容。
+  const res = await callApi('/playlist/detail', { id });
   return res;
 }
 
