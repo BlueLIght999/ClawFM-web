@@ -68,9 +68,12 @@ export default function DJSchedule({ plan, onRefresh, activeBlockIndex, socket }
     <div className="pixel-border" style={{
       background: 'var(--bg-secondary)', margin: '0 0 8px 0',
     }}>
-      {/* Header — clickable toggle */}
-      <button
+      {/* Header — clickable toggle (div role=button to avoid nesting a <button> inside <button>) */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setExpanded(prev => !prev)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(prev => !prev); } }}
         style={{
           width: '100%', display: 'flex', alignItems: 'center', gap: 8,
           padding: '8px 16px', border: 'none', cursor: 'pointer',
@@ -111,7 +114,7 @@ export default function DJSchedule({ plan, onRefresh, activeBlockIndex, socket }
             style={{ fontSize: 9, padding: '3px 8px', fontFamily: 'var(--font-pixel)' }}
           >{'REFRESH'}</button>
         )}
-      </button>
+      </div>
 
       {/* Collapsed body */}
       {expanded && (
