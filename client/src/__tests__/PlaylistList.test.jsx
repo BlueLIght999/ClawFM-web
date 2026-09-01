@@ -2,6 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import PlaylistList from '../components/PlaylistList.jsx';
 
+/** Helper: build a realistic fetch Response-like object. */
+function mockResponse(body, { status = 200 } = {}) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: () => Promise.resolve(body),
+  };
+}
+
 describe('PlaylistList', () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -12,9 +21,9 @@ describe('PlaylistList', () => {
   }));
 
   it('rendersSidebarVariantExpanded_withRealPlaylistData', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ playlists: [{ id: 'p1', name: 'MIDNIGHT FLIGHT', trackCount: 12 }] }),
-    }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      mockResponse({ playlists: [{ id: 'p1', name: 'MIDNIGHT FLIGHT', trackCount: 12 }] }),
+    ));
 
     render(<PlaylistList variant="sidebar" defaultExpanded />);
 
@@ -26,8 +35,8 @@ describe('PlaylistList', () => {
   it('playsPlaylist_throughExistingEndpoint', async () => {
     const onPlay = vi.fn();
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ playlists: [{ id: 'p1', name: 'P1', trackCount: 1 }] }) })
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ ok: true }) });
+      .mockResolvedValueOnce(mockResponse({ playlists: [{ id: 'p1', name: 'P1', trackCount: 1 }] }))
+      .mockResolvedValueOnce(mockResponse({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
     render(<PlaylistList variant="sidebar" defaultExpanded onPlay={onPlay} />);
 
@@ -38,9 +47,9 @@ describe('PlaylistList', () => {
   });
 
   it('limitsSidebarToFivePlaylists_untilMoreIsRequested', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ playlists: createPlaylists(7) }),
-    }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      mockResponse({ playlists: createPlaylists(7) }),
+    ));
 
     render(<PlaylistList variant="sidebar" />);
 
@@ -58,13 +67,24 @@ describe('PlaylistList', () => {
   });
 
   it('keepsAllPlaylistsInExpandedCollapsibleMode', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ playlists: createPlaylists(7) }),
-    }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      mockResponse({ playlists: createPlaylists(7) }),
+    ));
 
     render(<PlaylistList defaultExpanded />);
 
     expect(await screen.findByText('PLAYLIST 7')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Show all playlists' })).not.toBeInTheDocument();
+  });
+
+  it('showsLoginRequiredMessage_whenApiReturns401', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      mockResponse({ playlists: [], loginRequired: true, error: 'Login expired' }, { status: 401 }),
+    ));
+
+    render(<PlaylistList variant="sidebar" />);
+
+    expect(await screen.findByText(/LOGIN REQUIRED/i)).toBeInTheDocument();
+    expect(screen.queryByText('NO PLAYLISTS FOUND')).not.toBeInTheDocument();
   });
 });

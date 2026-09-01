@@ -84,6 +84,11 @@ export function registerHttpRoutes(app, services) {
       }));
       res.json({ playlists });
     } catch (e) {
+      // RC4b: distinguish login-expired from other errors so frontend can prompt re-auth
+      const isLoginExpired = /login expired|please re-login/i.test(e.message);
+      if (isLoginExpired) {
+        return res.status(401).json({ playlists: [], loginRequired: true, error: e.message });
+      }
       res.json({ playlists: [], error: e.message });
     }
   });

@@ -30,6 +30,12 @@ export function computeTopGenres(genreCount) {
     .map(([name]) => name);
 }
 
+/** Detect login-expired errors that should abort the build and notify the user. */
+function isLoginExpiredError(e) {
+  const msg = (e?.message || '').toLowerCase();
+  return msg.includes('login expired') || msg.includes('please re-login');
+}
+
 export class SeedPoolBuilder {
   constructor({ music = null, seedPoolRepo = null, profile = null, corpus = null } = {}) {
     this.music = music;
@@ -71,7 +77,7 @@ export class SeedPoolBuilder {
           this._addSeedSong(track, songs, artistCount, genreCount, `playlist:${pl.name}`);
         }
       } catch (e) {
-        // P1: log error instead of silently swallowing — aids diagnosing empty seed pool
+        if (isLoginExpiredError(e)) throw e;
         console.warn(`[SeedPoolBuilder] Failed to fetch playlist "${pl?.name}" (${pl?.id}):`, e.message);
       }
     }
@@ -89,7 +95,7 @@ export class SeedPoolBuilder {
         }
       }
     } catch (e) {
-      // P1: log error instead of silently swallowing
+      if (isLoginExpiredError(e)) throw e;
       console.warn('[SeedPoolBuilder] Failed to fetch liked songs:', e.message);
     }
   }

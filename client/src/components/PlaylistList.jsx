@@ -14,6 +14,7 @@ export default function PlaylistList({
   const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [loginRequired, setLoginRequired] = useState(false);
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [showAllSidebar, setShowAllSidebar] = useState(false);
   const [playingId, setPlayingId] = useState(null);
@@ -23,13 +24,22 @@ export default function PlaylistList({
   const sidebarPlaylists = showAllSidebar
     ? playlists
     : playlists.slice(0, SIDEBAR_PLAYLIST_LIMIT);
-  const canToggleSidebar = !loading && !error && playlists.length > SIDEBAR_PLAYLIST_LIMIT;
+  const canToggleSidebar = !loading && !error && !loginRequired && playlists.length > SIDEBAR_PLAYLIST_LIMIT;
 
   const fetchPlaylists = useCallback(() => {
     setLoading(true);
     setError(null);
+    setLoginRequired(false);
     fetch('/api/playlists')
-      .then(response => response.json())
+      .then(response => {
+        // RC4c: detect 401 login-expired and show prompt instead of empty state
+        if (response.status === 401) {
+          setLoginRequired(true);
+          setPlaylists([]);
+          return { playlists: [] };
+        }
+        return response.json();
+      })
       .then(data => setPlaylists(data.playlists || []))
       .catch(requestError => setError(requestError.message))
       .finally(() => setLoading(false));
@@ -67,7 +77,7 @@ export default function PlaylistList({
           <h2 className="radio-sidebar-title" id="playlist-title">PLAYLISTS</h2>
           <span className="radio-sidebar-count">{playlists.length}</span>
         </div>
-        <PlaylistContent playlists={sidebarPlaylists} loading={loading} error={error} onPlay={handlePlay} playingId={playingId} playPendingId={playPendingId} />
+        <PlaylistContent playlists={sidebarPlaylists} loading={loading} error={error} loginRequired={loginRequired} onPlay={handlePlay} playingId={playingId} playPendingId={playPendingId} />
         {canToggleSidebar && (
           <button type="button" className="playlist-more"
             aria-expanded={showAllSidebar}
@@ -90,13 +100,14 @@ export default function PlaylistList({
         <span>{expanded ? '[-]' : '[+]'} PLAYLISTS</span>
         <span>{playlists.length} LISTS</span>
       </button>
-      {contentVisible && <PlaylistContent playlists={playlists} loading={loading} error={error} onPlay={handlePlay} playingId={playingId} playPendingId={playPendingId} />}
+      {contentVisible && <PlaylistContent playlists={playlists} loading={loading} error={error} loginRequired={loginRequired} onPlay={handlePlay} playingId={playingId} playPendingId={playPendingId} />}
     </section>
   );
 }
 
-function PlaylistContent({ playlists, loading, error, onPlay }) {
+function PlaylistContent({ playlists, loading, error, loginRequired, onPlay, playingId, playPendingId }) {
   if (loading) return <p className="radio-sidebar-empty">LOADING PLAYLISTS...</p>;
+  if (loginRequired) return <p className="radio-sidebar-empty playlist-login-required">LOGIN REQUIRED — PLEASE RE-LOGIN</p>;
   if (error) return <p className="radio-sidebar-empty playlist-error">{error}</p>;
   if (playlists.length === 0) return <p className="radio-sidebar-empty">NO PLAYLISTS FOUND</p>;
 

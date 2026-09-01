@@ -19,6 +19,7 @@ import { configurePlanner } from './services/planner.js';
 import { getWeather, getWeatherRaw } from './infrastructure/environment/weatherService.js';
 
 import { SocketEventPublisher } from './socket/SocketEventPublisher.js';
+import { EVENTS } from './socket/events.js';
 import { buildSongChangePayload } from './domain/curation/buildSongChangePayload.js';
 
 import { legacyWeatherAdapter } from './infrastructure/environment/LegacyWeatherAdapter.js';
@@ -130,6 +131,12 @@ export function createServices(io) {
     seedPool: legacySeedPoolRepository,
     profile: legacyListenerProfileRepository,
     corpus: defaultCorpus,
+  });
+
+  // RC4a: emit LOGIN_REQUIRED when seed pool build fails due to cookie expiry
+  recommender.onLoginExpired(() => {
+    console.warn('[Bootstrap] Login expired — emitting LOGIN_REQUIRED');
+    io.emit(EVENTS.LOGIN_REQUIRED);
   });
   configureClaude({
     persona: loadDjPersona(),

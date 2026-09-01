@@ -191,3 +191,81 @@ describe('SeedPoolBuilder', () => {
     expect(result.songs).toBe(0);
   });
 });
+
+// ─── RC2: Login-expired error classification ─────────────────────
+
+describe('SeedPoolBuilder — login-expired error propagation', () => {
+  let builder;
+  let musicMock;
+  let seedPoolRepoMock;
+  let profileMock;
+  let corpusMock;
+
+  beforeEach(() => {
+    musicMock = {
+      userPlaylists: vi.fn().mockResolvedValue([]),
+      playlistTracks: vi.fn().mockResolvedValue([]),
+      likedSongs: vi.fn().mockResolvedValue([]),
+    };
+    seedPoolRepoMock = {
+      upsert: vi.fn(),
+      all: vi.fn().mockReturnValue([]),
+    };
+    profileMock = {
+      get: vi.fn().mockReturnValue({}),
+      set: vi.fn(),
+    };
+    corpusMock = {
+      readTaste: vi.fn().mockReturnValue('filled'),
+      writeTaste: vi.fn(),
+      readRoutines: vi.fn().mockReturnValue('filled'),
+      writeRoutines: vi.fn(),
+    };
+    builder = new SeedPoolBuilder({ music: musicMock, seedPoolRepo: seedPoolRepoMock, profile: profileMock, corpus: corpusMock });
+  });
+
+  it('throwsLoginExpired_whenUserPlaylistsFailsWithLoginError', async () => {
+    musicMock.userPlaylists.mockRejectedValue(new Error('Login expired — please re-login'));
+
+    await expect(builder.build('uid123')).rejects.toThrow('Login expired');
+  });
+
+  it('throwsLoginExpired_whenLikedSongsFailsWithLoginError', async () => {
+    musicMock.userPlaylists.mockResolvedValue([]);
+    musicMock.likedSongs.mockRejectedValue(new Error('Login expired — please re-login'));
+
+    await expect(builder.build('uid123')).rejects.toThrow('Login expired');
+  });
+
+  it('throwsLoginExpired_whenSinglePlaylistTrackFailsWithLoginError', async () => {
+    musicMock.userPlaylists.mockResolvedValue([{ id: 'pl1', name: 'P1' }, { id: 'pl2', name: 'P2' }]);
+    musicMock.playlistTracks
+      .mockResolvedValueOnce([{ id: 's1', ar: { name: 'Artist A' }, al: {}, dt: 180 }])
+      .mockRejectedValueOnce(new Error('Login expired — please re-login'));
+
+    await expect(builder.build('uid123')).rejects.toThrow('Login expired');
+  });
+
+  it('doesNotThrow_whenPlaylistTrackFailsWithNonLoginError', async () => {
+    musicMock.userPlaylists.mockResolvedValue([{ id: 'pl1', name: 'P1' }, { id: 'pl2', name: 'P2' }]);
+    musicMock.playlistTracks
+      .mockResolvedValueOnce([{ id: 's1', ar: { name: 'Artist A' }, al: {}, dt: 180 }])
+      .mockRejectedValueOnce(new Error('network timeout'));
+
+    const result = await builder.build('uid123');
+    expect(result.songs).toBe(1);
+  });
+
+  it('persistsPartialData_whenSomePlaylistsFail_withNonLoginError', async () => {
+    musicMock.userPlaylists.mockResolvedValue([{ id: 'pl1', name: 'OK' }, { id: 'pl2', name: 'Fail' }]);
+    musicMock.playlistTracks
+      .mockResolvedValueOnce([{ id: 's1', ar: [{ name: 'Artist A' }], al: {}, dt: 180 }])
+      .mockRejectedValueOnce(new Error('500 internal error'));
+    musicMock.likedSongs.mockResolvedValue([]);
+
+    const result = await builder.build('uid123');
+    expect(result.songs).toBe(1);
+    expect(result.topArtists).toEqual([{ name: 'Artist A', count: 1 }]);
+    expect(seedPoolRepoMock.upsert).toHaveBeenCalledOnce();
+  });
+});

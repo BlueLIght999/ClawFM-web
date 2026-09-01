@@ -34,6 +34,15 @@ export class Recommender {
     this.topGenres = [];
     this.initialized = false;
     this._planProgress = { planId: null, currentBlockIndex: 0, songsFilledInBlock: 0, autoMode: true, pinned: false };
+    this._seedPoolPending = false;
+    this._seedPoolRetryCount = 0;
+    this._seedPoolMaxRetries = 3;
+    this._onLoginExpired = null;
+  }
+
+  /** Register a callback invoked when seed pool build fails due to login expiry. */
+  onLoginExpired(callback) {
+    this._onLoginExpired = callback;
   }
 
   configure({ music, listenHistory, seedPool, profile, corpus }) {
@@ -55,6 +64,7 @@ export class Recommender {
     if (profile.topGenres) this.topGenres = profile.topGenres;
 
     this._seedPoolPending = true;
+    this._seedPoolRetryCount = 0;
     this.initialized = true;
     console.log(`[Recommender] Initialized for uid=${uid}, seed pool: ${this.seedPool.length} songs`);
   }
@@ -113,32 +123,48 @@ export class Recommender {
 
   async _maybeBuildSeedPool() {
     if (!this._seedPoolPending) return;
-    this._seedPoolPending = false;
+    this._seedPoolRetryCount++;
     try {
       await this._buildSeedPool();
+      this._seedPoolPending = false;
     } catch (e) {
-      console.error('[Recommender] Seed pool build failed:', e.message);
+      if (this._isLoginExpiredError(e)) {
+        this._onLoginExpired?.();
+      }
+      console.warn(`[Recommender] Seed pool build retry ${this._seedPoolRetryCount}: ${e.message}`);
+      if (this._seedPoolRetryCount >= this._seedPoolMaxRetries) {
+        console.error(`[Recommender] Seed pool build abandoned after ${this._seedPoolMaxRetries} retries`);
+        this._seedPoolPending = false;
+      }
     }
   }
 
+  _isLoginExpiredError(e) {
+    const msg = (e?.message || '').toLowerCase();
+    return msg.includes('login expired') || msg.includes('please re-login');
+  }
+
   async _buildSeedPool() {
-    try {
-      const builder = new SeedPoolBuilder({
-        music: this.music,
-        seedPoolRepo: this.seedPoolRepo,
-        profile: this.profile,
-        corpus: this.corpus,
-      });
-      const result = await builder.build(this.uid);
+    const builder = new SeedPoolBuilder({
+      music: this.music,
+      seedPoolRepo: this.seedPoolRepo,
+      profile: this.profile,
+      corpus: this.corpus,
+    });
+    const result = await builder.build(this.uid);
+
+    if (result.topArtists && result.topArtists.length > 0) {
       this.topArtists = result.topArtists;
       this.topGenres = result.topGenres || this.topGenres;
       this.profile.set('topArtists', this.topArtists);
       if (result.topGenres) this.profile.set('topGenres', result.topGenres);
-      this.seedPool = this.seedPoolRepo.all();
-      console.log(`[Recommender] Seed pool built: ${result.songs} songs, ${this.topArtists.length} top artists, ${this.topGenres.length} top genres`);
-    } catch (e) {
-      console.error('[Recommender] Seed pool error:', e.message);
     }
+
+    if (result.songs > 0) {
+      this.seedPool = this.seedPoolRepo.all();
+    }
+
+    console.log(`[Recommender] Seed pool built: ${result.songs} songs, ${this.topArtists.length} top artists, ${this.topGenres.length} top genres`);
   }
 }
 

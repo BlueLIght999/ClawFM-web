@@ -128,6 +128,38 @@ describe('HttpRoutes — auth & playlists', () => {
     expect(res.body.playlists[0].id).toBe('p1');
   });
 
+  it('GET /api/playlists returns 401 when login expired', async () => {
+    const services = {
+      ...defaultServices,
+      recommender: { uid: '123' },
+      musicSource: {
+        ...defaultServices.musicSource,
+        userPlaylists: vi.fn().mockRejectedValue(new Error('Login expired — please re-login')),
+      },
+    };
+    const app = createTestApp(services);
+    const res = await request(app).get('/api/playlists');
+    expect(res.status).toBe(401);
+    expect(res.body.loginRequired).toBe(true);
+    expect(res.body.playlists).toEqual([]);
+  });
+
+  it('GET /api/playlists returns 200 with error on non-login failure', async () => {
+    const services = {
+      ...defaultServices,
+      recommender: { uid: '123' },
+      musicSource: {
+        ...defaultServices.musicSource,
+        userPlaylists: vi.fn().mockRejectedValue(new Error('network timeout')),
+      },
+    };
+    const app = createTestApp(services);
+    const res = await request(app).get('/api/playlists');
+    expect(res.status).toBe(200);
+    expect(res.body.loginRequired).toBeUndefined();
+    expect(res.body.error).toBe('network timeout');
+  });
+
   it('POST /api/playlist/:id/play queues and starts', async () => {
     const services = {
       ...defaultServices,
