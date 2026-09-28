@@ -1,4 +1,4 @@
-import { artistName } from './artistName.js';
+import { artistName } from '../shared/artistName.js';
 
 /**
  * Pure fallback DJ transition script — used when the LLM is unavailable.

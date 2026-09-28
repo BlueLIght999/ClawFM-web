@@ -1,4 +1,4 @@
-import { toSongDTO } from './toSongDTO.js';
+import { toSongDTO } from '../shared/toSongDTO.js';
 
 export const RADIO_EVENT_SCHEMA_VERSION = 2;
 

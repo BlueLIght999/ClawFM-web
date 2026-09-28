@@ -5,7 +5,7 @@
  * Pure function: no side effects, no I/O, no mutations.
  */
 
-import { toPlayableSong } from '../curation/toPlayableSong.js';
+import { toPlayableSong } from '../shared/toPlayableSong.js';
 
 /**
  * Build the scheduler state object from playhead, queue, and audio URL.

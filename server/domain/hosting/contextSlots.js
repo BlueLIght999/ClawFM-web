@@ -13,7 +13,7 @@
  */
 
 import { getTimeOfDayMood } from './getTimeOfDayMood.js';
-import { playedAt } from '../curation/songId.js';
+import { playedAt } from '../shared/songId.js';
 
 const MOOD_LABELS = {
   morning: 'morning/startup',

@@ -1,16 +1,5 @@
-import { toSongDTO } from './toSongDTO.js';
-
 /**
- * Backward-compatible playable song shape (strategy B).
- * Merges the stable DTO fields (title/artist/album/durationMs/coverUrl) onto
- * the original song object so legacy frontend reads (song.name/ar/dt) keep
- * working while new code can migrate to the stable fields.
- * (API-CONTRACT: additive / backward-compatible — never removes fields.)
- *
- * @param {object|null} song raw NetEase song (or already-normalized)
- * @returns {object|null} original fields + stable DTO fields, or null
+ * @deprecated 已下沉到 domain/shared/toPlayableSong.js（D10 跨上下文解耦）。
+ * 保留此文件仅为兼容既有 import 路径；新代码请直接 import domain/shared/toPlayableSong.js。
  */
-export function toPlayableSong(song) {
-  if (!song) return null;
-  return { ...song, ...toSongDTO(song) };
-}
+export { toPlayableSong } from '../shared/toPlayableSong.js';

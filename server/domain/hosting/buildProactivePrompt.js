@@ -1,5 +1,5 @@
-import { artistName } from './artistName.js';
-import { firstTruthy } from '../curation/firstTruthy.js';
+import { artistName } from '../shared/artistName.js';
+import { firstTruthy } from '../shared/firstTruthy.js';
 import { proactiveContextLines } from './proactiveContextLines.js';
 
 /**

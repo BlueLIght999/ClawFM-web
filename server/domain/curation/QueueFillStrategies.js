@@ -6,10 +6,9 @@
  * All I/O via injected dependencies (music port, queueStore, listenHistory).
  */
 
-import { artistName } from '../hosting/artistName.js';
-import { songId } from './songId.js';
+import { artistName } from '../shared/artistName.js';
+import { songId } from '../shared/songId.js';
 import { rankSongsByPreference, rankSongsByTopArtists, seedSongMatchesPreference } from './recommenderRules.js';
-import { createGenreSearchEngine } from '../routing/GenreSearchEngine.js';
 import { resolveActiveBlockHints } from './planBlockProgression.js';
 import { preferenceFallbackPlan } from './preferenceFallbackRules.js';
 
@@ -85,13 +84,24 @@ export async function collectFromStrategies(strategies, strategyNames, recentIds
 }
 
 export class QueueFillStrategies {
-  constructor({ music = null, queueStore = null, listenHistory = null, topArtists = [], topGenres = [], seedPoolRepo = null } = {}) {
+  constructor({
+    music = null,
+    queueStore = null,
+    listenHistory = null,
+    topArtists = [],
+    topGenres = [],
+    seedPoolRepo = null,
+    genreSearchEngine = null,
+  } = {}) {
     this.music = music;
     this.queueStore = queueStore;
     this.listenHistory = listenHistory;
     this.topArtists = topArtists;
     this.topGenres = topGenres;
     this.seedPoolRepo = seedPoolRepo;
+    // D10: 流派检索引擎由外层（services/recommender.js）注入，curation 不 import routing。
+    // 缺省为 null——调用方忘了注入时 fetchByGenre* 会退化为空结果，而不是越界 import。
+    this.genreSearchEngine = genreSearchEngine;
   }
 
   buildStrategies(activeBlockHints, recentIds, hourArtists) {
@@ -225,7 +235,8 @@ export class QueueFillStrategies {
 
   async fetchByGenreHints(recentIds, _hourArtists, hints) {
     const songs = [];
-    const genreEngine = createGenreSearchEngine(this.music);
+    const genreEngine = this.genreSearchEngine;
+    if (!genreEngine) return songs;
     for (const block of hints) {
       const genres = block.genreHints || [];
       for (const genre of genres.slice(0, 2)) {
@@ -247,7 +258,8 @@ export class QueueFillStrategies {
 
   async fetchByUserGenres(recentIds) {
     const songs = [];
-    const genreEngine = createGenreSearchEngine(this.music);
+    const genreEngine = this.genreSearchEngine;
+    if (!genreEngine) return songs;
     for (const genre of this.topGenres.slice(0, 2)) {
       if (songs.length >= 20) break;
       try {

@@ -73,6 +73,43 @@ module.exports = {
     },
 
     // ───────────────────────────────────────────────────────────
+    // D10 跨限界上下文耦合（domain/<A> → domain/<B>）
+    //
+    // 这条规则填补了 D1-D9 的盲区：既有规则要么是顶层层级规则
+    // （^domain/ → ^(application|...)/，结构上永远不会对 domain→domain 触发），
+    // 要么是写死单文件的探测，因此 domain/community → domain/profile
+    // 这类同层跨上下文依赖此前完全不可见。
+    //
+    // $1 是 from 的捕获组回引用：同上下文内部的嵌套 import
+    // （如 profile/enrichment → profile/search）必须保持合法。
+    // 共享原语下沉到 domain/shared/，由下方豁免放行。
+    //
+    // 已清零并收紧为 error（原为 warn + 存量违规 13 处）。共享内核抽取见
+    // domain/shared/；新增共享原语时不要塞进某个上下文再对外 export。
+    // ───────────────────────────────────────────────────────────
+    {
+      name: 'target-domain-no-cross-context',
+      severity: 'error',
+      comment:
+        'D10: domain/<A> 禁止 import domain/<B>。限界上下文之间通过 application 层编排通信，' +
+        '不直接 import。纯共享原语（songId/artistName/toSongDTO 等）下沉到 domain/shared/。',
+      from: { path: '^domain/([^/]+)/', pathNot: ['^domain/shared/'] },
+      to: {
+        path: '^domain/([^/]+)/',
+        pathNot: ['^domain/$1/', '^domain/shared/'],
+      },
+    },
+    {
+      name: 'target-domain-shared-must-be-pure',
+      severity: 'error',
+      comment:
+        'shared kernel 防腐：domain/shared 不得反向依赖任何具体上下文或外层，' +
+        '否则它退化为新的耦合中转站，跨上下文依赖绕道它继续存在。',
+      from: { path: '^domain/shared/' },
+      to: { path: '^(domain/(?!shared/)|application|infrastructure|interface|services|db|socket)/' },
+    },
+
+    // ───────────────────────────────────────────────────────────
     // Agent 模块隔离守卫（server/agent/ 内部四层）
     // ───────────────────────────────────────────────────────────
     {
@@ -117,7 +154,10 @@ module.exports = {
     {
       name: 'no-orphans',
       severity: 'warn',
-      comment: '孤儿模块（无人引用）——死代码候选，如 dj-ai.js / playlist-analyzer.js',
+      comment:
+        '孤儿模块（无人引用）——死代码候选，如 dj-ai.js / playlist-analyzer.js。' +
+        '注意 ports/ 不加 ^ 锚点：depcruise 的 pathNot 在不同输出模式下给出的' +
+        '路径可能不带前导目录，锚定 ^application/ports/ 会漏匹配。',
       from: {
         orphan: true,
         pathNot: [
@@ -125,9 +165,9 @@ module.exports = {
           '\\.d\\.ts$',
           '(^|/)index\\.js$',
           '(^|/)server\\.js$',
-          '^application/ports/',
-          '^agent/application/ports/',
+          'ports/', // 端口与 @typedef 契约文件本就没有运行时引用者
           'Port\\.js$',
+          'Repository\\.js$', // 纯 @typedef 的仓储契约
           '^agent/index\\.js$',
           '^evaluation/runBadCaseAttribution\\.js$',
           '^evaluation/runProductEffectEvaluation\\.js$',

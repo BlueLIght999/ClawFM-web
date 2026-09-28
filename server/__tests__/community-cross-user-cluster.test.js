@@ -117,6 +117,41 @@ describe('community cross-user cluster analyzer', () => {
     expect(uniq.size).toBeLessThanOrEqual(2);
   });
 
+  it('mapsMembersByValueNotByObjectIdentity', () => {
+    // 回归：策略若返回等值但非同一引用的向量（DBSCAN 的 includes/indexOf 路径、
+    // 或任何先 深拷贝 再聚类的策略），旧的 entries.find(e => e.vector === mv)
+    // 会静默把整簇成员丢空。此处注入一个显式克隆向量的策略来锁死该行为。
+    const cloneStrategy = {
+      name: 'clone',
+      cluster(vectors) {
+        return {
+          strategy: 'clone',
+          k: 1,
+          clusters: [{ clusterId: 0, members: vectors.map((v) => ({ ...v })), memberCount: vectors.length, centroid: { ...vectors[0] } }],
+        };
+      },
+    };
+    const r = crossUserCluster(
+      [
+        { userId: 'a', profile: makeProfile({ genre: { rock: 1 } }) },
+        { userId: 'b', profile: makeProfile({ genre: { rock: 1 } }) },
+      ],
+      { clusterStrategy: cloneStrategy },
+    );
+    expect(r.clusters[0].memberUserIds.sort()).toEqual(['a', 'b']);
+    expect(Object.keys(r.memberAssignments).sort()).toEqual(['a', 'b']);
+  });
+
+  it('assignsEveryDistinctMemberWhenTwoUsersHaveIdenticalVectors', () => {
+    // 指纹相同不等于同一人：同谱面的两个成员必须都被分配，不能互相覆盖。
+    const identicalRock = makeProfile({ genre: { rock: 1 }, mood: { energetic: 1 } });
+    const r = crossUserCluster([
+      { userId: 'twin1', profile: identicalRock },
+      { userId: 'twin2', profile: identicalRock },
+    ]);
+    expect(Object.keys(r.memberAssignments).sort()).toEqual(['twin1', 'twin2']);
+  });
+
   it('filtersOutEntriesWithoutUserId', () => {
     const r = crossUserCluster([{ profile: makeProfile() }, { userId: 'u1', profile: makeProfile() }]);
     expect(Object.keys(r.memberAssignments)).toEqual(['u1']);

@@ -7,7 +7,7 @@
  *
  * @module domain/curation/BubbleGenerator
  */
-import { moodToQuery } from '../routing/moodToQuery.js';
+import { moodToQuery } from '../shared/moodToQuery.js';
 
 // Default genre keys when profile is empty
 const DEFAULT_GENRES = ['jpop', 'jazz', 'lofi', 'citypop'];

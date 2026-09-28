@@ -12,6 +12,7 @@
 import { queue } from './queue.js';
 import { SeedPoolBuilder } from '../domain/curation/SeedPoolBuilder.js';
 import { QueueFillStrategies } from '../domain/curation/QueueFillStrategies.js';
+import { createGenreSearchEngine } from '../domain/routing/GenreSearchEngine.js';
 
 export class Recommender {
   constructor({
@@ -110,6 +111,8 @@ export class Recommender {
       listenHistory: this.listenHistory,
       topArtists: this.topArtists,
       topGenres: this.topGenres,
+      // D10: curation 不 import routing，引擎在此（组合根）注入。
+      genreSearchEngine: createGenreSearchEngine(this.music),
     });
   }
 

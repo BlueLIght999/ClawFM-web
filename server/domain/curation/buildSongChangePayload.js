@@ -1,4 +1,4 @@
-import { toPlayableSong } from './toPlayableSong.js';
+import { toPlayableSong } from '../shared/toPlayableSong.js';
 
 /**
  * Build the SONG_CHANGE event payload with a normalized song.

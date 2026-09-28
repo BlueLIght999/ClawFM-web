@@ -6,7 +6,7 @@
  * Extracted from scheduler.js for testability.
  */
 
-import { songId } from '../curation/songId.js';
+import { songId } from '../shared/songId.js';
 
 const DEFAULT_MAX_SIZE = 500;
 

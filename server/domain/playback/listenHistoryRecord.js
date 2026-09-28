@@ -1,5 +1,5 @@
-import { artistName } from '../hosting/artistName.js';
-import { albumName } from '../curation/toSongDTO.js';
+import { artistName } from '../shared/artistName.js';
+import { albumName } from '../shared/toSongDTO.js';
 
 /**
  * Build the ListenHistoryRepository payload for a played song.

@@ -5,15 +5,26 @@
  * 这里把 N 个成员的当前画像各自提向量，喂给 KMeansClusterStrategy，
  * 再把匿名向量映射回 userId，产出 { clusters, memberAssignments }。
  *
- * 纯函数，零 IO，遵循 D1/D2。复用 profile/analyzers/ClusterStrategy（domain→domain 允许）。
+ * 纯函数，零 IO，遵循 D1/D2。聚类算法来自 domain/shared/ClusterStrategy（共享内核，非 profile 私有）。
  */
-import { KMeansClusterStrategy } from '../../profile/analyzers/ClusterStrategy.js';
+import { KMeansClusterStrategy } from '../../shared/ClusterStrategy.js';
 import { extractFeatureVector, generateClusterLabel } from './FeatureExtractor.js';
+
+/**
+ * 稳定指纹：键名排序后序列化，使等值向量（无论是否为同一对象）得到同一字符串。
+ * 键数固定为 40，成本可忽略。
+ * @param {object} vector
+ * @returns {string}
+ */
+function vectorFingerprint(vector) {
+  const keys = Object.keys(vector || {}).sort();
+  return keys.map((k) => `${k}=${vector[k]}`).join('|');
+}
 
 /**
  * @param {Array<{userId:string, profile:object}>} profiles
  * @param {object} [opts]
- * @param {import('../../profile/analyzers/ClusterStrategy.js').ClusterStrategy} [opts.clusterStrategy]
+ * @param {import('../../shared/ClusterStrategy.js').ClusterStrategy} [opts.clusterStrategy]
  * @returns {{k:number, clusters:Array, memberAssignments:Record<string,number>}}
  */
 export function crossUserCluster(profiles, opts = {}) {
@@ -48,10 +59,19 @@ export function crossUserCluster(profiles, opts = {}) {
   const vectors = entries.map((e) => e.vector);
   const result = strategy.cluster(vectors);
 
+  // 簇成员 -> userId 的映射不能依赖对象引用：DBSCAN 走 includes/indexOf（引用比较），
+  // 但策略只需返回等值的向量副本就会让整簇静默退化为空。改用结构指纹做键，
+  // 同时对同一指纹下的多个成员用队列按序消费，避免重复指纹互相覆盖。
+  const byFingerprint = new Map();
+  for (const e of entries) {
+    const key = vectorFingerprint(e.vector);
+    if (!byFingerprint.has(key)) byFingerprint.set(key, []);
+    byFingerprint.get(key).push(e.userId);
+  }
+
   const clusters = result.clusters.map((c) => {
-    // members 是向量对象引用，按引用找回 userId
     const memberUserIds = c.members
-      .map((mv) => entries.find((e) => e.vector === mv)?.userId)
+      .map((mv) => byFingerprint.get(vectorFingerprint(mv))?.shift())
       .filter((uid) => uid !== undefined);
     return {
       clusterId: c.clusterId,

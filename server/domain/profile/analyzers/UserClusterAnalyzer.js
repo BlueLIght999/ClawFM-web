@@ -11,7 +11,7 @@
  */
 
 import { BaseAnalyzer } from './BaseAnalyzer.js';
-import { KMeansClusterStrategy } from './ClusterStrategy.js';
+import { KMeansClusterStrategy } from '../../shared/ClusterStrategy.js';
 
 // ── Tag taxonomies (33 dimensions total) ──────────────────────
 // genre(10) + mood(8) + region(5) + behavior(6) + chat(4) = 33

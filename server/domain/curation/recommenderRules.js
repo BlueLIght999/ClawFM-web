@@ -1,5 +1,5 @@
-import { artistName } from '../hosting/artistName.js';
-import { albumName } from './toSongDTO.js';
+import { artistName } from '../shared/artistName.js';
+import { albumName } from '../shared/toSongDTO.js';
 
 function firstValue(...values) {
   return values.find(value => value !== undefined && value !== null) ?? '';

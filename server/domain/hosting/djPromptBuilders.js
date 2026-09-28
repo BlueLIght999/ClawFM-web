@@ -5,7 +5,7 @@
  * from LLM invocation (infrastructure).
  */
 
-import { artistName } from './artistName.js';
+import { artistName } from '../shared/artistName.js';
 import { buildTransitionPrompt } from './buildTransitionPrompt.js';
 
 const INTENT_SYSTEM_PROMPT = `Parse music intent. Output JSON: {"action":"play_mood"|"play_artist"|"play_song"|"play_personalized"|"reject_recommend"|"chat"|"none","params":{"mood":"","artist":"","song":"","preference":""}}
