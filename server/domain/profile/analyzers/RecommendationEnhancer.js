@@ -10,16 +10,19 @@
  */
 
 import { BaseAnalyzer } from './BaseAnalyzer.js';
-import { ProfileWeightedStrategy, DiversityStrategy } from './RecommendationStrategy.js';
+import { RecommendationStrategy, ProfileWeightedStrategy, DiversityStrategy } from './RecommendationStrategy.js';
 
 export class RecommendationEnhancer extends BaseAnalyzer {
   /**
    * @param {Object}   [opts]
-   * @param {Array}    [opts.strategies] — ordered list of RecommendationStrategy
-   * @param {Object}   [opts.eventBus]   — optional bus exposing emit(type, payload)
+   * @param {Array<RecommendationStrategy>|null} [opts.strategies] - ordered list; defaults to the standard pair
+   * @param {Object}   [opts.eventBus]   - optional bus exposing emit(type, payload)
    */
   constructor({ strategies = null, eventBus = null } = {}) {
     super({ name: 'RecommendationEnhancer', eventBus });
+    // Resolved once here so every reader sees a non-null list; nullability on the
+    // field would otherwise have to be re-checked at each loop over it.
+    /** @type {Array<RecommendationStrategy>} */
     this.strategies = strategies || [
       new ProfileWeightedStrategy(),
       new DiversityStrategy({ minDiversity: 0.3 }),
@@ -29,8 +32,8 @@ export class RecommendationEnhancer extends BaseAnalyzer {
   /**
    * @param {Object} profile
    * @param {Object} [options]
-   * @param {Array}  [options.songs]   — songs to enhance
-   * @param {Object} [options.context] — contextual signals
+   * @param {Array}  [options.songs]   - songs to enhance
+   * @param {Object} [options.context] - contextual signals
    * @returns {Promise<Object>} { enhanced, strategies, improvements, … }
    */
   async analyze(profile, options = {}) {

@@ -107,7 +107,7 @@ import { personalizeFeed } from './domain/community/feedPersonalizationRules.js'
 
 /**
  * Wire all dependencies and return a services object.
- * @param {import('socket.io').Server} io — the Socket.IO server
+ * @param {import('socket.io').Server} io - the Socket.IO server
  */
 export function createServices(io) {
   const eventPublisher = new SocketEventPublisher(io);
@@ -161,7 +161,7 @@ export function createServices(io) {
         const start = Date.now();
         try {
           const resp = await fetch(`http://localhost:${config.netease.apiPort}/login/status`);
-          const data = await resp.json();
+          const data = /** @type {{code?: number, data?: {code?: number}}} */ (await resp.json());
           const latency = Date.now() - start;
           const code = data?.code ?? data?.data?.code;
           return { status: code === 200 ? 'up' : 'degraded', latencyMs: latency };
@@ -297,7 +297,19 @@ function createRepositories() {
   };
 }
 
-function createApplicationServices({ legacy, adapters, repositories, eventPublisher, _logger, _metricsCollector }) {
+/**
+ * Build the application services from injected legacy deps and adapters.
+ *
+ * logger / metricsCollector are part of the deps contract (every caller passes
+ * them) but this particular composition point does not consume them yet; they
+ * stay in the signature so the contract does not silently diverge from the call
+ * site. Read them via `void logger` rather than renaming to `_logger` -- a
+ * rename would change the destructured KEY, and the caller's `logger` prop
+ * would then bind to nothing.
+ */
+function createApplicationServices({ legacy, adapters, repositories, eventPublisher, logger, metricsCollector }) {
+  void logger;
+  void metricsCollector;
   const { queue, scheduler, recommender, assemblePrompt, getTimeOfDayMood,
     isTtsAvailable, generatePlan, getPlan } = legacy;
   const { weather, speech, music, llm, coldOpenWriter, djSpeechWriter } = adapters;
@@ -320,7 +332,9 @@ function createApplicationServices({ legacy, adapters, repositories, eventPublis
 
   const authenticationService = createAuthenticationService({
     authClient: legacyNeteaseAuthClient, authRepository: legacyAuthRepository,
-    recommender, queue, scheduler, planner: { generatePlan, getPlan }, eventPublisher,
+    recommender, queue, scheduler,
+    // planning adapter: generatePlan fills the queue, getPlan feeds PlanBlockService
+    planner: { generatePlan, getPlan }, eventPublisher,
   });
 
   const djSpeechService = createDjSpeechService({
@@ -348,7 +362,8 @@ function createApplicationServices({ legacy, adapters, repositories, eventPublis
   const agentTurnService = createAgentTurnService({
     intentRouter, conversation: conversationService,
     contextBuilder, weather,
-    queue, scheduler, djStatus: { isConfigured: llm.isConfigured },
+    queue, djStatus: { isConfigured: llm.isConfigured },
+    scheduler,
     userActivity: { setLastUserChat: legacy.setLastUserChat },
     persona: loadDjPersona(),
     music,
@@ -361,6 +376,8 @@ function createApplicationServices({ legacy, adapters, repositories, eventPublis
     registry: toolRegistry, scheduler, queue, recommender, music,
     planner: { generatePlan, getPlan },
   });
+  // AgentLoopService takes the turn service, not the scheduler: playback tools
+  // reach the scheduler through the tool registry wired above.
   const agentLoopService = createAgentLoopService({
     agentTurnService,
     functionCalling: functionCallingAdapter,

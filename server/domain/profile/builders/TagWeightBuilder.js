@@ -13,9 +13,9 @@
 export class TagWeightBuilder {
   /**
    * @param {Object}  [opts]
-   * @param {Object}  [opts.weightStrategy] — implements calculate(evidence, context)
-   * @param {Object}  [opts.decayStrategy]  — implements decay(weight, context)
-   * @param {Object}  [opts.eventBus]       — optional bus exposing emit(type, payload)
+   * @param {Object}  [opts.weightStrategy] - implements calculate(evidence, context)
+   * @param {Object}  [opts.decayStrategy]  - implements decay(weight, context)
+   * @param {Object}  [opts.eventBus]       - optional bus exposing emit(type, payload)
    */
   constructor({ weightStrategy, decayStrategy, eventBus = null } = {}) {
     this.weightStrategy = weightStrategy;
@@ -25,8 +25,8 @@ export class TagWeightBuilder {
 
   /**
    * Build a tag-weighted profile from all collected evidence.
-   * @param {Array}  allEvidence — flat list of evidence items
-   * @param {Object} [options]   — { daysSinceLastSeen, ...extraContext }
+   * @param {Array}  allEvidence - flat list of evidence items
+   * @param {Object} [options]   - { daysSinceLastSeen, ...extraContext }
    * @returns {{ tags: Object, schemaVersion: number, builtAt: string }}
    */
   build(allEvidence, options = {}) {
@@ -66,6 +66,7 @@ export class TagWeightBuilder {
    * @returns {Object<string, Array>}
    */
   _groupByTag(allEvidence) {
+    /** @type {Object<string, Array>} */
     const groups = {};
     for (const evidence of allEvidence) {
       // Evidence may have tags attached, or we derive tags from type

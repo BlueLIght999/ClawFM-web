@@ -285,6 +285,6 @@ function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('message', (message) => {
+process.on('message', (/** @type {any} */ message) => {
   if (message?.type === 'shutdown') gracefulShutdown('IPC');
 });

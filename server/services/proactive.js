@@ -27,6 +27,17 @@ export function setLastUserChat(text) {
   _lastUserChat = text;
 }
 
+/**
+ * Evaluate and, if the guard and the decision allow it, deliver one unprompted DJ message.
+ *
+ * The whole deps bag is described in one tag: tsc binds a single JSDoc object type to a
+ * destructured parameter, and any field left out is reported as a missing property.
+ * `weather` admits null because that is its default -- with a non-null tag the `= null`
+ * default itself errors (TS2322), and with no tag at all tsc infers the literal `null`,
+ * which then narrows the `weather ?` guard to `never` (TS2339 on `.current()`).
+ *
+ * @param {{events: any, scheduler: any, queue: any, getPlan: Function, weather?: {current: () => Promise<string>}|null, speech?: any, decideProactiveSpeech?: Function, tokenDelayMs?: number|null}} deps
+ */
 export async function maybeProactiveSpeech({
   events,
   scheduler,

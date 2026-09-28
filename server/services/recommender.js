@@ -14,6 +14,30 @@ import { SeedPoolBuilder } from '../domain/curation/SeedPoolBuilder.js';
 import { QueueFillStrategies } from '../domain/curation/QueueFillStrategies.js';
 import { createGenreSearchEngine } from '../domain/routing/GenreSearchEngine.js';
 
+/**
+ * Injected and derived state of the Recommender. Several members are seeded with
+ * `null` or `[]` in the constructor and only later replaced by configure(),
+ * init() or the seed-pool build; without this declaration strictNullChecks
+ * would freeze them to `null` / `never[]` and reject those assignments.
+ * `music`, `listenHistory`, `seedPoolRepo`, `profile`, `corpus` and `queueStore`
+ * all hold injected ports/adapters, hence `any`.
+ * @property {any} music
+ * @property {any} listenHistory
+ * @property {any} seedPoolRepo
+ * @property {any} profile
+ * @property {any} corpus
+ * @property {any} queueStore
+ * @property {string|null} uid
+ * @property {Song[]} seedPool
+ * @property {any[]} topArtists
+ * @property {any[]} topGenres
+ * @property {boolean} initialized
+ * @property {any} _planProgress
+ * @property {boolean} _seedPoolPending
+ * @property {number} _seedPoolRetryCount
+ * @property {number} _seedPoolMaxRetries
+ * @property {null|(() => void)} _onLoginExpired
+ */
 export class Recommender {
   constructor({
     music = null,

@@ -55,6 +55,14 @@ function restoredSessionSummary({ cookie, status, plan, planError, queue, queueP
   };
 }
 
+/**
+ * The return shape is a union, not one object with optional fields: the success
+ * branch always carries `profile`, the failure branch never does. Declaring only
+ * the success shape made the documented signature narrower than reality and the
+ * catch branch unassignable.
+ *
+ * @returns {Promise<{loggedIn: boolean, uid: string, profile?: any, error?: string}>}
+ */
 async function currentStatusPayload(authClient, authRepository) {
   // uid 取自本地持久化的 netease_auth（authRepository.currentUid），而非实时网易云会话。
   // 这样即使网易云 login/status 冷启动/波动失败，前端仍能获得稳定 uid 用于社区 JOIN /
@@ -77,6 +85,23 @@ async function currentStatusPayload(authClient, authRepository) {
  *
  * It keeps Socket event names in the handler while owning login/session setup,
  * QR polling decisions, recommender initialization, and cold-start reset.
+ *
+ * The deps shape is spelled out because the factory has defaults on several
+ * members (`eventPublisher = { emit: () => {} }`): without an annotation tsc
+ * infers those defaults as zero-argument functions and then reports every real
+ * call site as a wrong-arity call.
+ *
+ * @param {object} deps
+ * @param {object} deps.authClient
+ * @param {{currentCookie: () => string}} [deps.authRepository]
+ * @param {object} deps.recommender
+ * @param {object} deps.queue
+ * @param {object} deps.scheduler
+ * @param {{generatePlan: () => Promise<object|null>, getPlan?: () => {plan?: object}|null}} [deps.planner]
+ *   the cached-plan accessor is optional here -- AuthenticationService itself only
+ *   calls generatePlan, but the same object is forwarded to PlanBlockService,
+ *   which reads getPlan(); documenting only generatePlan rejected real callers.
+ * @param {{emit: (event: string, payload: object, targetUserId?: string) => void}} [deps.eventPublisher]
  */
 export function createAuthenticationService({
   authClient,
@@ -115,7 +140,9 @@ export function createAuthenticationService({
     /**
      * Read the current NetEase login status as a REST-friendly DTO.
      *
-     * @returns {Promise<{loggedIn: boolean, profile: object|null, error?: string}>} Auth status payload.
+     * @returns {Promise<{loggedIn: boolean, uid: string, profile?: object, error?: string}>} Auth status payload.
+     *   `uid` is always present (from local persistence), so the frontend can reach
+     *   the community JOIN path even while the NetEase session is cold or flapping.
      * @throws Does not throw; legacy client failures are returned as logged-out status.
      * Constraint: preserves `/api/auth/status` shape while centralizing NetEase response normalization.
      */
@@ -178,9 +205,10 @@ export function createAuthenticationService({
       if (!status.loggedIn) {
         const msg = loginResult?.msg || loginResult?.message ||
           (loginResult?.code ? `Login failed (code ${loginResult.code})` : 'Login failed — check your credentials');
-        const err = new Error(msg);
-        err.isAuthError = true;
-        throw err;
+        // Tagged error: callers in socket/handler.js branch on `e.isAuthError` to
+        // stop the QR/phone retry loop. Object.assign keeps the tag on the value
+        // rather than mutating a built-in Error instance field by field.
+        throw Object.assign(new Error(msg), { isAuthError: true });
       }
       return initializeAuthenticatedSession(loginResult);
     },

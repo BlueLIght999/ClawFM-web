@@ -83,7 +83,30 @@ export async function collectFromStrategies(strategies, strategyNames, recentIds
   return allSongs;
 }
 
+/**
+ * Dependencies of the queue fill strategies. All are injected at the composition
+ * root (services/recommender.js), so they are declared `any` here: the concrete
+ * port interfaces are not nameable from this layer without importing across the
+ * D10 boundary this class exists to respect.
+ * @property {any} music
+ * @property {any} queueStore
+ * @property {any} listenHistory
+ * @property {any[]} topArtists
+ * @property {any[]} topGenres
+ * @property {any} seedPoolRepo
+ * @property {any} genreSearchEngine
+ */
 export class QueueFillStrategies {
+  /**
+   * @param {object} [deps]
+   * @param {any} [deps.music]
+   * @param {any} [deps.queueStore]
+   * @param {any} [deps.listenHistory]
+   * @param {any[]} [deps.topArtists]
+   * @param {any[]} [deps.topGenres]
+   * @param {any} [deps.seedPoolRepo]
+   * @param {any} [deps.genreSearchEngine]
+   */
   constructor({
     music = null,
     queueStore = null,

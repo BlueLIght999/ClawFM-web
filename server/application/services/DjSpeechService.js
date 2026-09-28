@@ -30,6 +30,12 @@ function staleSpeech(payload) {
   };
 }
 
+/**
+ * @param {{scheduler: any, speechText: string, audioUrl: string|null, text: string, type?: string, payload?: object}} input
+ *   `type` is optional by contract -- the speechStart spread omits the key when it
+ *   is falsy, and both call sites leave it out, so documenting it as required made
+ *   tsc reject every real call (TS2345).
+ */
 function waitForClientSpeech({ scheduler, speechText, audioUrl, text, type, payload = {} }) {
   scheduler.speechGenerationDone(estimatedSpeechDurationSeconds(speechText));
   return {
@@ -178,7 +184,7 @@ export function createDjSpeechService({
     /**
      * Generate and optionally synthesize normal between-song transition speech.
      *
-     * @param {{prevSong: object, nextSong: object, transitionId: string}} input Transition context.
+     * @param {{prevSong: object, nextSong: object, transitionId: number}} input Transition context. Passed straight through to the stale-speech guard, where it is compared for equality against the TransitionOrchestrator counter (a number), so it is typed to match the producer.
      * @returns {Promise<object>} Message/speech payloads and scheduler handling flags.
      * @throws Bubbles weather/writer/speech failures so scheduler callback can complete safely.
      * Constraint: handles only the regular transition path; refill speech remains a separate slice.
@@ -202,7 +208,7 @@ export function createDjSpeechService({
     /**
      * Refill an exhausted queue and generate the DJ refill announcement.
      *
-     * @param {{transitionId: string, planBlocks: Array<object>|null}} input Refill context.
+     * @param {{transitionId: number, planBlocks: Array<object>|null}} input Refill context. Same counter as handleTransitionSpeech; see the note there.
      * @returns {Promise<object>} Queue update, DJ message, speech payloads, and scheduler handling flags.
      * @throws Bubbles dependency failures so the scheduler callback can complete safely.
      * Constraint: preserves legacy Socket payload shape while moving refill orchestration out of the handler.

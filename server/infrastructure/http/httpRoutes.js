@@ -1,8 +1,8 @@
 /**
  * HTTP route registration — all REST endpoints extracted from server.js.
  *
- * @param {Express} app — Express application instance
- * @param {Object} services — injected service dependencies
+ * @param {{use: Function, get: Function, post: Function, put: Function, delete: Function, patch: Function}} app - Express application instance
+ * @param {Object} services - injected service dependencies
  */
 import path from 'path';
 import { fileURLToPath } from 'url';

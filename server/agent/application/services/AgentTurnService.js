@@ -122,6 +122,22 @@ async function runConversationActions({ conversation, routing, text, snapshot })
   };
 }
 
+/**
+ * @param {object} deps
+ * @param {object} deps.intentRouter
+ * @param {object} deps.conversation
+ * @param {object} deps.contextBuilder
+ * @param {object} deps.weather
+ * @param {object} deps.queue
+ * @param {object} deps.scheduler - used indirectly through the recommendation
+ *   actions this service delegates to; kept in the contract because the
+ *   composition root wires it here.
+ * @param {{isConfigured: () => boolean}} deps.djStatus
+ * @param {{setLastUserChat: (text: string) => void}} [deps.userActivity]
+ * @param {() => number} [deps.now]
+ * @param {string} [deps.persona]
+ * @param {{search: (keywords: string, limit?: number) => Promise<Array<any>>}} [deps.music]
+ */
 export function createAgentTurnService({
   intentRouter,
   conversation,

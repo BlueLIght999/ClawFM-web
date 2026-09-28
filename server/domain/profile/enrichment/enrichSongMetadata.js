@@ -20,10 +20,10 @@ const DEFAULT_ENABLED_PROVIDERS = ['netease', 'musicbrainz', 'wiki'];
 
 /**
  * Enrich a single song by walking the provider chain.
- * @param {Object} song                          — { title, artist, songId|id }
+ * @param {Object} song                          - { title, artist, songId|id }
  * @param {Object} opts
- * @param {Array}  [opts.chain=[]]              — ordered list of providers (.name, .search)
- * @param {Object} [opts.eventBus=null]         — optional bus to emit enrichment:progress
+ * @param {Array}  [opts.chain=[]]              - ordered list of providers (.name, .search)
+ * @param {Object} [opts.eventBus=null]         - optional bus to emit enrichment:progress
  * @returns {Promise<Object>} enrichment result; _enriched=false when nothing found
  */
 function getSongId(song) {
@@ -67,9 +67,9 @@ export async function enrichSongMetadata(song, { chain = [], eventBus = null } =
  * dependency degrades gracefully instead of crashing the chain.
  *
  * @param {Object} opts
- * @param {Object} [opts.neteaseAdapter] — Netease adapter (enables the netease provider)
- * @param {Object} [opts.httpClient]     — HTTP client (enables musicbrainz + wiki)
- * @param {Object} [opts.config]          — { enabled:string[], timeout:number }
+ * @param {Object} [opts.neteaseAdapter] - Netease adapter (enables the netease provider)
+ * @param {Object} [opts.httpClient]     - HTTP client (enables musicbrainz + wiki)
+ * @param {Object} [opts.config]          - { enabled:string[], timeout:number }
  * @returns {Array<BaseSearchProvider>}
  */
 export function createEnrichmentChain({ neteaseAdapter, httpClient, config = {} } = {}) {

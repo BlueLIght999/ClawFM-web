@@ -25,12 +25,12 @@ const COLD_OPEN_STREAM_SYSTEM = '你现在要开播了。用中文以第一人�
 /**
  * Build messages for generateDjResponse.
  * @param {string} persona - DJ persona text
- * @param {string|null} assembledPrompt - pre-assembled context
+ * @param {string|null|undefined} assembledPrompt - pre-assembled context
  * @param {Array<{role:string,content:string}>} history - chat history
- * @param {string|null} userInput - user message
+ * @param {string|null|undefined} userInput - user message
  * @param {object|null} prevSong
  * @param {object|null} nextSong
- * @param {string|null} timeOfDay
+ * @param {string|null|undefined} timeOfDay
  * @returns {Array<{role:string,content:string}>}
  */
 export function buildDjResponseMessages(persona, assembledPrompt, history, userInput, prevSong, nextSong, timeOfDay) {

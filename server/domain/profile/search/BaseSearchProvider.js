@@ -21,8 +21,8 @@ const GENRE_KEYWORDS = [
 export class BaseSearchProvider {
   /**
    * @param {Object} opts
-   * @param {string} [opts.name]    — provider display name (defaults to class name)
-   * @param {number} [opts.timeout] — per-request timeout in ms (default 5000)
+   * @param {string} [opts.name]    - provider display name (defaults to class name)
+   * @param {number} [opts.timeout] - per-request timeout in ms (default 5000)
    */
   constructor({ name, timeout = 5000 } = {}) {
     this.name = name || this.constructor.name;
@@ -31,7 +31,7 @@ export class BaseSearchProvider {
 
   /**
    * Search for metadata tags for a song.
-   * @param {Object} song — { title, artist, songId|id }
+   * @param {Object} _song - { title, artist, songId|id }
    * @returns {Promise<Object|null>} enrichment result or null
    * @throws always — subclasses must override.
    */
@@ -54,8 +54,8 @@ export class BaseSearchProvider {
   /**
    * Extract genre tags from free text by matching known genre keywords.
    * Shared helper for subclasses (album tags, wiki snippets, artist bios).
-   * @param {string} text        — text to scan
-   * @param {number} confidence — confidence to assign to inferred tags
+   * @param {string} text        - text to scan
+   * @param {number} confidence - confidence to assign to inferred tags
    * @returns {Array<{name:string,category:string,confidence:number}>}
    */
   _extractGenreKeywords(text, confidence = 0.7) {

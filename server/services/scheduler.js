@@ -29,10 +29,56 @@ import {
 import { buildSchedulerState } from '../domain/playback/schedulerStateRules.js';
 import { shouldTriggerRefill, refillOutcome } from '../domain/playback/refillRules.js';
 
+/**
+ * A scheduler-local playhead. Declared as its own typedef because the literal
+ * below seeds four members with `null` and strictNullChecks would otherwise
+ * freeze them as `null`-only, rejecting every later assignment from the
+ * domain/playback rules (`seekPlayhead`, `startSongPlayhead`, ...), which
+ * return untyped objects. `_advancing` is added dynamically by the transition
+ * orchestrator rather than in the seed literal, hence its optionality here.
+ * `transitionTimer` holds a Node Timeout handle, so it is `any` - its later
+ * values are passed to clearTimeout() and are not meaningfully number-typed.
+ * @typedef {{
+ *   currentSong: any,
+ *   startedAt: any,
+ *   songDuration: any,
+ *   isPlaying: any,
+ *   transitionTimer: any,
+ *   _advancing?: boolean
+ * }} SchedulerPlayhead
+ */
+
+/**
+ * The hook fields RadioScheduler seeds with `null`. Declared as a typedef so
+ * strictNullChecks does not freeze each one to its null literal, which would
+ * reject the real handler assignments made from socket/handler.js.
+ * Argument types stay loose (`any`) because each hook forwards whatever the
+ * emitting site produced; only the return type matters, and all three are
+ * fire-and-forget.
+ * `onAdvance` is deliberately left out: it is not a null-seeded user hook but
+ * the closure handed to the transition orchestrator, and declaring it here
+ * would collide with the `onAdvance = null` default in that constructor.
+ * @typedef {{
+ *   onSongChange: ((song: any) => void)|null,
+ *   onDjSpeechNeeded: ((payload?: any) => void)|null,
+ *   onStateChange: ((state: any) => void)|null
+ * }} SchedulerHooks
+ *
+ * `refillProvider` is not covered by either typedef. tsc only learns a class
+ * member from an assignment in the constructor (a typedef/@property field the
+ * constructor never assigns stays invisible), and the field is never assigned
+ * there - it is set from the outside by the refill-recovery path and by
+ * __tests__/scheduler-refill-recovery.test.js. Declaring it would therefore
+ * require adding `this.refillProvider = null;` to the constructor, i.e. a
+ * runtime change, so the two reads below are handled with a local cast instead.
+ */
+
+/** @type {SchedulerHooks} */
 export class RadioScheduler {
   constructor({ music = null, listenHistory = null } = {}) {
     this.music = music;
     this.listenHistory = listenHistory;
+    /** @type {SchedulerPlayhead} */
     this.playhead = {
       currentSong: null,
       startedAt: null,
@@ -214,9 +260,14 @@ export class RadioScheduler {
       refillAttempted: false,
     });
 
-    if (outcome.action === 'triggerRefill' && this.refillProvider) {
+    // The cast is a no-op at runtime; it only tells tsc the type of a field that
+    // is assigned from outside the class and therefore never declared in the
+    // constructor. See the SchedulerHooks typedef note above.
+    const refillProvider = /** @type {null|(() => Promise<any[]>)} */ (this['refillProvider']);
+
+    if (outcome.action === 'triggerRefill' && refillProvider) {
       try {
-        const refilledSongs = await this.refillProvider();
+        const refilledSongs = await refillProvider();
         if (refilledSongs && refilledSongs.length > 0) {
           // Songs were added to the queue by refillProvider; advance to play first
           const nextSong = queue.advance();

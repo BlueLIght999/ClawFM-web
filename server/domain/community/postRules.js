@@ -29,10 +29,10 @@ export function sanitizeContent(content) {
 /**
  * 校验并规范化帖子输入。
  * @param {object} input
- * @param {string} input.type        — reflection/history/recommend/comment
- * @param {string} input.content     — 正文
- * @param {number} [input.parentId]  — comment 必填
- * @param {string} [input.songId]    — recommend 必填
+ * @param {string} input.type        - reflection/history/recommend/comment
+ * @param {string} input.content     - 正文
+ * @param {number} [input.parentId]  - comment 必填
+ * @param {string} [input.songId]    - recommend 必填
  * @param {string} [input.playlistId]
  * @returns {{ok:true, post:object} | {ok:false, error:string}}
  */

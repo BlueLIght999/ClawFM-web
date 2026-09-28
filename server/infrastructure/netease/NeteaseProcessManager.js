@@ -22,6 +22,17 @@ const MAX_RESTARTS = 5;
 const STABLE_RUN_MS = 60000;
 
 export class NeteaseProcessManager {
+  /**
+   * The logger and config are injected by server.js; they default to the ambient
+   * console / static config so the manager stays usable standalone. `logger` and
+   * `config` are typed `any` because the pino instance and the config literal
+   * have shapes this layer does not otherwise name.
+   * @param {object} [deps]
+   * @param {any} [deps.logger] defaults to console
+   * @param {any} [deps.config] defaults to the static config module
+   * @param {any} [deps.fetchImpl]
+   * @param {number} [deps.probeTimeoutMs]
+   */
   constructor({ logger = console, config: cfg = null, fetchImpl = null, probeTimeoutMs = 1500 } = {}) {
     this.logger = logger;
     this.config = cfg || config;

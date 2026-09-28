@@ -12,8 +12,8 @@
 export class BaseCollector {
   /**
    * @param {Object}  [opts]
-   * @param {string}  [opts.name]     — collector display name (defaults to class name)
-   * @param {Object}  [opts.eventBus] — optional bus exposing emit(type, payload)
+   * @param {string}  [opts.name]     - collector display name (defaults to class name)
+   * @param {Object}  [opts.eventBus] - optional bus exposing emit(type, payload)
    */
   constructor({ name, eventBus } = {}) {
     this.name = name || this.constructor.name;
@@ -22,7 +22,7 @@ export class BaseCollector {
 
   /**
    * Collect evidence from injected sources.
-   * @param {Object} sources — collector-specific dependencies (repositories/fns)
+   * @param {Object} _sources - collector-specific dependencies (repositories/fns)
    * @returns {Promise<Object>} collector-specific result shape.
    * @throws always — subclasses must override.
    */

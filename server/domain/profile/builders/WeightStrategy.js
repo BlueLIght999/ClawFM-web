@@ -18,8 +18,8 @@ export class WeightStrategy {
 
   /**
    * Calculate a tag weight from its supporting evidence.
-   * @param {Array}  evidence — list of evidence items backing this tag
-   * @param {Object} [context] — contextual signals (skipRate, etc.)
+   * @param {Array}  evidence - list of evidence items backing this tag
+   * @param {Object} [_context] - contextual signals (skipRate, etc.)
    * @returns {number} weight value 0-1
    * @throws always — subclasses must override.
    */

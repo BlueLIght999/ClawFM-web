@@ -88,6 +88,13 @@ export function getCollectionState(collectorName) {
   );
 }
 
+/**
+ * @param {string} collectorName
+ * @param {{lastRunAt?: string|number|null, isFirstRun?: boolean|number, runCount?: number, stateJson?: string|null}} [state]
+ *   Optional bag with a bare `= {}` default; every field is written straight into
+ *   the INSERT, so tsc would otherwise infer `{}` from the default and reject each
+ *   read as a missing property (TS2339 x4).
+ */
 export function upsertCollectionState(collectorName, { lastRunAt, isFirstRun, runCount, stateJson } = {}) {
   execute(
     `INSERT INTO profile_collection_state (collector_name, last_run_at, is_first_run, run_count, state_json)

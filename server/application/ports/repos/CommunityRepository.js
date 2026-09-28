@@ -25,12 +25,21 @@
  * @property {string|null} agentAuthorUserId
  * @property {string} createdAt
  *
+ * @typedef {object} CommunityInvitation
+ * @property {number} id
+ * @property {string} fromUserId
+ * @property {string} toUserId
+ * @property {string} contextType
+ * @property {string|null} contextId
+ * @property {string} status
+ * @property {string} createdAt
+ *
  * @typedef {object} CommunityRepository
  * @property {(m: {userId:string, nickname:string, avatarUrl:string}) => CommunityMember|null} createMember
  * @property {(userId: string) => CommunityMember|null} getMember
- * @property {(userId: string, {nickname:string, avatarUrl:string}) => CommunityMember|null} updateMemberProfile — 更新昵称/头像 URL
- * @property {(userId: string, binary: Uint8Array, mimeType: string) => CommunityMember|null} saveAvatar — 存上传头像二进制，并把 avatarUrl 指向取图路由
- * @property {(userId: string) => {avatar_binary: Uint8Array|null, avatar_mime: string|null}|null} getAvatarBinary — 取上传头像二进制与 MIME
+ * @property {(userId: string, patch: {nickname:string, avatarUrl:string}) => CommunityMember|null} updateMemberProfile - 更新昵称/头像 URL
+ * @property {(userId: string, binary: Uint8Array, mimeType: string) => CommunityMember|null} saveAvatar - 存上传头像二进制，并把 avatarUrl 指向取图路由
+ * @property {(userId: string) => {avatar_binary: Uint8Array|null, avatar_mime: string|null}|null} getAvatarBinary - 取上传头像二进制与 MIME
  * @property {(userId: string) => void} touchMemberActive
  * @property {(userId: string, clusterId: number) => void} setMemberCluster
  * @property {(userId: string, selfTags: string[]) => void} setMemberSelfTags
@@ -56,8 +65,8 @@
  * @property {(userId: string, targetType: string, targetId: string) => boolean} hasInboxRecently
  * @property {(userId: string) => {userId:string, rules:object, personaSnapshot:string|null}|null} getMemberAgentConfig
  * @property {(userId: string, rules: object, personaSnapshot: string|null) => void} upsertMemberAgentConfig
- * @property {(inv: {fromUserId:string, toUserId:string, contextType:string, contextId:string|null, status:string}) => number} createInvitation
- * @property {(id: number) => object|null} getInvitation
+ * @property {(inv: {fromUserId:string, toUserId:string, contextType:string, contextId:string|null, status:string}) => CommunityInvitation} createInvitation - 返回落库后的完整邀请行；调用方（InvitationService.invite）直接展开它构造响应，声明成 number 会与实现矛盾
+ * @property {(id: number) => CommunityInvitation|null} getInvitation
  * @property {(userId: string) => Array} listInvitations
  * @property {(id: number, status: string) => void} updateInvitationStatus
  * @property {(room: {roomId:string, hostUserId:string, name:string, topicTags:string[]}) => object} createRoom
@@ -66,21 +75,21 @@
  * @property {(roomId: string) => void} endRoom
  *
  * ── 社交关系（点赞记录 + 关注图谱 + timeline） ──
- * @property {(userId: string, postId: number) => {liked:boolean, likes:number}|null} toggleLike — 切换点赞状态，同步 posts.likes 计数；post 不存在返回 null
+ * @property {(userId: string, postId: number) => {liked:boolean, likes:number}|null} toggleLike - 切换点赞状态，同步 posts.likes 计数；post 不存在返回 null
  * @property {(userId: string, postId: number) => boolean} hasLiked
- * @property {(postId: number) => CommunityMember[]} listLikers — 点赞者成员信息（不含敏感字段）
- * @property {(followerId: string, followeeId: string) => {ok:boolean, following:boolean}} follow — 幂等关注
- * @property {(followerId: string, followeeId: string) => {ok:boolean, following:boolean}} unfollow — 幂等取关
+ * @property {(postId: number) => CommunityMember[]} listLikers - 点赞者成员信息（不含敏感字段）
+ * @property {(followerId: string, followeeId: string) => {ok:boolean, following:boolean}} follow - 幂等关注
+ * @property {(followerId: string, followeeId: string) => {ok:boolean, following:boolean}} unfollow - 幂等取关
  * @property {(followerId: string, followeeId: string) => boolean} isFollowing
- * @property {(userId: string) => CommunityMember[]} listFollowers — 谁 follow 了此用户
- * @property {(userId: string) => CommunityMember[]} listFollowing — 此用户 follow 了谁
- * @property {(userId: string, opts: {limit:number, cursor:number|null}) => CommunityPost[]} listPostsByUser — 用户主页 timeline（仅顶层帖）
- * @property {(userId: string, opts: {limit:number, cursor:number|null}) => CommunityPost[]} listFeedFromFollowing — 关注流（关注者的顶层帖）
+ * @property {(userId: string) => CommunityMember[]} listFollowers - 谁 follow 了此用户
+ * @property {(userId: string) => CommunityMember[]} listFollowing - 此用户 follow 了谁
+ * @property {(userId: string, opts: {limit:number, cursor:number|null}) => CommunityPost[]} listPostsByUser - 用户主页 timeline（仅顶层帖）
+ * @property {(userId: string, opts: {limit:number, cursor:number|null}) => CommunityPost[]} listFeedFromFollowing - 关注流（关注者的顶层帖）
  *
  * ── 私信 / agent 私信（DM） ──
- * @property {(t: {userA:string, userB:string, agentAuthorUserId:string|null}) => object} getOrCreateDmThread — 规范序唯一键 upsert
+ * @property {(t: {userA:string, userB:string, agentAuthorUserId:string|null}) => object} getOrCreateDmThread - 规范序唯一键 upsert
  * @property {(id: number) => object|null} getDmThread
- * @property {(userId: string) => Array} listDmThreads — 我的会话 + lastMessage/unread
+ * @property {(userId: string) => Array} listDmThreads - 我的会话 + lastMessage/unread
  * @property {(threadId: number, limit?: number) => Array} listDmMessages
  * @property {(m: {threadId:number, senderUserId:string, isAgent:boolean, content:string}) => number} createDmMessage
  * @property {(id: number) => object|null} getDmMessage

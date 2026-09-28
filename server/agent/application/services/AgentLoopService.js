@@ -19,7 +19,7 @@ import { matchSearchRoute } from '../../../domain/routing/matchSearchRoute.js';
  * then records observations in order. Tool messages are pushed in
  * tool_calls order to match OpenAI's tool_call_id expectation.
  *
- * @returns {{conversationResults: Array, queueUpdate: object|null}}
+ * @returns {Promise<{conversationResults: Array, queueUpdate: object|null}>}
  */
 async function executeToolCalls(response, { toolRegistry, loopState, messages, queue, snapshot }) {
   const conversationResults = [];
@@ -129,6 +129,20 @@ function preFlightCheck(text, snapshot, { djStatus, agentTurnService }) {
  * @param {number} [deps.maxIterations] - Max ReAct iterations (default 5)
  */
 // eslint-disable-next-line complexity
+/**
+ * @param {object} deps
+ * @param {object} deps.agentTurnService
+ * @param {object} [deps.functionCalling]
+ * @param {object} [deps.toolRegistry]
+ * @param {string} [deps.persona]
+ * @param {object} [deps.contextBuilder]
+ * @param {object} [deps.weather]
+ * @param {object} [deps.queue]
+ * @param {() => number} [deps.now]
+ * @param {number} [deps.maxIterations]
+ * @param {{setLastUserChat: (text: string) => void}} [deps.userActivity]
+ * @param {{isConfigured: () => boolean}} [deps.djStatus]
+ */
 export function createAgentLoopService({
   agentTurnService,
   functionCalling = null,

@@ -16,7 +16,33 @@ import { UserClusterAnalyzer } from './analyzers/UserClusterAnalyzer.js';
 import { RecommendationEnhancer } from './analyzers/RecommendationEnhancer.js';
 import { AgentContextAnalyzer } from './analyzers/AgentContextAnalyzer.js';
 
+/**
+ * @typedef {Object} ProfileOrchestratorDeps
+ * @property {Object} [snapshot]        - snapshot store: save(profile, version), latest(), recent(n)
+ * @property {Object} [collectionState] - collection-state store: getAll()
+ * @property {Object} [cluster]         - cluster store: latest()
+ */
+
 export class ProfileOrchestrator {
+  /**
+   * @param {Object} [opts]
+   * @param {Object} [opts.repositories]   - injected repositories (snapshot, collectionState, cluster)
+   * @param {Array}  [opts.collectors]     - override the default collector list
+   * @param {Object} [opts.weightStrategy] - override the weight strategy
+   * @param {Object} [opts.decayStrategy]  - override the decay strategy
+   * @param {Object} [opts.eventBus]       - override the profile event bus
+   * @param {Object} [opts.logger]         - optional logger exposing warn/info/error
+   */
+  /**
+   * @param {object} [deps]
+   * @param {object} [deps.repositories]
+   * @param {any[]|null} [deps.collectors] -- null default would otherwise freeze the
+   *   parameter to the literal `null` and reject the `any[]` field assignment below.
+   * @param {object|null} [deps.weightStrategy]
+   * @param {object|null} [deps.decayStrategy]
+   * @param {object|null} [deps.eventBus]
+   * @param {object|null} [deps.logger]
+   */
   constructor({
     repositories = {},
     collectors: customCollectors = null,
@@ -25,16 +51,24 @@ export class ProfileOrchestrator {
     eventBus = null,
     logger = null,
   } = {}) {
+    /** @type {ProfileOrchestratorDeps} */
     this.repositories = repositories;
     this.logger = logger;
     this._initStrategies({ weightStrategy, decayStrategy, eventBus });
     this.schemaMigrator = new SchemaMigrator();
-    this.collectors = customCollectors || this._createDefaultCollectors();
+    /** @type {any[]} */
+    this.collectors = /** @type {any[]} */ (customCollectors || this._createDefaultCollectors());
     this.builder = this._createBuilder();
     this.analyzers = this._createAnalyzers();
     this._currentProfile = null;
   }
 
+  /**
+   * @param {Object} opts
+   * @param {Object} [opts.weightStrategy]
+   * @param {Object} [opts.decayStrategy]
+   * @param {Object} [opts.eventBus]
+   */
   _initStrategies({ weightStrategy, decayStrategy, eventBus }) {
     this.eventBus = eventBus || new ProfileEventBus();
     this.weightStrategy = weightStrategy || new DefaultWeightStrategy();
@@ -103,7 +137,7 @@ export class ProfileOrchestrator {
 
   /**
    * Run analysis modules on the current profile.
-   * @param {object} evidence — collected evidence grouped by type
+   * @param {object} evidence - collected evidence grouped by type
    * @returns {Promise<object>} analysis results
    */
   async runAnalysis(evidence = {}) {

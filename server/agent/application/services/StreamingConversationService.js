@@ -27,7 +27,10 @@ export function createStreamingConversationService({
     /**
      * Stream a DJ response and return socket-ready payloads.
      *
-     * @param {{text: string, contextPrompt: string, routing: object, messageId: string, onChunk?: Function}} input
+     * @param {{text: string, contextPrompt: string, routing: object, messageId: string, onChunk?: Function, mergedStream?: AsyncIterable<string>|null}} input
+     *   mergedStream lets the caller inject an already-open stream (the merged
+     *   intent+reply stream); the tag must include it, and must admit null because
+     *   that is the parameter's own default.
      * User text, assembled prompt, routed action, stable message id, and chunk callback.
      * @returns {Promise<object>} Stream end/unavailable payloads and optional speech announcement.
      * @throws Does not intentionally throw; stream errors are returned as `streamError`.
@@ -115,7 +118,7 @@ export function createStreamingConversationService({
      * stream, achieving pipeline parallelism between LLM output and audio
      * synthesis.
      *
-     * @param {{text: string, contextPrompt: string, routing: object, messageId: string, onChunk?: Function, onSpeechSegment?: Function, mergedStream?: AsyncIterable<string>}} input
+     * @param {{text: string, contextPrompt: string, routing: object, messageId: string, onChunk?: Function, onSpeechSegment?: Function, mergedStream?: AsyncIterable<string>|null}} input
      * @returns {Promise<object>} Stream end payload + speech segments info.
      */
     // eslint-disable-next-line complexity

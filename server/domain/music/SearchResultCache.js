@@ -12,6 +12,14 @@ const DEFAULT_TTL_MS = 60 * 1000;
 const DEFAULT_MAX_SIZE = 100;
 
 export class SearchResultCache {
+  /**
+   * @param {object} [opts]
+   * @param {{search: (keywords: string, limit?: number) => Promise<Array<any>>}|null} [opts.music]
+   *   music source; optional so the cache can be constructed before the adapter
+   *   exists, in which case search() degrades rather than throwing.
+   * @param {number} [opts.ttlMs]
+   * @param {number} [opts.maxSize]
+   */
   constructor({ music = null, ttlMs = DEFAULT_TTL_MS, maxSize = DEFAULT_MAX_SIZE } = {}) {
     this.music = music;
     this.ttlMs = ttlMs;
@@ -34,6 +42,11 @@ export class SearchResultCache {
       this._cache.set(key, cached);
       return cached.songs;
     }
+    // `music` is an optional dep (the cache may be built before the adapter is
+    // wired), so degrade to an empty result set rather than throwing -- the same
+    // contract the profile searchers use. Returning undefined here would also
+    // break the declared Promise<Array> return.
+    if (!this.music) return [];
     const songs = await this.music.search(keywords, limit);
     if (Array.isArray(songs)) {
       this._setWithEviction(key, { songs, expires: Date.now() + this.ttlMs });

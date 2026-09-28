@@ -3,8 +3,10 @@ import { logger } from '../logging/logger.js';
 /**
  * HealthCheck — aggregates health status from all subsystems.
  *
- * @param {{ checks: Record<string, () => Promise<{ status: string, latencyMs?: number, [key: string]: any }>> }} deps
- *   checks is a map of check-name → async function returning health status.
+ * @param {{ checks?: Record<string, () => Promise<{ status: string, latencyMs?: number, [key: string]: any }>> }} [deps]
+ *   checks is a map of check-name → async function returning health status;
+ *   optional because the `= {}` default means an empty map is valid (everything
+ *   then reports unknown rather than throwing).
  */
 export function createHealthChecker({ checks = {} } = {}) {
   return {

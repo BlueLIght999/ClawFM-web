@@ -114,7 +114,7 @@ export async function startServer(deps) {
   schedulePipeline(services, logger);
 
   // Listen errors such as EADDRINUSE are deterministic startup failures.
-  await new Promise((resolve, reject) => {
+  await new Promise((/** @type {(value?: any) => void} */ resolve, reject) => {
     const handleError = error => reject(error);
     if (typeof httpServer.once === 'function') httpServer.once('error', handleError);
     httpServer.listen(config.port, () => {

@@ -19,7 +19,10 @@ import { assembleContextPrompt } from '../domain/hosting/contextSlots.js';
 
 /**
  * Slot ② User taste corpus.
- * @param {{readTaste,readRoutines,readMoodRules}} corpus injected CorpusPort
+ * The type includes null (not just optional) because that is the parameter's
+ * default; a non-nullable tag made the default itself the error.
+ *
+ * @param {{readTaste: Function, readRoutines: Function, readMoodRules: Function}|null} [corpus] injected CorpusPort
  */
 export function slotUserCorpus(corpus = null) {
   if (!corpus) return '';

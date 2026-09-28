@@ -1,5 +1,5 @@
 /**
- * SpeechTimer — Split timeout management for DJ speech lifecycle.
+ * SpeechTimer - Split timeout management for DJ speech lifecycle.
  *
  * Two-phase timeout ensures the original bug is fixed:
  *   Bug: Single 30s timeout from song-end fired mid-playback because it
@@ -9,15 +9,19 @@
  *        client confirms speech playback has begun.
  */
 
-const MIN_PLAYBACK_TIMEOUT_MS = 5000; // Floor — even very short speech gets 5s
+const MIN_PLAYBACK_TIMEOUT_MS = 5000; // Floor - even very short speech gets 5s
 const PLAYBACK_BUFFER_MS = 5000;       // Buffer beyond estimated speech duration
 
 export class SpeechTimer {
   /**
-   * @param {Object} opts
-   * @param {number} opts.generationTimeoutMs — max wait for LLM+TTS (default 15000)
-   * @param {Function} opts.onGenerationTimeout — called when generation times out
-   * @param {Function} [opts.onPlaybackTimeout] — called when playback times out
+   * Every member is optional because the bag defaults to `{}`: documenting
+   * generationTimeoutMs/onGenerationTimeout as required made the empty default
+   * itself fail the declared type (TS2739). Both are normalised below.
+   *
+   * @param {Object} [opts]
+   * @param {number} [opts.generationTimeoutMs] - max wait for LLM+TTS (default 15000)
+   * @param {Function} [opts.onGenerationTimeout] - called when generation times out
+   * @param {Function} [opts.onPlaybackTimeout] - called when playback times out
    */
   constructor({ generationTimeoutMs = 15000, onGenerationTimeout, onPlaybackTimeout } = {}) {
     this._generationTimeoutMs = generationTimeoutMs;
@@ -44,11 +48,11 @@ export class SpeechTimer {
   /**
    * Client confirmed speech playback has begun.
    * Cancels generation timeout and starts playback timeout.
-   * @param {number} speechDurationSeconds — estimated speech duration
+   * @param {number} speechDurationSeconds - estimated speech duration
    */
   speechStarted(speechDurationSeconds = 8) {
     if (this._disposed) return;
-    if (this._generationTimedOut) return; // Too late — generation already failed
+    if (this._generationTimedOut) return; // Too late - generation already failed
 
     // Cancel generation timeout
     if (this._genTimer) {

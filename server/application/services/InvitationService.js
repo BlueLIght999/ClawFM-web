@@ -9,14 +9,14 @@ import { checkInvitationAuthorization, transition, normalizeInvitation } from '.
 import { normalizeAgentRules } from '../../domain/community/memberAgentRules.js';
 
 /**
- * @param {object} deps
- * @param {import('../ports/repos/CommunityRepository.js').CommunityRepository} deps.communityRepository
- * @param {import('../ports/services/NeteaseMemberHistoryPort.js').NeteaseMemberHistoryPort} [deps.neteaseHistoryPort]
- * @param {import('../ports/services/CookieCipherPort.js').CookieCipherPort} [deps.cookieCipherPort]
- * @param {{emit?: (event:string, payload:object, targetUserId?:string|null)=>void, emitToRoom?: (event:string, payload:object, roomId:string)=>void}} [deps.eventPublisher]
- * @param {{warn?:Function}} [deps.logger]
+ * @param {{communityRepository: import('../ports/repos/CommunityRepository.js').CommunityRepository, neteaseHistoryPort?: import('../ports/services/NeteaseMemberHistoryPort.js').NeteaseMemberHistoryPort, cookieCipherPort?: import('../ports/services/CookieCipherPort.js').CookieCipherPort, eventPublisher?: {emit?: (event:string, payload:object, targetUserId?:string|null)=>void, emitToRoom?: (event:string, payload:object, roomId:string)=>void}, logger?: {warn?:Function}}} [deps]
  */
-export function createInvitationService({ communityRepository, neteaseHistoryPort, cookieCipherPort, eventPublisher, logger } = {}) {
+// The `= {}` default is cast rather than the dependency being marked optional:
+// communityRepository is genuinely required (every method dereferences it), so
+// typing it optional would trade one honest error for ~100 false
+// possibly-undefined ones. A caller that omits it fails at first use -- which is
+// the existing behaviour -- and the cast keeps that contract documented.
+export function createInvitationService({communityRepository, neteaseHistoryPort, cookieCipherPort, eventPublisher, logger} = /** @type {any} */ ({})) {
   const repo = communityRepository;
 
   /**
@@ -77,6 +77,11 @@ export function createInvitationService({ communityRepository, neteaseHistoryPor
     let playlists;
     try {
       const cookie = cookieCipherPort?.decrypt?.(auth.cookieEncrypted);
+      // The optional chain yields `string | undefined`; a missing cookie would be
+      // sent to Netease as the literal "undefined" and silently return nothing, so
+      // treat it as the same precondition failure as missing credentials (RC6: the
+      // decrypted member cookie exists only for this call and is never logged).
+      if (!cookie) return { ok: false, error: 'invitee_no_credentials' };
       playlists = await neteaseHistoryPort?.fetchMemberPlaylists?.(auth.neteaseUid, cookie) || [];
     } catch (e) {
       logger?.warn?.({ component: 'community', err: e?.message, invitationId }, 'bring_playlist fetch failed');

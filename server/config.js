@@ -29,8 +29,11 @@ export default {
   // Manual location override — set WEATHER_CITY in .env if IP geolocation is wrong
   location: {
     city: process.env.WEATHER_CITY || '',
-    lat: parseFloat(process.env.WEATHER_LAT) || 0,
-    lon: parseFloat(process.env.WEATHER_LON) || 0,
+    // Number() rather than parseFloat(process.env.X): the env lookup is
+    // `string | undefined`, which parseFloat (typed `string`) rejects. Number('')
+    // and Number(undefined) are both NaN, so the `|| 0` fallback is unchanged.
+    lat: Number(process.env.WEATHER_LAT) || 0,
+    lon: Number(process.env.WEATHER_LON) || 0,
   },
   // Observability
   logging: {

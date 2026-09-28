@@ -22,12 +22,15 @@ const USER_TAGS_MAX = 10;
 
 /**
  * 从 fused profile 提取定长数值向量。
- * @param {object} profile — fuseProfile 的输出
+ * @param {object} profile - fuseProfile 的输出
  * @returns {Record<string, number>} 40 维向量
  */
 export function extractFeatureVector(profile) {
   const p = profile || {};
   const tags = p.tags || {};
+  // 累加器显式标成 Record<string, number>：按模板字符串下标逐项赋值时，
+  // tsc 只能推断出 {}，与声明的返回类型 Record<string, number> 冲突。
+  /** @type {Record<string, number>} */
   const v = {};
 
   for (const t of GENRE_TAGS) v[`genre_${t}`] = Number(tags.genre?.[t]) || 0;

@@ -14,10 +14,13 @@ export function defaultAgentRules() {
 
 /**
  * 求值某 action 是否被规则允许。
- * @param {object} params
- * @param {object} params.rules — 成员 agent 规则
- * @param {string} params.action — comment / be_invited / share_playlist
- * @param {string} [params.topic] — 评论主题（action=comment 时校验）
+ *
+ * 形参直接解构，无 params 包装；tags 按真实形参名绑定，否则 tsc 报实参缺失。
+ *
+ * @param {object} opts
+ * @param {object} [opts.rules] - 成员 agent 规则（缺省用 defaultAgentRules()）
+ * @param {string} [opts.action] - comment / be_invited / share_playlist
+ * @param {string} [opts.topic] - 评论主题（action=comment 时校验）
  * @returns {{allowed:true} | {allowed:false, reason:string}}
  */
 export function evaluateAgentAction({ rules, action, topic } = {}) {

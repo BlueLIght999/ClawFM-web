@@ -22,6 +22,12 @@ import {
 } from '../domain/hosting/djPromptBuilders.js';
 
 // --- Injected dependencies (set by bootstrap.js via configureClaude) ---
+// Type is annotated explicitly: with strictNullChecks the literal below would
+// otherwise be inferred as `{persona: null, llm: null, ...}` forever, and every
+// later `_deps.llm.complete(...)` would resolve to `never`. Each member is
+// `any` here because the null default only means "not injected yet" -- the real
+// port/adapter shape arrives at runtime via configureClaude().
+/** @type {{persona: any, llm: any, llmClient: any, chatHistory: any, profile: any}} */
 let _deps = {
   persona: null,      // DJ persona loaded from djPersonaLoader
   llm: null,          // DeepSeekLlmAdapter (LlmPort)
@@ -48,8 +54,19 @@ async function callLLM(messages, { jsonMode = false, maxTokens = 250, temperatur
 }
 
 /**
+ * Params for generateDjResponse().
+ * prevSong/nextSong stay `any` because they are forwarded to domain prompt
+ * builders that declare `object|null` themselves; the string fields are
+ * nullable-and-optional because callers legitimately omit them (the transition
+ * wrapper passes no userInput, the tests pass no timeOfDay) and the builders
+ * they feed falsy-check their arguments, so `undefined` is an accepted value.
+ * @typedef {{userInput?: string|null, assembledPrompt?: string|null, prevSong: any, nextSong: any, timeOfDay?: string|null, jsonMode?: boolean}} DjResponseParams
+ */
+
+/**
  * Main entry: generate structured DJ output
  * Returns { say, play[], reason, segue } per the blueprint
+ * @param {DjResponseParams} params
  */
 export async function generateDjResponse({
   userInput,

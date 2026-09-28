@@ -8,7 +8,7 @@
 /**
  * Decide whether music should stop based on remaining client count.
  *
- * @param {number} connectedClients — remaining connected clients.
+ * @param {number} connectedClients - remaining connected clients.
  * @returns {boolean} true if music should stop (0 or negative clients).
  */
 export function shouldStopMusicForNextSession(connectedClients) {

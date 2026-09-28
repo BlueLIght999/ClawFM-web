@@ -12,8 +12,15 @@ import { emitRadioState } from './versionedRadioEmitter.js';
  *
  * @param {import('socket.io').Server} io
  * @param {import('socket.io').Socket} socket
- * @param {object} deps — service dependencies
- * @param {object} deps.logger — pino-style logger
+ * @param {object} deps - service dependencies
+ * @param {object} deps.logger - pino-style logger
+ * @param {any} deps.scheduler - the RadioScheduler singleton
+ * @param {any} deps.getPlan - planner accessor
+ * @param {any} deps.speechSynthAdapter - TTS adapter
+ * @param {any} deps.metricsCollector - metrics registry
+ * @param {any} deps.chatHistory - chat history repository
+ * @param {() => number} deps.getConnectedClients
+ * @param {(count: number) => void} deps.setConnectedClients
  */
 export async function onNewConnection(io, socket, deps) {
   const { scheduler, getPlan, speechSynthAdapter, metricsCollector, logger, chatHistory } = deps;

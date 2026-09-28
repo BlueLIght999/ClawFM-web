@@ -8,12 +8,17 @@
 import { crossUserCluster } from '../../domain/community/clustering/CrossUserClusterAnalyzer.js';
 
 /**
- * @param {object} deps
- * @param {import('../ports/repos/CommunityRepository.js').CommunityRepository} deps.communityRepository
- * @param {{emit?: (event:string, payload:object, targetUserId?:string)=>void}} [deps.eventPublisher]
- * @param {{warn?:Function, info?:Function}} [deps.logger]
+ * Deps are destructured directly and the bag itself is optional (defaults to
+ * `{}`); the inline object form is the one tsc binds to a destructured parameter.
+ *
+ * @param {{communityRepository: import('../ports/repos/CommunityRepository.js').CommunityRepository, eventPublisher?: {emit?: (event:string, payload:object, targetUserId?:string)=>void}, logger?: {warn?:Function, info?:Function}}} [deps]
  */
-export function createClusterService({ communityRepository, eventPublisher, logger } = {}) {
+// The `= {}` default is cast rather than the dependency being marked optional:
+// communityRepository is genuinely required (every method dereferences it), so
+// typing it optional would trade one honest error for ~100 false
+// possibly-undefined ones. A caller that omits it fails at first use -- which is
+// the existing behaviour -- and the cast keeps that contract documented.
+export function createClusterService({communityRepository, eventPublisher, logger} = /** @type {any} */ ({})) {
   const repo = communityRepository;
 
   function runClustering() {

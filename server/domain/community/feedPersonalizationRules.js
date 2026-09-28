@@ -50,8 +50,8 @@ export function scorePostForTaste(post, keywords) {
 
 /**
  * 个性化 feed：按被邀请方画像加权重排帖子（稳定，得分高在前，0 分保持原序）。
- * @param {Array} posts — 帖子数组（含 autoTags）
- * @param {Array<object>} inviteeProfiles — 被邀请方 fused profile 数组
+ * @param {Array} posts - 帖子数组（含 autoTags）
+ * @param {Array<object>} inviteeProfiles - 被邀请方 fused profile 数组
  * @returns {Array} 重排后的帖子数组（新数组，不改原序的相对顺序）
  */
 export function personalizeFeed(posts, inviteeProfiles) {

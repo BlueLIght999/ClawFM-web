@@ -8,12 +8,14 @@
 import { canControl, buildRoomStatePayload, transitionRoom } from '../../domain/community/roomRules.js';
 
 /**
- * @param {object} deps
- * @param {import('../ports/repos/CommunityRepository.js').CommunityRepository} deps.communityRepository
- * @param {{emitToRoom?: (event:string, payload:object, roomId:string)=>void}} [deps.eventPublisher]
- * @param {{warn?:Function}} [deps.logger]
+ * @param {{communityRepository: import('../ports/repos/CommunityRepository.js').CommunityRepository, eventPublisher?: {emitToRoom?: (event:string, payload:object, roomId:string)=>void}, logger?: {warn?:Function}}} [deps]
  */
-export function createRoomService({ communityRepository, eventPublisher, logger } = {}) {
+// The `= {}` default is cast rather than the dependency being marked optional:
+// communityRepository is genuinely required (every method dereferences it), so
+// typing it optional would trade one honest error for ~100 false
+// possibly-undefined ones. A caller that omits it fails at first use -- which is
+// the existing behaviour -- and the cast keeps that contract documented.
+export function createRoomService({communityRepository, eventPublisher, logger} = /** @type {any} */ ({})) {
   const repo = communityRepository;
 
   function createRoom({ hostUserId, name, topicTags }) {
@@ -30,6 +32,11 @@ export function createRoomService({ communityRepository, eventPublisher, logger 
   /**
    * 列出房间。传 `true`/不传 → 仅活跃；传 `false` → 包含已结束。
    * 兼容旧 options 形式 `listRooms({ activeOnly: false })`。
+   *
+   * @param {boolean|{activeOnly?: boolean}} [activeOnlyOrOpts]
+   *   Annotated because without a type the `typeof === 'boolean'` check narrows the
+   *   untyped parameter down to the object branch, and a `null` argument then
+   *   collapses to `never` on the property read (TS2339).
    */
   function listRooms(activeOnlyOrOpts = true) {
     const activeOnly = typeof activeOnlyOrOpts === 'boolean'

@@ -9,7 +9,14 @@ import { EVENTS } from './events.js';
  * proactive.js → socket/events.js (architecture rule D4).
  */
 export class SocketEventPublisher {
-  /** @param {{ emit: Function }} io Socket.IO server (or namespace) */
+  /**
+   * @param {{emit: Function, to: Function}} io Socket.IO server (or namespace).
+   *   `to` is part of the surface, not an extra: toClient() addresses a single socket
+   *   through `io.to(id).emit(...)`. The old `{emit: Function}`-only tag described a
+   *   subset of what the class uses, so that one method errored (TS2339).
+   *   Spelled structurally rather than as `import('socket.io').Server` because only
+   *   these two members are touched, and that keeps the adapter testable with a stub.
+   */
   constructor(io) {
     this._io = io;
   }

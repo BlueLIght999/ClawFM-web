@@ -26,8 +26,8 @@ function currentTimeOfDay() {
 
 /**
  * Generate and push bubbles to all clients.
- * @param {object} io — socket.io server
- * @param {object} deps — { profileOrchestrator, getWeatherRaw }
+ * @param {object} io - socket.io server
+ * @param {object} deps - { profileOrchestrator, getWeatherRaw }
  */
 export async function pushBubbles(io, deps) {
   const { profileOrchestrator, getWeatherRaw } = deps;
@@ -73,9 +73,9 @@ export async function pushBubbles(io, deps) {
 
 /**
  * Probabilistically push bubbles (used on song-change events).
- * @param {object} io — socket.io server
- * @param {object} deps — dependencies
- * @param {number} probability — chance to push (0-1)
+ * @param {object} io - socket.io server
+ * @param {object} deps - dependencies
+ * @param {number} probability - chance to push (0-1)
  */
 export async function maybePushBubbles(io, deps, probability = BUBBLE_SONG_CHANGE_PROBABILITY) {
   if (Math.random() < probability) {
@@ -85,8 +85,8 @@ export async function maybePushBubbles(io, deps, probability = BUBBLE_SONG_CHANG
 
 /**
  * Search for songs based on a bubble tag.
- * @param {object} tag — { type, value, query, label }
- * @param {object} music — MusicSourcePort
+ * @param {object} tag - { type, value, query, label }
+ * @param {object} music - MusicSourcePort
  * @returns {Promise<Array>} songs
  */
 async function searchByBubbleTag(tag, music) {
@@ -105,9 +105,9 @@ async function searchByBubbleTag(tag, music) {
 
 /**
  * Wire bubble events to a socket.
- * @param {object} io — socket.io server
- * @param {object} socket — client socket
- * @param {object} deps — { music, queue, profileOrchestrator, getWeatherRaw, playbackService }
+ * @param {object} io - socket.io server
+ * @param {object} socket - client socket
+ * @param {object} deps - { music, queue, profileOrchestrator, getWeatherRaw, playbackService }
  * @returns {function} cleanup function (clears interval)
  */
 export function wireBubbleEvents(io, socket, deps) {

@@ -8,12 +8,16 @@ import { validatePost } from '../../domain/community/postRules.js';
 import { validateFollow } from '../../domain/community/followRules.js';
 
 /**
- * @param {object} deps
- * @param {import('../ports/repos/CommunityRepository.js').CommunityRepository} deps.communityRepository
- * @param {(userId: string, posts: Array) => Array} [deps.feedPersonalizer] — F9 发现流个性化（按 active feed-invitations 加权）
- * @param {{emit?: (event:string, payload:object, targetUserId?:string|null)=>void}} [deps.eventPublisher] — 用于 community:post-new 广播
+ * @param {{communityRepository: import('../ports/repos/CommunityRepository.js').CommunityRepository, feedPersonalizer?: ((userId: string, posts: Array) => Array), eventPublisher?: {emit?: (event:string, payload:object, targetUserId?:string|null)=>void}}} [deps]
+ *   feedPersonalizer: F9 发现流个性化（按 active feed-invitations 加权）；
+ *   eventPublisher: 用于 community:post-new 广播
  */
-export function createCommunityService({ communityRepository, feedPersonalizer, eventPublisher } = {}) {
+// The `= {}` default is cast rather than the dependency being marked optional:
+// communityRepository is genuinely required (every method dereferences it), so
+// typing it optional would trade one honest error for ~100 false
+// possibly-undefined ones. A caller that omits it fails at first use -- which is
+// the existing behaviour -- and the cast keeps that contract documented.
+export function createCommunityService({communityRepository, feedPersonalizer, eventPublisher} = /** @type {any} */ ({})) {
   const repo = communityRepository;
   const personalize = typeof feedPersonalizer === 'function' ? feedPersonalizer : (_uid, posts) => posts;
 
@@ -49,8 +53,16 @@ export function createCommunityService({ communityRepository, feedPersonalizer, 
 
   /**
    * Feed。传 forUserId 时按其 active feed-invitations 个性化排序（F9）。
+   *
+   * @param {{limit?: number, cursor?: number|null, forUserId?: string|number|null}} [params]
+   *   Destructured with a bare `= {}` default and no tag: tsc then types the
+   *   pattern from an empty literal and rejects every field read (TS2339 x3).
    */
-  function getFeed({ limit, cursor, forUserId } = {}) {
+  function getFeed({ limit = 20, cursor = null, forUserId } = {}) {
+    // Normalised here to satisfy the port's `{limit:number, cursor:number|null}`
+    // contract. The adapter would cope with undefined (it applies Number()||20 and
+    // treats null|undefined alike), but the port is the boundary and a caller that
+    // passes a genuinely missing cursor should say so explicitly.
     const posts = repo.listFeed({ limit, cursor });
     if (!forUserId) return posts;
     return personalize(forUserId, posts);

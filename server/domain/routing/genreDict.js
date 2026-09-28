@@ -321,7 +321,7 @@ const GENRE_DICT = {
 
 /**
  * Match a user-provided text against the genre dictionary.
- * @param {string} text — raw user input
+ * @param {string} text - raw user input
  * @returns {{key: string, entry: object, matchScore: number}|null}
  */
 export function matchGenre(text) {

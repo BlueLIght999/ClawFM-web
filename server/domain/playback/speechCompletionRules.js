@@ -11,7 +11,7 @@
 /**
  * Classify what should happen after a DJ speech finishes.
  *
- * @param {string | undefined | null} type — the speech type from the client.
+ * @param {string | undefined | null} type - the speech type from the client.
  * @returns {SpeechCompletionAction}
  *   - 'cold-start'  → start music after cold-open speech
  *   - 'no-op'       → chat / chat-announce / proactive: do nothing to playback

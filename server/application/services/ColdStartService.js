@@ -73,6 +73,15 @@ async function handleGeneratedIntro({
  *
  * It owns TTS retry/fallback and first-song startup, while the socket handler
  * still owns transport events and LLM streaming until the next strangler slice.
+ *
+ * The whole deps bag is described in one tag: tsc binds a single JSDoc object
+ * type to a destructured parameter, and any field left out of it is reported as
+ * a missing property (TS2339) rather than inferred. `introWriter` is spelled out
+ * because its `= { writeIntro: async () => '' }` fallback is a zero-arg
+ * function, which tsc would otherwise take as the parameter type and then use to
+ * reject the real call site's argument (TS2554).
+ *
+ * @param {{queue?: any, scheduler?: any, speech?: any, ttsAvailability?: Function, weather?: {current: () => Promise<string>}, timeOfDay?: () => string, introWriter?: {writeIntro: (input: {firstSong?: object, weather: string, timeOfDay: string, onToken?: Function}) => Promise<string>}, messageId?: () => string, delay?: (ms: number) => Promise<void>}} deps
  */
 export function createColdStartService({
   queue,
@@ -113,12 +122,19 @@ export function createColdStartService({
     /**
      * Write the cold-start intro and stream token payloads through callbacks.
      *
-     * @param {{firstSong: object, onChunk?: Function, onPhase?: Function}} input First song and transport callbacks.
+     * @param {{firstSong?: object, onChunk?: Function, onPhase?: Function}} [input] First song and transport callbacks.
+     *   `firstSong` is optional in the type only because the bag defaults to `{}`; every
+     *   real caller (socket/coldStartHandler) passes it.
      * @returns {Promise<{messageId: string, fullText: string, streamEnd: object}>} Stream identity and completed text.
      * @throws Bubbles writer/weather failures so the socket layer can fall back to direct music startup.
      * Constraint: transport-agnostic callbacks keep Socket event names outside the application service.
      */
-    async writeIntro({ firstSong, onChunk, onPhase } = {}) {
+    async writeIntro(input = /** @type {any} */ ({})) {
+      // Destructured in the body, not the parameter list: with the bag marked
+      // optional (`[input]`) tsc types the whole parameter as `T | undefined`
+      // and a cast on the default does not narrow it, so every field read off a
+      // destructured pattern errors (TS2339 x3).
+      const { firstSong, onChunk, onPhase } = input;
       const coldMessageId = messageId();
       onPhase?.({ phase: 'writing' });
 

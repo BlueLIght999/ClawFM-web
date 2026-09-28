@@ -101,7 +101,7 @@ function toDmMessage(row) {
 }
 
 /**
- * @param {object} [deps] — 可注入 db helpers（测试用）
+ * @param {object} [deps] - 可注入 db helpers（测试用）
  */
 export function createSqliteCommunityRepository(deps = { queryAll, queryOne, execute }) {
   const q = deps.queryAll || queryAll;
@@ -139,7 +139,16 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
       return (...args) => enrichAuthors(fn(...args));
     },
 
-    createMember({ userId, nickname, avatarUrl }) {
+    /**
+     * tsc will not bind a JSDoc type to a *destructured* parameter unless the tag
+     * name matches the parameter: with one parameter that name is `params`, with a
+     * leading positional parameter it must be the destructured name itself.
+     * Getting it wrong yields TS8024 plus a phantom `{}` on every field read.
+     *
+     * @param {{userId: string|number, nickname?: string, avatarUrl?: string}} params
+     */
+    createMember(params) {
+      const { userId, nickname, avatarUrl } = params;
       run(
         `INSERT INTO community_members (user_id, nickname, avatar_url) VALUES (?, ?, ?)
          ON CONFLICT(user_id) DO UPDATE SET nickname=excluded.nickname, avatar_url=excluded.avatar_url`,
@@ -152,7 +161,9 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
       return toMember(one('SELECT * FROM community_members WHERE user_id = ?', [String(userId)]));
     },
 
-    updateMemberProfile(userId, { nickname, avatarUrl } = {}) {
+    /** @param {string|number} userId @param {{nickname?: string, avatarUrl?: string}} [params] */
+    updateMemberProfile(userId, params = {}) {
+      const { nickname, avatarUrl } = params;
       run(
         'UPDATE community_members SET nickname = ?, avatar_url = ? WHERE user_id = ?',
         [nickname || '', avatarUrl || '', String(userId)]
@@ -247,7 +258,9 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
       return enrichPost(toPost(one('SELECT * FROM community_posts WHERE id = ?', [Number(id)])));
     },
 
-    listFeed({ limit, cursor } = {}) {
+    /** @param {{limit?: number|null, cursor?: number|null}} [params] */
+    listFeed(params = {}) {
+      const { limit, cursor } = params;
       const lim = Math.min(Math.max(Number(limit) || 20, 1), 100);
       if (cursor === null || cursor === undefined) {
         return enrichAuthors(
@@ -464,7 +477,10 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
         [String(inv.fromUserId), String(inv.toUserId), inv.contextType || 'feed', inv.contextId || null, inv.status || 'pending']
       );
       const row = one('SELECT * FROM community_invitations WHERE rowid = last_insert_rowid()');
-      return toInvitation(row);
+      // We just inserted this row and re-read it by rowid within the same
+      // statement stream, so it cannot be absent; toInvitation's null branch is
+      // unreachable here and the port contract declares a non-null DTO.
+      return /** @type {import('../../../application/ports/repos/CommunityRepository.js').CommunityInvitation} */ (toInvitation(row));
     },
 
     getInvitation(id) {
@@ -611,7 +627,9 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
     },
 
     // ── 用户 timeline + 关注流（社交发现核心查询） ───────────
-    listPostsByUser(userId, { limit, cursor } = {}) {
+    /** @param {string|number} userId @param {{limit?: number|null, cursor?: number|null}} [params] */
+    listPostsByUser(userId, params = {}) {
+      const { limit, cursor } = params;
       const lim = Math.min(Math.max(Number(limit) || 20, 1), 100);
       if (cursor === null || cursor === undefined) {
         return enrichAuthors(
@@ -629,7 +647,9 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
       );
     },
 
-    listFeedFromFollowing(userId, { limit, cursor } = {}) {
+    /** @param {string|number} userId @param {{limit?: number|null, cursor?: number|null}} [params] */
+    listFeedFromFollowing(userId, params = {}) {
+      const { limit, cursor } = params;
       const lim = Math.min(Math.max(Number(limit) || 20, 1), 100);
       const subWhere = `p.parent_id IS NULL
              AND p.user_id IN (SELECT followee_id FROM community_follows WHERE follower_id = ?)`;

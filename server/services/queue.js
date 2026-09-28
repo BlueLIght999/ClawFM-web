@@ -1,7 +1,7 @@
 import { SongQueue } from '../domain/playback/SongQueue.js';
 
 class PersistableSongQueue extends SongQueue {
-  /** @type {import('../application/ports/persistence/QueueSnapshotRepository.js').QueueSnapshotRepository | null} */
+  /** @type {import('../application/ports/repos/QueueSnapshotRepository.js').QueueSnapshotRepository | null} */
   _snapshotRepo = null;
 
   /** Inject repository via bootstrap.js (D8 compliance) */

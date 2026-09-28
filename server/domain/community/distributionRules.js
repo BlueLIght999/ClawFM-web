@@ -45,10 +45,14 @@ function normalizeTags(tags) {
 
 /**
  * 给内容标签匹配最合适的簇。
- * @param {object} params
- * @param {string[]} params.contentTags — 内容标签（如帖子 autoTags）
- * @param {Array} params.clusters — crossUserCluster 的 clusters
- * @param {number} [params.maxClusters=3] — 最多返回几个簇
+ *
+ * 参数直接解构，没有 params 包装对象——JSDoc 必须按真实形参名写，否则
+ * tsc 认为实参一个都没提供（TS2739）。
+ *
+ * @param {object} opts
+ * @param {string[]} [opts.contentTags] - 内容标签（如帖子 autoTags）
+ * @param {Array} [opts.clusters] - crossUserCluster 的 clusters
+ * @param {number} [opts.maxClusters=3] - 最多返回几个簇
  * @returns {Array} 按 score 降序的匹配簇 [{clusterId, score, memberUserIds}]
  */
 export function matchClustersForContent({ contentTags, clusters, maxClusters = 3 } = {}) {

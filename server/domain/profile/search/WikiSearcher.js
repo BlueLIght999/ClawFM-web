@@ -16,7 +16,9 @@ const WIKI_GENRE_CONFIDENCE = 0.6;
 export class WikiSearcher extends BaseSearchProvider {
   /**
    * @param {Object} opts
-   * @param {Object} opts.httpClient — injected client exposing get(url, params)
+   * @param {Object} [opts.httpClient] - injected client exposing get(url, params);
+   *   optional because callers may build the chain before a client exists and
+   *   search() degrades to null rather than throwing.
    * @param {number} [opts.timeout]
    */
   constructor({ httpClient, timeout } = {}) {
@@ -26,7 +28,7 @@ export class WikiSearcher extends BaseSearchProvider {
 
   /**
    * Search Wikipedia for the song's artist.
-   * @param {Object} song — { title, artist, songId|id }
+   * @param {Object} song - { title, artist, songId|id }
    * @returns {Promise<Object|null>} { source, tags, metadata:{ wiki_summary } } or null
    */
   async search(song) {

@@ -18,7 +18,9 @@ const NETEASE_INFERRED_CONFIDENCE = 0.72;
 export class NeteaseTagSearcher extends BaseSearchProvider {
   /**
    * @param {Object} opts
-   * @param {Object} opts.neteaseAdapter — injected adapter (songDetail/songWiki/artistDetail)
+   * @param {Object} [opts.neteaseAdapter] - injected adapter (songDetail/songWiki/artistDetail);
+   *   optional because the provider is constructed before login completes and
+   *   search() degrades to null rather than throwing.
    * @param {number} [opts.timeout]
    */
   constructor({ neteaseAdapter, timeout } = {}) {
@@ -28,7 +30,7 @@ export class NeteaseTagSearcher extends BaseSearchProvider {
 
   /**
    * Search Netease for tags of a song.
-   * @param {Object} song — { title, artist, songId|id }
+   * @param {Object} song - { title, artist, songId|id }
    * @returns {Promise<Object|null>} { source, tags, metadata } or null if nothing found
    */
   async search(song) {

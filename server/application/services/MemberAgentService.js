@@ -9,13 +9,12 @@ import { buildMemberPersona } from '../../domain/community/agentPersonaBuilder.j
 import { evaluateAgentAction, normalizeAgentRules } from '../../domain/community/memberAgentRules.js';
 
 /**
- * @param {object} deps
- * @param {import('../ports/repos/CommunityRepository.js').CommunityRepository} deps.communityRepository
- * @param {import('../ports/services/MemberAgentLoopPort.js').MemberAgentLoopPort} deps.memberAgentLoopPort
- * @param {{emit?: (event:string, payload:object, targetUserId?:string|null)=>void}} [deps.eventPublisher]
- * @param {{warn?:Function}} [deps.logger]
+ * @param {{communityRepository: import('../ports/repos/CommunityRepository.js').CommunityRepository, memberAgentLoopPort: import('../ports/services/MemberAgentLoopPort.js').MemberAgentLoopPort, eventPublisher?: {emit?: (event:string, payload:object, targetUserId?:string|null)=>void}, logger?: {warn?:Function}}} [deps]
  */
-export function createMemberAgentService({ communityRepository, memberAgentLoopPort, eventPublisher, logger } = {}) {
+// `= {}` cast rather than weakening the deps to optional: communityRepository /
+// memberAgentLoopPort are required (every method dereferences them), and typing
+// them optional would replace one honest error with many false ones.
+export function createMemberAgentService({ communityRepository, memberAgentLoopPort, eventPublisher, logger } = /** @type {any} */ ({})) {
   const repo = communityRepository;
 
   /**

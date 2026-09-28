@@ -142,7 +142,10 @@ async function refreshAndRetry(url, headers) {
   if (!refreshRes.ok) {
     throw new Error(`NeteaseAPI refresh HTTP ${refreshRes.status}`);
   }
-  const refreshBody = await refreshRes.json();
+  // json() is typed `unknown`. The guard below is the real validation, so cast
+  // at the parse site -- annotating the const with `@type` would instead assert
+  // assignability and fail (TS2322): a cast is needed here, not a re-check.
+  const refreshBody = /** @type {{cookie?: string}} */ (await refreshRes.json());
   if (!refreshBody.cookie) {
     throw new Error('Login expired — please re-login');
   }

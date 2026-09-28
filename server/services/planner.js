@@ -7,6 +7,11 @@
 import { assemblePrompt, getTimeOfDayMood } from './context.js';
 
 // --- Injected dependencies (set by bootstrap.js via configurePlanner) ---
+// Type is annotated explicitly: with strictNullChecks the literal below would
+// otherwise be inferred as `{llm: null, weather: null, planRepository: null}`
+// forever, and every later `_deps.llm.complete(...)` would resolve to `never`.
+// Each member is `any` because the null default only means "not injected yet".
+/** @type {{llm: any, weather: any, planRepository: any}} */
 let _deps = {
   llm: null,          // DeepSeekLlmAdapter (LlmPort)
   weather: null,      // WeatherPort

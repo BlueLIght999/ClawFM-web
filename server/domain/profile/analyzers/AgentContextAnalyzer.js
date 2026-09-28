@@ -21,17 +21,23 @@ const PERIOD_LABELS = {
 export class AgentContextAnalyzer extends BaseAnalyzer {
   /**
    * @param {Object} [opts]
-   * @param {Object} [opts.eventBus] — optional bus exposing emit(type, payload)
+   * @param {Object} [opts.eventBus] - optional bus exposing emit(type, payload)
    */
   constructor({ eventBus = null } = {}) {
     super({ name: 'AgentContextAnalyzer', eventBus });
   }
 
   /**
+   * This analyzer reads its inputs off the profile (including `profile.analysis`,
+   * where the sibling analyzers' output already lives), so it needs no options bag.
+   * The second parameter exists to match the BaseAnalyzer contract: ProfileOrchestrator
+   * calls every analyzer uniformly with (profile, options).
+   *
    * @param {Object} profile
+   * @param {Object} [_options] - unused; present for signature compatibility
    * @returns {Promise<Object>} { summary, topGenres, topMoods, … }
    */
-  async analyze(profile) {
+  async analyze(profile, _options = {}) {
     if (!profile) {
       return this._defaultResult();
     }
@@ -72,7 +78,7 @@ export class AgentContextAnalyzer extends BaseAnalyzer {
   /**
    * Extract top-N tags from a profile dimension, sorted by weight desc.
    * @param {Object} profile
-   * @param {string} dimension — 'genre' | 'mood' | 'region'
+   * @param {string} dimension - 'genre' | 'mood' | 'region'
    * @param {number} limit
    * @returns {Array<{name:string, weight:number}>}
    */

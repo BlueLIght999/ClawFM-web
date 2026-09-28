@@ -47,7 +47,7 @@ export class SeedPoolBuilder {
   /**
    * Build the seed pool for a user.
    * @param {string} uid user id
-   * @returns {Promise<{songs: number, topArtists: Array}>}
+   * @returns {Promise<{songs: number, topArtists: Array, topGenres: Array}>}
    */
   async build(uid) {
     const playlists = await this.music.userPlaylists(uid);

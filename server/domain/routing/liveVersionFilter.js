@@ -13,7 +13,7 @@ const LIVE_PATTERNS = [
 
 /**
  * Check if a song is a live/remix/demo version.
- * @param {object|string} song — song object with name/title field, or raw name string
+ * @param {object|string} song - song object with name/title field, or raw name string
  * @returns {boolean}
  */
 export function isLiveVersion(song) {

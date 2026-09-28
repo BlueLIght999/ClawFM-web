@@ -6,6 +6,13 @@
  *   - targetUserId 空 → 广播给所有客户端
  * 依赖倒置：application 只调 emit，不持有 io（守 D3/D4）。
  */
+/**
+ * @param {{io?: import('socket.io').Server, logger?: {warn?: Function, info?: Function}}} [deps]
+ *   Optional bag with a bare `= {}` default: without io the publisher silently
+ *   no-ops (the guard below), and logger is only ever called through `?.`. Left
+ *   unannotated, tsc types the pattern from the empty literal and reports every
+ *   field read as a missing property.
+ */
 export function createCommunityEventPublisher({ io, logger } = {}) {
   return {
     emit(event, payload, targetUserId) {

@@ -12,7 +12,10 @@ const QR_MAX_POLL_FAILURES = 3;
 /**
  * Wire QR login event handler on a socket.
  * @param {import('socket.io').Socket} socket
- * @param {import('../application/services/AuthenticationService.js').AuthenticationService} authenticationService
+ * @param {{createQrLogin: () => Promise<object>, checkQrLogin: (key: string) => Promise<object>}} authenticationService
+ *   the object returned by createAuthenticationService(); the module exports a
+ *   factory, not a class, so there is no named type to import — the structural
+ *   shape is the contract.
  * @param {(socket, result) => void} emitAuthenticationResult
  */
 export function wireQrLoginHandler(socket, authenticationService, emitAuthenticationResult) {

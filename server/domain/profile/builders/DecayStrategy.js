@@ -18,8 +18,8 @@ export class DecayStrategy {
 
   /**
    * Apply time-based decay to a weight.
-   * @param {number} weight — current weight
-   * @param {Object} [context] — must contain `daysSinceLastSeen` for decay
+   * @param {number} weight - current weight
+   * @param {Object} [_context] - must contain `daysSinceLastSeen` for decay
    * @returns {number} decayed weight
    * @throws always — subclasses must override.
    */
@@ -33,7 +33,7 @@ export class DecayStrategy {
 export class EbbinghausDecayStrategy extends DecayStrategy {
   /**
    * @param {Object}  [opts]
-   * @param {number}  [opts.halfLifeDays=30] — days for weight to halve
+   * @param {number}  [opts.halfLifeDays=30] - days for weight to halve
    */
   constructor({ halfLifeDays = 30 } = {}) {
     super();

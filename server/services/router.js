@@ -18,8 +18,8 @@ import { createGenreSearchEngine } from '../domain/routing/GenreSearchEngine.js'
 /**
  * Route a user message to the appropriate handler.
  *
- * @param {string} text — raw user input
- * @returns {{ route: 'ncm'|'claude'|'hybrid', action: string, params: object, results?: object }}
+ * @param {string} text - raw user input
+ * @returns {Promise<{ route: 'ncm'|'claude'|'hybrid', action: string, params: object, results?: object }>}
  */
 export async function routeIntent(text, dependencies = {}) {
   return routeIntentWithDependencies(text, {

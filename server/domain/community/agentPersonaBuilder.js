@@ -20,9 +20,9 @@ function joinSelfTags(userTags) {
 }
 
 /**
- * @param {object} profile — fuseProfile 输出
+ * @param {object} profile - fuseProfile 输出
  * @param {object} [opts]
- * @param {string} [opts.nickname] — 成员昵称
+ * @param {string} [opts.nickname] - 成员昵称
  * @returns {string} persona 文本
  */
 export function buildMemberPersona(profile, opts = {}) {

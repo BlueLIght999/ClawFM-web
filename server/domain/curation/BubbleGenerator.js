@@ -17,7 +17,7 @@ const MAX_BUBBLES = 5;
 /**
  * Extract top N tags from a profile dimension, sorted by weight descending.
  * @param {object} profile
- * @param {string} dimension — 'genre' | 'mood'
+ * @param {string} dimension - 'genre' | 'mood'
  * @param {number} limit
  * @returns {Array<{name: string, weight: number}>}
  */
@@ -32,9 +32,9 @@ function getTopTags(profile, dimension, limit) {
 /**
  * Generate bubble tags for the crab to blow.
  *
- * @param {object|null} profile — user profile snapshot
- * @param {object|null} weatherMood — { mood, genre, label } from inferWeatherMood
- * @param {string} _timeOfDay — 'morning'|'afternoon'|'evening'|'night' (reserved)
+ * @param {object|null} profile - user profile snapshot
+ * @param {object|null} weatherMood - { mood, genre, label } from inferWeatherMood
+ * @param {string} _timeOfDay - 'morning'|'afternoon'|'evening'|'night' (reserved)
  * @returns {Array<{id: string, label: string, type: string, value: string, query: string}>}
  */
 export function generateBubbles(profile, weatherMood, _timeOfDay) {
@@ -45,9 +45,9 @@ export function generateBubbles(profile, weatherMood, _timeOfDay) {
    * Add a bubble if its value hasn't been seen yet.
    * @param {string} id
    * @param {string} label
-   * @param {string} type — 'genre' | 'mood' | 'weather'
-   * @param {string} value — search key
-   * @param {string} query — pre-computed search term
+   * @param {string} type - 'genre' | 'mood' | 'weather'
+   * @param {string} value - search key
+   * @param {string} query - pre-computed search term
    */
   function addBubble(id, label, type, value, query) {
     if (seenValues.has(value)) return;

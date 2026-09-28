@@ -97,8 +97,8 @@ export function normalizeSelfTags(selfTags) {
 /**
  * P-B 三路融合主入口。
  * @param {object} input
- * @param {object} [input.neteaseSignals] — { genreCounts, regionCounts, topArtists, totalPlays, timeSlotCounts }
- * @param {object} [input.radioSignals]   — { genreCounts, moodCounts, behaviorCounts, chatStyleCounts, timeSlotCounts }
+ * @param {object} [input.neteaseSignals] - { genreCounts, regionCounts, topArtists, totalPlays, timeSlotCounts }
+ * @param {object} [input.radioSignals]   - { genreCounts, moodCounts, behaviorCounts, chatStyleCounts, timeSlotCounts }
  * @param {string[]} [input.selfTags]
  * @returns {object} fused profile
  */

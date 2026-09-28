@@ -17,7 +17,11 @@ export function createSentenceAccumulator() {
       while (true) {
         const match = buffer.match(SENTENCE_END_RE);
         if (!match) break;
+        // match.index is typed optional; a match with no index would mean the
+        // regex matched an empty string, and slicing on undefined would corrupt
+        // the buffer, so stop rather than emit a bogus sentence.
         const idx = match.index;
+        if (idx === undefined) break;
         sentences.push(buffer.slice(0, idx + 1));
         buffer = buffer.slice(idx + 1);
       }

@@ -175,8 +175,24 @@ export class MetricsCollector {
     return this.registry.getMetricsAsJSON();
   }
 
-  /** Get a compact snapshot suitable for dashboard WebSocket push. */
+  /**
+   * Get a compact snapshot suitable for dashboard WebSocket push.
+   *
+   * The `@type` override is load-bearing: prom-client's own index.d.ts types
+   * `type` as the numeric `MetricType` enum, but lib/counter.js and friends set
+   * `this.type = 'counter'` -- a lowercase string. Comparing against the string
+   * is correct at runtime; trusting the shipped types would make these branches
+   * unreachable and the dashboard would silently render empty.
+   *
+   * Widened to `any[]` deliberately rather than described structurally: a
+   * structural `@type` on a `const` is an assertion that gets re-checked, so it
+   * would re-introduce the same conflict. The alternative -- matching the
+   * shipped enum -- is what would actually break the dashboard.
+   *
+   * @returns {Promise<Record<string, any>>}
+   */
   async snapshot() {
+    /** @type {any[]} */
     const metrics = await this.registry.getMetricsAsJSON();
     const values = {};
     for (const metric of metrics) {

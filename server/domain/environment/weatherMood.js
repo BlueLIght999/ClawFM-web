@@ -9,7 +9,7 @@
 
 /**
  * WMO weather code → weather category.
- * @param {number} code — WMO weather interpretation code
+ * @param {number} code - WMO weather interpretation code
  * @returns {'sunny'|'cloudy'|'overcast'|'foggy'|'rainy'|'heavyRain'|'snowy'|'stormy'}
  */
 export function classifyWeather(code) {
@@ -49,8 +49,8 @@ const TIME_LABEL_OVERRIDES = {
 /**
  * Infer a mood/genre/label from weather conditions.
  *
- * @param {number} weatherCode — WMO weather interpretation code
- * @param {number} temp — temperature in °C
+ * @param {number} weatherCode - WMO weather interpretation code
+ * @param {number} temp - temperature in °C
  * @param {'morning'|'afternoon'|'evening'|'night'} timeOfDay
  * @returns {{ mood: string, genre: string, label: string }}
  */

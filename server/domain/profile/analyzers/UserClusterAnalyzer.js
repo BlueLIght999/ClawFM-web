@@ -39,21 +39,25 @@ const CHAT_TAGS = ['concise', 'detailed', 'casual', 'formal'];
 
 export class UserClusterAnalyzer extends BaseAnalyzer {
   /**
+   * clusterStrategy admits null (not just undefined) because that is its default:
+   * a `ClusterStrategy`-only tag made the null default itself the type error.
+   *
    * @param {Object}            [opts]
-   * @param {ClusterStrategy}   [opts.clusterStrategy] — defaults to KMeansClusterStrategy
-   * @param {Object}            [opts.eventBus]        — optional event bus
+   * @param {ClusterStrategy|null} [opts.clusterStrategy] - defaults to KMeansClusterStrategy
+   * @param {Object|null}       [opts.eventBus]        - optional event bus
    */
   constructor({ clusterStrategy = null, eventBus = null } = {}) {
     super({ name: 'UserClusterAnalyzer', eventBus });
+    /** @type {ClusterStrategy} */
     this.clusterStrategy = clusterStrategy || new KMeansClusterStrategy({ minK: 2, maxK: 8 });
   }
 
   /**
    * Analyze a profile by clustering it alongside historical snapshots.
    *
-   * @param {Object}        profile   — current listener profile
+   * @param {Object}        profile   - current listener profile
    * @param {Object}        [options]
-   * @param {Array<Object>} [options.snapshots] — historical profile snapshots
+   * @param {Array<Object>} [options.snapshots] - historical profile snapshots
    * @returns {Promise<Object>} cluster result
    */
   async analyze(profile, options = {}) {

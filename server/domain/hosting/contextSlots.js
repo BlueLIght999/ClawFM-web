@@ -30,7 +30,16 @@ export function slotUserInput(input, toolResults) {
   return parts.join('\n\n');
 }
 
-/** Slot ④ Retrieved memory from state.db */
+/**
+ * Slot ④ Retrieved memory from state.db.
+ *
+ * `repositories` is annotated rather than left to inference: the `= null` default
+ * makes tsc type the parameter as literally `null`, which collapses every field
+ * read after the guard to `never`.
+ *
+ * @param {{listenHistory?: {history: (n: number) => Array<any>}, profile?: {get: () => any}, seedPool?: {all: () => Array<any>}}|null} [repositories]
+ * @returns {string}
+ */
 export function slotMemory(repositories = null) {
   if (!repositories || !repositories.listenHistory) return '';
   const plays = repositories.listenHistory.history(20);
@@ -41,7 +50,13 @@ export function slotMemory(repositories = null) {
 
   const recentSongs = plays
     .slice(0, 10)
-    .map(p => `- ${p.title} — ${p.artist} (${new Date(playedAt(p)).toLocaleTimeString()})`)
+    .map(p => {
+      // playedAt() is optional by contract; an unguarded new Date(undefined)
+      // renders the literal string "Invalid Date" into the prompt.
+      const ts = playedAt(p);
+      const stamp = ts ? new Date(ts).toLocaleTimeString() : 'unknown';
+      return `- ${p.title} — ${p.artist} (${stamp})`;
+    })
     .join('\n');
 
   const topArtists = (profile.topArtists || []).slice(0, 5)
@@ -89,14 +104,10 @@ export function slotExecutionTrace(trace = {}) {
 /**
  * Assemble the full Context Window prompt from 6 slots.
  *
- * @param {Object} params
- * @param {string}  params.userInput     — slot ③ user chat text
- * @param {string}  params.toolResults   — slot ③ ncm search results etc.
- * @param {Object}  params.environment   — slot ⑤ {weather, calendar}
- * @param {Object}  params.execTrace     — slot ⑥ {lastAction, queueLength, mode}
- * @param {Object}  params.corpus        — slot ② injected CorpusPort (or null)
- * @param {Object}  params.repositories  — slot ④ injected repositories (or null)
- * @param {Function} params.slotUserCorpusFn — slot ② function (injected to avoid circular dep)
+ * Params are destructured directly -- there is no `params` wrapper object, so the
+ * tags must be named after the destructured bindings themselves.
+ *
+ * @param {{userInput?: string, toolResults?: string, environment?: object, execTrace?: object, corpus?: object|null, repositories?: object|null, slotUserCorpusFn?: ((corpus: any) => string)|null}} [params]
  * @returns {string} assembled prompt
  */
 export function assembleContextPrompt({

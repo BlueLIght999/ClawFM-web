@@ -46,8 +46,10 @@ function toSongs(rawSongs) {
 
 /**
  * Map raw Netease playlist to clean DTO (D6 compliance).
- * @param {object} raw — raw Netease playlist object
- * @returns {{id: string, name: string, trackCount: number, playCount: number, creator: string, coverUrl: string}}
+ * @param {object} raw - raw Netease playlist object
+ * @returns {{id: string, name: string, trackCount: number, playCount: number, creator: string, coverUrl: string}|null}
+ *   null when the payload is malformed; toPlaylists() filters those out, so a
+ *   single bad entry does not poison the whole list.
  */
 function toPlaylistDTO(raw) {
   if (!raw || !raw.id) return null;

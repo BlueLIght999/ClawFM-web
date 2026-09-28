@@ -20,6 +20,18 @@ import {
 } from './transitionLifecycle.js';
 
 export class TransitionOrchestrator {
+  /**
+   * @param {object} [options]
+   * @param {any} [options.playhead]
+   * @param {any} [options.queue]
+   * @param {any} [options.listenHistory]
+   * @param {null|((prevSong?: any, nextSong?: any, transitionId?: number) => void)} [options.onDjSpeechNeeded]
+   *   Three arguments, matching the call in `_onAdvance` and the PlaybackSchedulerPort
+   *   contract; the old one-arg tag described a payload the code never passes, so tsc
+   *   rejected the real call (TS2554). The id is the `_transitionId` counter, a number.
+   * @param {null|(() => any)} [options.onAdvance]
+   * @param {null|(() => any)} [options.refillSongProvider]
+   */
   constructor({
     playhead,
     queue,

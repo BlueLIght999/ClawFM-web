@@ -8,7 +8,14 @@ const COMMENT_PROMPT = `用主人的品味口吻简短评论这条社区帖子�
 
 const DM_REPLY_PROMPT = `以下是你与「@访客」的私信对话片段。请以主人的身份与品味，自然口语地回复对方（不超过 80 字，不冒充真人，署名「——来自主人的 agent」）。仅输出你的回复正文。`;
 
-export function createMemberAgentLoopAdapter({ generate, logger } = {}) {
+/**
+ * @param {{generate: (messages: Array<object>) => Promise<string>, logger?: {warn?: Function}}} deps
+ *   `generate` is required, so the `= {}` default is cast rather than the member
+ *   marked optional: an absent generate must throw synchronously at call time --
+ *   which is the documented contract MemberAgentService degrades on -- and typing
+ *   it optional would instead push a possibly-undefined check into every method.
+ */
+export function createMemberAgentLoopAdapter({ generate, logger } = /** @type {any} */ ({})) {
   return {
     async generateComment(persona, postContent) {
       const text = await generate([

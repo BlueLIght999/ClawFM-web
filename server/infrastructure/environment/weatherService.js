@@ -7,15 +7,23 @@
 import config from '../../config.js';
 import { formatWeather } from '../../domain/environment/formatWeather.js';
 
+// Shaped by the Open-Meteo response mapping below; `null` only means "not
+// fetched yet" / "invalidated by setClientLocation()". Annotated because
+// strictNullChecks would otherwise pin both to the null literal.
+/** @type {any} */
 let weatherCache = null;
+/** @type {any} */
 let weatherCacheRaw = null;
 let weatherCacheTime = 0;
 const TTL = 15 * 60 * 1000;
 const HEADERS = { 'User-Agent': 'Qclaudio/1.0 (radio)' };
 
-// Client-provided location (from browser geolocation)
+// Client-provided location (from browser geolocation); null until the browser
+// sends coordinates, so the type has to be declared rather than inferred.
+/** @type {null|{lat: number, lon: number}} */
 let clientLoc = null;
 // Cache for reverse geocode results
+/** @type {Map<string, string>} */
 const geocodeCache = new Map();
 
 /** Called by socket handler when browser sends GPS coordinates */
@@ -31,6 +39,7 @@ async function geocodeCity(cityName) {
   const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=1&language=zh`;
   const res = await fetch(url, { headers: HEADERS });
   if (!res.ok) throw new Error(`geocoding: ${res.status}`);
+  /** @type {any} */
   const data = await res.json();
   if (!data.results?.length) return null;
   const r = data.results[0];
@@ -45,6 +54,7 @@ async function reverseGeocode(lat, lon) {
   const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=zh&zoom=10`;
   const res = await fetch(url, { headers: HEADERS });
   if (!res.ok) throw new Error(`nominatim: ${res.status}`);
+  /** @type {any} */
   const data = await res.json();
   const city = extractCityFromAddress(data);
   geocodeCache.set(key, city);
@@ -63,6 +73,7 @@ async function ipLocation() {
 
   const res = await fetch('https://ipapi.co/json/', { headers: HEADERS });
   if (!res.ok) throw new Error(`ipapi: ${res.status}`);
+  /** @type {any} */
   const data = await res.json();
   return {
     city: data.city || 'Unknown',
@@ -116,6 +127,7 @@ async function fetchWeather(lat, lon) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code&timezone=auto`;
   const res = await fetch(url, { headers: HEADERS });
   if (!res.ok) throw new Error(`open-meteo: ${res.status}`);
+  /** @type {any} */
   const data = await res.json();
   const c = data.current;
   return {

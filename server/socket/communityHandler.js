@@ -7,6 +7,13 @@
  */
 import { EVENTS } from './events.js';
 
+/**
+ * @param {{io?: import('socket.io').Server, roomService?: any, authRepository?: {currentUid?: () => string|null}, logger?: {warn?: Function, info?: Function, error?: Function}}} [deps]
+ *   Optional-bag form with a bare `= {}` default: the socket layer wires all four
+ *   (socket/handler.js), but each is guarded before use, so omitting one degrades
+ *   rather than throwing. A cast on the default would instead trip TS2463, which
+ *   forbids combining an optional binding pattern with a default.
+ */
 export function createCommunityHandler({ io, roomService, authRepository, logger } = {}) {
   return {
     /**

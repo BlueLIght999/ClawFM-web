@@ -32,9 +32,9 @@ export function shouldTriggerRefill({ queueLength, isPlaying, hasCurrentSong = t
  *
  * @param {object} input
  * @param {boolean} input.queueHasNext Whether the queue has a next song.
- * @param {object|null} input.refillSong Song from refill provider, if any.
- * @param {object|null} input.nextSong Next song from queue, if any.
- * @param {boolean} input.refillAttempted Whether a refill was already attempted.
+ * @param {object|null} [input.refillSong] Song from refill provider, if any.
+ * @param {object|null} [input.nextSong] Next song from queue, if any.
+ * @param {boolean} [input.refillAttempted] Whether a refill was already attempted.
  * @returns {{action: string, song?: object, shouldStop: boolean, reason?: string}}
  * @throws Does not throw.
  * Constraint: R1 guard — only allows stop after refill has been attempted and failed.

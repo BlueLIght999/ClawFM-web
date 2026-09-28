@@ -82,6 +82,8 @@ export function crossUserCluster(profiles, opts = {}) {
     };
   });
 
+  // 同上：动态键写入的后累加对象，tsc 只能推断 {}，需显式声明。
+  /** @type {Record<string, number>} */
   const memberAssignments = {};
   for (const c of clusters) {
     for (const uid of c.memberUserIds) memberAssignments[uid] = c.clusterId;

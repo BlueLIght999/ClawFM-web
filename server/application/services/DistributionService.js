@@ -7,24 +7,28 @@
 import { matchClustersForContent, collectRecipients } from '../../domain/community/distributionRules.js';
 
 /**
- * @param {object} deps
- * @param {import('../ports/repos/CommunityRepository.js').CommunityRepository} deps.communityRepository
- * @param {{emit?: (event:string, payload:object, targetUserId?:string)=>void}} [deps.eventPublisher]
- * @param {{warn?:Function}} [deps.logger]
+ * @param {{communityRepository: import('../ports/repos/CommunityRepository.js').CommunityRepository, eventPublisher?: {emit?: (event:string, payload:object, targetUserId?:string)=>void}, logger?: {warn?:Function}}} [deps]
  */
-export function createDistributionService({ communityRepository, eventPublisher, logger } = {}) {
+// The `= {}` default is cast rather than the dependency being marked optional:
+// communityRepository is genuinely required (every method dereferences it), so
+// typing it optional would trade one honest error for ~100 false
+// possibly-undefined ones. A caller that omits it fails at first use -- which is
+// the existing behaviour -- and the cast keeps that contract documented.
+export function createDistributionService({communityRepository, eventPublisher, logger} = /** @type {any} */ ({})) {
   const repo = communityRepository;
 
   /**
    * @param {object} params
-   * @param {string} params.targetType    — post/playlist/song
+   * @param {string} params.targetType    - post/playlist/song
    * @param {string} params.targetId
    * @param {string[]} [params.contentTags]
-   * @param {string} [params.fromUserId]
-   * @param {string} [params.reason]
+   * @param {string|null} [params.fromUserId]
+   * @param {string|null} [params.reason]
    * @returns {{pushedTo:number, matchedClusters:Array, skipped:number}}
    */
   function distribute({ targetType, targetId, contentTags, fromUserId = null, reason = null }) {
+    // fromUserId/reason default to null (not undefined), so their tags admit null:
+    // a `string`-only tag made the null default itself the type error (TS2322 x2).
     const clusters = repo.getClusterSnapshot();
     const matched = matchClustersForContent({ contentTags, clusters });
     if (matched.length === 0) {

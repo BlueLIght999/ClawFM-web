@@ -18,9 +18,9 @@ export class RecommendationStrategy {
 
   /**
    * Enhance a list of songs using profile data.
-   * @param {Array}  songs    — song objects ({ title, artist, … })
-   * @param {Object} profile  — listener profile with tags
-   * @param {Object} [context] — contextual signals (currentMood, etc.)
+   * @param {Array}  _songs    - song objects ({ title, artist, … })
+   * @param {Object} _profile  - listener profile with tags
+   * @param {Object} [_context] - contextual signals (currentMood, etc.)
    * @returns {Array} enhanced song ordering
    * @throws always — subclasses must override.
    */

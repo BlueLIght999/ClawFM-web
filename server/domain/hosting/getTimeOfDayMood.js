@@ -1,7 +1,7 @@
 /**
  * Get the time-of-day mood category.
  *
- * @param {Date=} now — injectable for testing
+ * @param {Date=} now - injectable for testing
  * @returns {'morning'|'afternoon'|'evening'|'night'}
  */
 export function getTimeOfDayMood(now = new Date()) {

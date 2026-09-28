@@ -16,6 +16,15 @@ const EDGE_VOICE = 'zh-CN-YunxiNeural'; // Male, warm — Chinese radio DJ voice
 
 // ── Module-level health state ──────────────────────────────
 
+/**
+ * Module-level health state.
+ *
+ * Annotated rather than inferred: `available: null` and `provider: null` freeze
+ * those members to the literal type `null`, so every later assignment of a real
+ * boolean/string is rejected (and `json.output` reads widen to `{}`).
+ *
+ * @type {{checked: boolean, available: boolean|null, provider: string|null, reason: string, lastChecked: number}}
+ */
 let ttsStatus = {
   checked: false,
   available: null,      // true | false | null
@@ -72,7 +81,7 @@ async function checkDashscopeHealth() {
       body: JSON.stringify({ model: DASH_MODEL, input: { text: 'Testing text to speech.', voice: DASH_VOICE, language_type: DASH_LANGUAGE } }),
     });
     if (res.ok) {
-      const json = await res.json();
+      const json = /** @type {{output?: {audio?: {url?: string}}}} */ (await res.json());
       if (json?.output?.audio?.url) return true;
     }
     const errText = await res.text().catch(() => '');
@@ -148,7 +157,7 @@ async function dashscopeTts(text) {
       return null;
     }
 
-    const json = await response.json();
+    const json = /** @type {{output?: {audio?: {url?: string}}}} */ (await response.json());
     const audioUrl = json?.output?.audio?.url;
     if (!audioUrl) {
       console.error('[TTS] No audio URL in DashScope response:', JSON.stringify(json).slice(0, 200));

@@ -29,8 +29,8 @@ export class ClusterStrategy {
 
   /**
    * Cluster the given vectors.
-   * @param {Array<Object>} vectors — feature vectors (plain objects, numeric values)
-   * @param {Object} [options]     — strategy-specific options (e.g. { k })
+   * @param {Array<Object>} _vectors - feature vectors (plain objects, numeric values)
+   * @param {Object} [_options]     - strategy-specific options (e.g. { k })
    * @returns {Object} clustering result with at least { strategy, k, clusters }
    */
   cluster(_vectors, _options = {}) {
@@ -54,9 +54,9 @@ export class ClusterStrategy {
 export class KMeansClusterStrategy extends ClusterStrategy {
   /**
    * @param {Object}  [opts]
-   * @param {number}  [opts.minK=2]         — minimum number of clusters to try
-   * @param {number}  [opts.maxK=8]         — maximum number of clusters to try
-   * @param {number}  [opts.maxIterations=100] — convergence iteration cap
+   * @param {number}  [opts.minK=2]         - minimum number of clusters to try
+   * @param {number}  [opts.maxK=8]         - maximum number of clusters to try
+   * @param {number}  [opts.maxIterations=100] - convergence iteration cap
    */
   constructor({ minK = 2, maxK = 8, maxIterations = 100 } = {}) {
     super();
@@ -227,8 +227,8 @@ export class KMeansClusterStrategy extends ClusterStrategy {
 export class DBSCANClusterStrategy extends ClusterStrategy {
   /**
    * @param {Object} [opts]
-   * @param {number} [opts.eps=0.5]   — neighborhood radius
-   * @param {number} [opts.minPts=3]  — minimum points to form a dense region
+   * @param {number} [opts.eps=0.5]   - neighborhood radius
+   * @param {number} [opts.minPts=3]  - minimum points to form a dense region
    */
   constructor({ eps = 0.5, minPts = 3 } = {}) {
     super();

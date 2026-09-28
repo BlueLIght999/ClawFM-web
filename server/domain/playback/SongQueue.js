@@ -10,7 +10,11 @@ export class SongQueue {
     this.past = [];
     this.current = null;
     this.future = [];
-    this.mode = 'shuffle'; // 'sequential' | 'shuffle' | 'fm'
+    // Annotated so the field stays the `QueueState` union rather than widening to
+    // `string`: an inferred assignment widens the literal, and toState() would
+    // then no longer satisfy the persisted shape (TS2345 at the repository call).
+    /** @type {'sequential'|'shuffle'|'fm'} */
+    this.mode = 'shuffle';
     this.stateVersion = 0;
   }
 

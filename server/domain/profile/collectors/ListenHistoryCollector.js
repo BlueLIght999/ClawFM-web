@@ -37,7 +37,7 @@ export class ListenHistoryCollector extends BaseCollector {
    * @param {Object}  [opts]
    * @param {string}  [opts.name]
    * @param {Object}  [opts.eventBus]
-   * @param {number}  [opts.limit=100] — max records to pull from the repository
+   * @param {number}  [opts.limit=100] - max records to pull from the repository
    */
   constructor({ name, eventBus, limit } = {}) {
     super({ name, eventBus });
@@ -46,7 +46,7 @@ export class ListenHistoryCollector extends BaseCollector {
 
   /**
    * @param {Object} sources
-   * @param {Object} [sources.listenHistoryRepository] — exposes history(limit) or is a fn
+   * @param {Object} [sources.listenHistoryRepository] - exposes history(limit) or is a fn
    * @returns {Promise<{evidence:Array, count:number}>}
    */
   async collect({ listenHistoryRepository } = {}) {

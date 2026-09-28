@@ -4,10 +4,13 @@
  * unit-testable and the fs read/write stays isolated in the caller.
  *
  * @param {Object} p
- * @param {Array<{name:string,count:number}>} p.topArtists
- * @param {Array<{name?:string}|string>} p.topGenres
- * @param {number} p.totalSongs
- * @param {string} p.date  ISO date (YYYY-MM-DD), passed in to keep function pure
+ * Every member is optional because the bag defaults `= {}` with inline defaults;
+ * required tags made that empty default itself a type error (TS2739).
+ *
+ * @param {Array<{name:string,count:number}>} [p.topArtists]
+ * @param {Array<{name?:string}|string>} [p.topGenres]
+ * @param {number} [p.totalSongs]
+ * @param {string} [p.date]  ISO date (YYYY-MM-DD), passed in to keep function pure
  * @returns {string} taste.md markdown content
  */
 export function buildTasteMarkdown({ topArtists = [], topGenres = [], totalSongs = 0, date = '' } = {}) {
@@ -15,7 +18,7 @@ export function buildTasteMarkdown({ topArtists = [], topGenres = [], totalSongs
   const top5Names = topArtists.slice(0, 5).map((a) => a.name).join(', ');
   const genres =
     topGenres.length > 0
-      ? topGenres.slice(0, 5).map((g) => `- ${g.name || g}`).join('\n')
+      ? topGenres.slice(0, 5).map((g) => `- ${genreName(g)}`).join('\n')
       : '- (auto-detected from listening)';
 
   return `# User Taste Profile
@@ -34,4 +37,20 @@ ${genres}
 - Top artists: ${top5Names}
 - Auto-generated ${date}. Edit freely to tune the DJ.
 `;
+}
+
+/**
+ * Resolve a genre entry to its display name.
+ *
+ * topGenres is a union of bare strings and `{name}` objects because callers
+ * differ (SeedPoolBuilder passes tagged objects, older call paths pass strings).
+ * The previous `g.name || g` read `.name` off a string, which is undefined, so a
+ * bare-string entry rendered the literal text "undefined".
+ *
+ * @param {string|{name?: string}} g
+ * @returns {string}
+ */
+function genreName(g) {
+  if (typeof g === 'string') return g;
+  return g?.name || '';
 }

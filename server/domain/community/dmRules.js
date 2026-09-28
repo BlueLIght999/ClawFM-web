@@ -12,7 +12,15 @@ export function dmThreadKey(a, b) {
   return x < y ? [x, y] : [y, x];
 }
 
-/** 消息内容校验：非空、限长。 */
+/**
+ * 消息内容校验：非空、限长。
+ *
+ * 返回类型是判别式联合而非裸 `{ok: boolean}`——`ok` 一旦被推成 boolean，
+ * 调用方（DmService）按 `ok` 收窄的类型守卫就全部失效（TS2322）。
+ *
+ * @param {string} content
+ * @returns {{ok: true, content: string} | {ok: false, error: string}}
+ */
 export function validateDmMessage(content) {
   if (typeof content !== 'string') return { ok: false, error: 'content_required' };
   const trimmed = content.trim();
@@ -21,7 +29,13 @@ export function validateDmMessage(content) {
   return { ok: true, content: trimmed };
 }
 
-/** 是否允许本人开启私信：不能对自己。 */
+/**
+ * 是否允许本人开启私信：不能对自己。
+ *
+ * @param {string|number} userId
+ * @param {string|number} otherUserId
+ * @returns {{ok: true} | {ok: false, error: string}}
+ */
 export function validateOpenThread(userId, otherUserId) {
   if (!userId || !otherUserId) return { ok: false, error: 'user_ids_required' };
   if (String(userId) === String(otherUserId)) return { ok: false, error: 'cannot_dm_self' };

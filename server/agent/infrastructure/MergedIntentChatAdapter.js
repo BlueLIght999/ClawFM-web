@@ -19,7 +19,13 @@ export function createMergedIntentChatAdapter({ llm = deepSeekLlmAdapter } = {})
   return {
     async streamWithIntent(messages, { maxTokens = 300, temperature = 0.3 } = {}) {
       const parser = createIntentStreamParser();
-      let intentResolve;
+      // The deferred-resolve idiom assigns this inside the Promise executor, which
+      // tsc cannot see: a bare `let` leaves it `undefined` (TS2722 on every call),
+      // and annotating alone only trades that for used-before-assigned (TS2454).
+      // A no-op initializer satisfies both and is never observable -- the executor
+      // runs synchronously, so the real resolve is in place before any call.
+      /** @type {(intent: object) => void} */
+      let intentResolve = () => {};
       const intentPromise = new Promise(resolve => { intentResolve = resolve; });
       let intentResolved = false;
 

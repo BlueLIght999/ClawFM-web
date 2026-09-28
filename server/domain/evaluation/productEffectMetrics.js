@@ -226,6 +226,10 @@ function normalizeSessions(sessions) {
 
 function chain(id, metrics) {
   const definition = PRODUCT_EFFECT_CHAINS.find((item) => item.id === id);
+  // An unknown chain id is a programming error, not a runtime condition: the ids
+  // are literals in PRODUCT_EFFECT_CHAINS and callers below name them directly.
+  // Returning a partial record with an undefined name would hide the mistake.
+  if (!definition) throw new Error(`Unknown product-effect chain: ${id}`);
   return {
     id,
     name: definition.name,

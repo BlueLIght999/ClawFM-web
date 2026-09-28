@@ -1,5 +1,5 @@
 /**
- * GenreSearchEngine — three-stage parallel genre search with fusion ranking.
+ * GenreSearchEngine - three-stage parallel genre search with fusion ranking.
  *
  * DDD: Domain layer. Depends only on MusicSourcePort interface (injected).
  * No knowledge of NetEase API specifics.
@@ -15,7 +15,7 @@
  */
 import { matchGenre } from './genreDict.js';
 
-// Source weights — playlist tracks are curated, artist songs are representative,
+// Source weights - playlist tracks are curated, artist songs are representative,
 // song search is a catch-all.
 const SOURCE_WEIGHT = {
   playlist: 0.9,
@@ -27,7 +27,7 @@ const SOURCE_WEIGHT = {
 const PLAY_BONUS_1M = 0.1;    // playCount > 1,000,000
 const PLAY_BONUS_10M = 0.15;  // playCount > 10,000,000
 
-// Seed artist bonus — song's artist matches a seed artist in genreDict
+// Seed artist bonus - song's artist matches a seed artist in genreDict
 const SEED_BONUS = 0.2;
 
 // Defaults
@@ -42,11 +42,14 @@ const DEFAULT_SEED_ARTIST_SEARCH_LIMIT = 3;  // 3 songs per seed artist
 /**
  * Merge and rank songs from three sources.
  * @param {object} params
- * @param {Array} params.playlistSongs — songs from playlist tracks
- * @param {Array} params.artistSongs — songs from artist hot songs
- * @param {Array} params.songSearch — songs from enhanced song search
- * @param {string[]} params.seedArtists — genre's representative artists
- * @param {number} [params.limit=15] — max results
+ * All inputs are optional because the bag defaults to `{}` -- each has an inline
+ * default below, so a required tag rejects the empty default (TS2739).
+ *
+ * @param {Array} [params.playlistSongs] - songs from playlist tracks
+ * @param {Array} [params.artistSongs] - songs from artist hot songs
+ * @param {Array} [params.songSearch] - songs from enhanced song search
+ * @param {string[]} [params.seedArtists] - genre's representative artists
+ * @param {number} [params.limit=15] - max results
  * @returns {Array} ranked, deduplicated songs
  */
 export function mergeAndRank({ playlistSongs = [], artistSongs = [], songSearch = [], seedArtists = [], limit = DEFAULT_LIMIT } = {}) {
@@ -104,7 +107,7 @@ export function mergeAndRank({ playlistSongs = [], artistSongs = [], songSearch 
 /**
  * Create a GenreSearchEngine bound to a MusicSourcePort.
  *
- * @param {object} musicPort — must implement:
+ * @param {object} musicPort - must implement:
  *   search(query, limit) → Song[]
  *   searchPlaylists(query, limit) → Playlist[]
  *   getPlaylistTracks(playlistId) → Song[]
@@ -115,9 +118,9 @@ export function mergeAndRank({ playlistSongs = [], artistSongs = [], songSearch 
 export function createGenreSearchEngine(musicPort) {
   /**
    * Search for songs matching a genre keyword.
-   * @param {string} genreText — user-provided genre text (e.g. "jpop", "来点爵士")
+   * @param {string} genreText - user-provided genre text (e.g. "jpop", "来点爵士")
    * @param {object} [options]
-   * @param {number} [options.limit=15] — max songs to return
+   * @param {number} [options.limit=15] - max songs to return
    * @returns {Promise<Array>} ranked songs
    */
   async function search(genreText, options = {}) {

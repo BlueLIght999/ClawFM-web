@@ -8,8 +8,12 @@ const MAX_RESTARTS = 10;
 const STABLE_RUN_MS = 60000;
 
 let restartCount = 0;
+// ChildProcess from spawn() — `null` only until the first launch().
+/** @type {import('child_process').ChildProcess|null} */
 let currentChild = null;
 let shuttingDown = false;
+// Node Timeout handle from setTimeout; null whenever no restart is pending.
+/** @type {any} */
 let restartTimer = null;
 
 function scheduleRestart() {
@@ -22,6 +26,13 @@ function scheduleRestart() {
   }, delay);
 }
 
+/**
+ * @param {object} outcome
+ * @param {number|null} outcome.code exit code reported by the child
+ * @param {Error|null} outcome.error spawn error, when the child never started
+ * @param {boolean} outcome.wasReady whether the child signalled readiness
+ * @param {number} outcome.readyAt timestamp of that readiness signal
+ */
 function handleChildExit({ code, error, wasReady, readyAt }) {
   currentChild = null;
   if (wasReady && Date.now() - readyAt >= STABLE_RUN_MS) restartCount = 0;
@@ -46,23 +57,27 @@ function handleChildExit({ code, error, wasReady, readyAt }) {
 }
 
 function launch() {
-  const child = spawn(process.execPath, ['server.js'], {
+  const child = /** @type {import('child_process').ChildProcess} */ (spawn(process.execPath, ['server.js'], {
     cwd: __dirname,
     stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
     env: process.env,
-  });
+  }));
   currentChild = child;
 
   let handled = false;
   let wasReady = false;
   let readyAt = 0;
+  /**
+   * @param {number|null} code
+   * @param {Error|null} [error]
+   */
   const finish = (code, error = null) => {
     if (handled) return;
     handled = true;
     handleChildExit({ code, error, wasReady, readyAt });
   };
 
-  child.on('message', (message) => {
+  child.on('message', (/** @type {any} */ message) => {
     if (message?.type === 'ready') {
       wasReady = true;
       readyAt = Date.now();
@@ -81,7 +96,7 @@ function forwardSignal(signal) {
   else currentChild.kill(signal);
 }
 
-process.on('message', (message) => {
+process.on('message', (/** @type {any} */ message) => {
   if (message?.type === 'shutdown') forwardSignal('SIGTERM');
 });
 process.on('SIGTERM', () => forwardSignal('SIGTERM'));

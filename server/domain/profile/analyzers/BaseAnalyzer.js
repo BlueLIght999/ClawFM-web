@@ -3,6 +3,11 @@
  * Analyzers receive a built profile + evidence and produce analysis results.
  */
 export class BaseAnalyzer {
+  /**
+   * @param {Object}  [opts]
+   * @param {string}  [opts.name]     - analyzer display name (defaults to class name)
+   * @param {Object}  [opts.eventBus] - optional bus exposing emit(type, payload)
+   */
   constructor({ name, eventBus } = {}) {
     this.name = name || this.constructor.name;
     this.eventBus = eventBus || null;
@@ -10,8 +15,8 @@ export class BaseAnalyzer {
 
   /**
    * Analyze the profile and return analysis results.
-   * @param {object} profile — the built user profile
-   * @param {object} options — additional evidence and context
+   * @param {object} _profile - the built user profile
+   * @param {object} [_options] - additional evidence and context
    * @returns {Promise<object>} analysis result
    */
   async analyze(_profile, _options = {}) {
@@ -20,8 +25,8 @@ export class BaseAnalyzer {
 
   /**
    * Emit an event through the event bus if one is attached.
-   * @param {string} eventType — event type string
-   * @param {object} payload — event payload
+   * @param {string} eventType - event type string
+   * @param {object} payload - event payload
    */
   emit(eventType, payload) {
     if (this.eventBus) {

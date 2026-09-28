@@ -15,10 +15,11 @@
     "format": "prettier --write \"**/*.js\"",
     "format:check": "prettier --check \"**/*.js\"",
     "dup:check": "jscpd .",
+    "types:check": "tsc -p tsconfig.json",
     "audit:check": "npm audit --audit-level=high",
     "arch:check": "depcruise --config .dependency-cruiser.cjs *.js agent domain application infrastructure services socket db utils evaluation",
     "arch:graph": "depcruise --config .dependency-cruiser.cjs --output-type dot *.js agent domain application infrastructure services socket db utils evaluation | node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>require('fs').writeFileSync('dependency-graph.dot',s))\"",
-    "quality": "npm run lint && npm run arch:check && npm run dup:check && npm run test"
+    "quality": "npm run lint && npm run arch:check && npm run types:check && npm run dup:check && npm run test"
   },
   "dependencies": {
     "@travisvn/edge-tts": "^1.0.2",
@@ -40,6 +41,7 @@
     "jscpd": "^5.0.11",
     "prettier": "^3.9.4",
     "supertest": "^7.2.2",
+    "typescript": "^5.9.3",
     "vitest": "^4.1.9"
   }
 }

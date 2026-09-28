@@ -8,7 +8,7 @@ import { firstTruthy } from '../shared/firstTruthy.js';
  *
  * @param {object} prevSong previous song
  * @param {object} nextSong next song
- * @param {string} timeOfDay time-of-day label
+ * @param {string|null|undefined} timeOfDay time-of-day label; falsy falls back to '此刻'
  * @returns {string} the user-role transition prompt
  */
 export function buildTransitionPrompt(prevSong, nextSong, timeOfDay) {

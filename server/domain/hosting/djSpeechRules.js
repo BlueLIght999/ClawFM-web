@@ -19,12 +19,16 @@ export function estimatedSpeechDurationSeconds(text) {
 /**
  * Decide whether generated speech is stale and should not interrupt playback.
  *
- * @param {{expectedTransitionId: string, currentTransitionId: string, isPlaying: boolean}} input Transition guard state.
+ * The guard is `isAdvancing`, not `isPlaying`: speech is dropped once the
+ * transition has already begun, regardless of whether audio is playing yet.
+ * Both callers (DjSpeechService) and the rule tests pass `isAdvancing`.
+ *
+ * @param {{expectedTransitionId: string, currentTransitionId: string, isAdvancing?: boolean}} input Transition guard state.
  * @returns {boolean} True when speech belongs to an old transition or music already started.
  * @throws Does not throw.
  * Constraint: preserves the legacy race guard before emitting DJ speech audio.
  */
-export function shouldDropStaleSpeech({ expectedTransitionId, currentTransitionId, isPlaying, isAdvancing }) {
+export function shouldDropStaleSpeech({ expectedTransitionId, currentTransitionId, isAdvancing }) {
   return currentTransitionId !== expectedTransitionId || isAdvancing === true;
 }
 
