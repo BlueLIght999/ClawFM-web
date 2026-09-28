@@ -1,191 +1,278 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { SpeechTimer } from '../domain/playback/speechTimer.js';
 
 /**
- * SpeechTimer — manages split timeouts for DJ speech lifecycle.
+ * SpeechTimer drives the two-phase timeout that replaced the original
+ * single-30s bug (the old timer counted TTS generation time as part of the
+ * playback window, so it fired mid-playback). Mutation testing found the whole
+ * class uncovered -- every branch in it NoCoverage -- which is exactly the
+ * shape a timing bug hides in: nothing else in the suite advances real timers.
  *
- * Two phases:
- *   1. GENERATION — LLM + TTS generation (max 15s). If exceeded, skip speech.
- *   2. PLAYBACK   — client audio playback (max speechDuration + 5s buffer).
- *                    Cancelled when client emits 'dj-speech-finished'.
- *
- * This prevents the original bug: a single 30s timeout fired mid-playback
- * because it started counting from song-end, not from speech-start.
+ * Real timers are used against tiny millisecond budgets rather than
+ * vi.useFakeTimers, because the class stores handles and clears them across
+ * calls; faking while asserting on _genTimer identity would pin internals.
  */
 
-// ── RED: Tests written BEFORE implementation ──────────────────────
-
-// We'll import the class once created — for now, define the expected API
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 describe('SpeechTimer', () => {
-  let SpeechTimer;
-  let timer;
+  let onGen;
+  let onPlay;
 
-  beforeEach(async () => {
-    // Dynamic import — will resolve after implementation exists
-    try {
-      const mod = await import('../domain/playback/speechTimer.js');
-      SpeechTimer = mod.SpeechTimer;
-    } catch { /* not yet implemented — tests will fail on constructor */ }
-    vi.useFakeTimers();
+  beforeEach(() => {
+    onGen = vi.fn();
+    onPlay = vi.fn();
   });
 
   afterEach(() => {
-    if (timer) timer.dispose();
-    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
-  // ──── Test 1: Generation timeout fires if speech never starts ────
-
-  it('fires onGenerationTimeout if speech does not start within generation limit', () => {
-    const onGenTimeout = vi.fn();
-    const onPlaybackTimeout = vi.fn();
-
-    timer = new SpeechTimer({
-      generationTimeoutMs: 15000,
-      onGenerationTimeout: onGenTimeout,
-      onPlaybackTimeout: onPlaybackTimeout,
-    });
-
-    timer.startGeneration();
-
-    // Before timeout, nothing fires
-    vi.advanceTimersByTime(14000);
-    expect(onGenTimeout).not.toHaveBeenCalled();
-    expect(onPlaybackTimeout).not.toHaveBeenCalled();
-
-    // At timeout, generation callback fires
-    vi.advanceTimersByTime(1000);
-    expect(onGenTimeout).toHaveBeenCalledTimes(1);
-    expect(onPlaybackTimeout).not.toHaveBeenCalled();
+  it('firesTheGenerationTimeoutAfterTheBudget', async () => {
+    const t = new SpeechTimer({ generationTimeoutMs: 20, onGenerationTimeout: onGen });
+    t.startGeneration();
+    expect(onGen).not.toHaveBeenCalled();
+    await sleep(60);
+    expect(onGen).toHaveBeenCalledTimes(1);
   });
 
-  // ──── Test 2: speechStarted cancels generation timeout ────
-
-  it('cancels generation timeout when speech starts playing', () => {
-    const onGenTimeout = vi.fn();
-
-    timer = new SpeechTimer({
-      generationTimeoutMs: 15000,
-      onGenerationTimeout: onGenTimeout,
-    });
-
-    timer.startGeneration();
-
-    // Speech starts after 8s (TTS generation completed)
-    vi.advanceTimersByTime(8000);
-    timer.speechStarted(10); // 10-second speech duration
-
-    // Generation timeout should be cancelled — advance past it
-    vi.advanceTimersByTime(8000); // 8 + 8 = 16s total, past 15s limit
-    expect(onGenTimeout).not.toHaveBeenCalled();
+  it('doesNotFireGenerationTimeout_beforeTheBudgetElapses', async () => {
+    const t = new SpeechTimer({ generationTimeoutMs: 80, onGenerationTimeout: onGen });
+    t.startGeneration();
+    await sleep(20);
+    expect(onGen).not.toHaveBeenCalled();
+    t.dispose();
   });
 
-  // ──── Test 3: Playback timeout fires if speech never finishes ────
-
-  it('fires onPlaybackTimeout if speech does not finish within playback window', () => {
-    const onPlaybackTimeout = vi.fn();
-    const onGenTimeout = vi.fn();
-
-    timer = new SpeechTimer({
-      generationTimeoutMs: 15000,
-      onGenerationTimeout: onGenTimeout,
-      onPlaybackTimeout: onPlaybackTimeout,
-    });
-
-    timer.startGeneration();
-    vi.advanceTimersByTime(3000);
-    timer.speechStarted(6); // 6s speech, timeout at 6+5=11s from now
-
-    // Advance to just before playback timeout (3s elapsed + 10s = 13s, timeout at 3+11=14s)
-    vi.advanceTimersByTime(10000); // total 13s
-    expect(onPlaybackTimeout).not.toHaveBeenCalled();
-
-    // Cross the threshold
-    vi.advanceTimersByTime(1000); // total 14s
-    expect(onPlaybackTimeout).toHaveBeenCalledTimes(1);
-    expect(onGenTimeout).not.toHaveBeenCalled();
+  it('cancelsTheGenerationTimeout_whenSpeechStarts', async () => {
+    // The core of the original fix: generation and playback must not both be
+    // armed, or the stale generation timer fires during playback.
+    const t = new SpeechTimer({ generationTimeoutMs: 20, onGenerationTimeout: onGen, onPlaybackTimeout: onPlay });
+    t.startGeneration();
+    t.speechStarted(0.5);
+    // Both handles are checked: the generation handle must be cleared *and* the
+    // playback handle must exist. A `dispose`-style mutant that clears only one
+    // leaves the other armed.
+    expect(t._genTimer).toBeNull();
+    expect(t._playTimer).not.toBeNull();
+    await sleep(60);
+    expect(onGen).not.toHaveBeenCalled();
+    t.dispose();
   });
 
-  // ──── Test 4: speechFinished cancels playback timeout ────
-
-  it('cancels playback timeout when speech finishes normally', () => {
-    const onPlaybackTimeout = vi.fn();
-
-    timer = new SpeechTimer({
-      generationTimeoutMs: 15000,
-      onPlaybackTimeout: onPlaybackTimeout,
-    });
-
-    timer.startGeneration();
-    timer.speechStarted(8);
-    vi.advanceTimersByTime(8000); // speech played for 8s
-    timer.speechFinished();
-
-    // Advance past where playback timeout would have fired
-    vi.advanceTimersByTime(10000);
-    expect(onPlaybackTimeout).not.toHaveBeenCalled();
+  it('cancelsTheGenerationTimeout_evenWhenNoHandleWasArmed', async () => {
+    // speechStarted without a prior startGeneration: the `if (this._genTimer)`
+    // guard is what stops clearTimeout(undefined), and the flag must still flip.
+    const t = new SpeechTimer({ onPlaybackTimeout: onPlay });
+    expect(() => t.speechStarted(1)).not.toThrow();
+    expect(t.hasStarted).toBe(true);
+    expect(t._playTimer).not.toBeNull();
+    t.dispose();
   });
 
-  // ──── Test 5: dispose cleans up all timers ────
-
-  it('cancels all timers on dispose', () => {
-    const onGenTimeout = vi.fn();
-    const onPlaybackTimeout = vi.fn();
-
-    timer = new SpeechTimer({
-      generationTimeoutMs: 15000,
-      onGenerationTimeout: onGenTimeout,
-      onPlaybackTimeout: onPlaybackTimeout,
-    });
-
-    timer.startGeneration();
-    timer.speechStarted(10);
-    timer.dispose();
-
-    vi.advanceTimersByTime(30000);
-    expect(onGenTimeout).not.toHaveBeenCalled();
-    expect(onPlaybackTimeout).not.toHaveBeenCalled();
+  it('firesPlaybackTimeoutAfterSpeechDurationPlusBuffer', () => {
+    // The armed handle carries its own due time, so the arithmetic is read
+    // exactly instead of waited out. 20s speech + 5s buffer = 25000ms.
+    const t = new SpeechTimer({ onPlaybackTimeout: onPlay });
+    t.speechStarted(20);
+    expect(t._playTimer._idleTimeout).toBe(25000);
+    t.dispose();
   });
 
-  // ──── Test 6: speechStarted after generation timeout is a no-op ────
-
-  it('ignores speechStarted if generation already timed out', () => {
-    const onGenTimeout = vi.fn();
-    const onPlaybackTimeout = vi.fn();
-
-    timer = new SpeechTimer({
-      generationTimeoutMs: 10000,
-      onGenerationTimeout: onGenTimeout,
-      onPlaybackTimeout: onPlaybackTimeout,
-    });
-
-    timer.startGeneration();
-    vi.advanceTimersByTime(10000);
-    expect(onGenTimeout).toHaveBeenCalledTimes(1);
-
-    // Late speechStarted should be ignored
-    timer.speechStarted(5);
-    vi.advanceTimersByTime(15000);
-    expect(onPlaybackTimeout).not.toHaveBeenCalled();
+  it('floorsVeryShortSpeechAtTheMinimumPlaybackWindow', () => {
+    // 0s + 5000 buffer is below the 5000 floor only by the buffer being equal,
+    // so the guard is proved by the buffer *not* being subtracted and by the
+    // floor holding: both `Math.min` and a minus-buffer mutant move this value.
+    const t = new SpeechTimer({ onPlaybackTimeout: onPlay });
+    t.speechStarted(0);
+    expect(t._playTimer._idleTimeout).toBe(5500);
+    t.dispose();
   });
 
-  // ──── Test 7: Minimum playback timeout floor ────
+  it('raisesTheFloorForSpeechShorterThanHalfASecond', () => {
+    // speechStarted(-5) must not arm a negative-delay timer, which node clamps
+    // to 1ms and would fire the playback timeout instantly.
+    const t = new SpeechTimer({ onPlaybackTimeout: onPlay });
+    t.speechStarted(-5);
+    expect(t._playTimer._idleTimeout).toBe(5500);
+    t.dispose();
+  });
 
-  it('enforces a minimum playback timeout of 5 seconds', () => {
-    const onPlaybackTimeout = vi.fn();
+  it('ignoresSpeechStarted_afterGenerationAlreadyTimedOut', async () => {
+    const t = new SpeechTimer({ generationTimeoutMs: 10, onGenerationTimeout: onGen, onPlaybackTimeout: onPlay });
+    t.startGeneration();
+    await sleep(40);
+    expect(t.generationTimedOut).toBe(true);
+    t.speechStarted(1);
+    expect(t.hasStarted).toBe(false); // too late -- the guard returned early
+    await sleep(40);
+    expect(onPlay).not.toHaveBeenCalled();
+    t.dispose();
+  });
 
-    timer = new SpeechTimer({
-      generationTimeoutMs: 15000,
-      onPlaybackTimeout: onPlaybackTimeout,
-    });
+  it('cancelsThePlaybackTimeout_whenSpeechFinishes', async () => {
+    const t = new SpeechTimer({ onPlaybackTimeout: onPlay });
+    t.speechStarted(0);
+    // The handle itself, not just the absence of a callback: speechStarted(0) is
+    // floored to a 5.5s window that outlives any wait this test can afford, so
+    // only reading the handle tells a real clear from a skipped one.
+    expect(t._playTimer).not.toBeNull();
+    t.speechFinished();
+    expect(t._playTimer).toBeNull();
+    expect(() => t.speechFinished()).not.toThrow();
+    await sleep(30);
+    expect(onPlay).not.toHaveBeenCalled();
+    t.dispose();
+  });
 
-    timer.startGeneration();
-    timer.speechStarted(0.1); // durMs = max(0.1,0.5)*1000 = 500, timeout = max(500+5000, 5000) = 5500ms
+  it('firesThePlaybackTimeoutCallbackAndClearsItsOwnHandle', () => {
+    // The callback body was entirely NoCoverage: every other test reads the
+    // scheduled delay and then disposes, so nothing ever reaches the two lines
+    // inside it. The floor is 5.5s, far longer than a test may wait, so the
+    // scheduler is intercepted for the duration of one call to run the real
+    // callback immediately. Its first line nulls the handle; without that, the
+    // stale reference outlives the firing and the next dispose clears a timer
+    // that is already spent.
+    const realSetTimeout = globalThis.setTimeout;
+    let captured = null;
+    globalThis.setTimeout = (fn) => {
+      captured = fn;
+      return { fake: true };
+    };
+    const t = new SpeechTimer({ onPlaybackTimeout: onPlay });
+    try {
+      t.speechStarted(0.5);
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+    expect(captured).toBeTypeOf('function');
+    captured();
+    expect(onPlay).toHaveBeenCalledTimes(1);
+    expect(t._playTimer).toBeNull();
+  });
 
-    vi.advanceTimersByTime(5400); // just under 5.5s threshold
-    expect(onPlaybackTimeout).not.toHaveBeenCalled();
+  it('clearsTheGenerationHandleWhenSpeechStartsAfterGenerationWasArmed', async () => {
+    // The `if (this._genTimer)` guard at L58 is false in every other test that
+    // calls speechStarted: they either never armed a generation timer or let it
+    // fire first. Here it is armed and still pending, which is the only state in
+    // which the clearTimeout runs at all -- and a skipped clear is visible as
+    // the generation callback firing later.
+    const t = new SpeechTimer({ generationTimeoutMs: 400, onGenerationTimeout: onGen, onPlaybackTimeout: onPlay });
+    t.startGeneration();
+    expect(t._genTimer).not.toBeNull();
+    t.speechStarted(0.5);
+    expect(t._genTimer).toBeNull();
+    await sleep(500);
+    expect(onGen).not.toHaveBeenCalled();
+    t.dispose();
+  });
 
-    vi.advanceTimersByTime(200); // 5.6s — crosses threshold
-    expect(onPlaybackTimeout).toHaveBeenCalledTimes(1);
+  it('cancelsBothHandlesWhenDisposedMidGenerationAfterSpeechStarted', async () => {
+    // dispose's two guards are both false in the two existing dispose tests:
+    // one clears each handle before the other guard is read, and the bare-timer
+    // test starts with both already null. Driving generation -> speech -> dispose
+    // leaves the playback handle armed while the generation branch is null, so
+    // each guard is entered exactly once across the suite rather than never.
+    const t = new SpeechTimer({ generationTimeoutMs: 20, onGenerationTimeout: onGen, onPlaybackTimeout: onPlay });
+    t.startGeneration();
+    t.speechStarted(0.5);
+    expect(t._genTimer).toBeNull();
+    expect(t._playTimer).not.toBeNull();
+    t.dispose();
+    expect(t._playTimer).toBeNull();
+    await sleep(60);
+    expect(onPlay).not.toHaveBeenCalled();
+  });
+
+  it('marksHasStartedOnlyAfterSpeechStarted', () => {
+    const t = new SpeechTimer();
+    expect(t.hasStarted).toBe(false);
+    t.speechStarted();
+    expect(t.hasStarted).toBe(true);
+    t.dispose();
+  });
+
+  it('defaultsTheGenerationBudgetToFifteenSeconds', () => {
+    // Not observable without waiting 15s, so this reads the normalised field.
+    // It is the one internal worth pinning: the 15s/60s split is the fix.
+    const t = new SpeechTimer();
+    expect(t._generationTimeoutMs).toBe(15000);
+    t.dispose();
+  });
+
+  it('toleratesMissingCallbacks', async () => {
+    // The constructor normalises absent callbacks to no-ops; without that the
+    // timeout would throw inside a timer callback, which vitest reports as an
+    // unhandled error rather than a failed assertion.
+    const t = new SpeechTimer({ generationTimeoutMs: 10 });
+    t.startGeneration();
+    await sleep(40);
+    expect(() => t.speechStarted(0)).not.toThrow();
+    t.dispose();
+  });
+
+  it('disposeIsIdempotentAndCancelsBothTimers', async () => {
+    const t = new SpeechTimer({ generationTimeoutMs: 20, onGenerationTimeout: onGen, onPlaybackTimeout: onPlay });
+    t.startGeneration();
+    t.speechStarted(0.5);
+    t.dispose();
+    expect(() => t.dispose()).not.toThrow();
+    await sleep(60);
+    expect(onGen).not.toHaveBeenCalled();
+    expect(onPlay).not.toHaveBeenCalled();
+  });
+
+  it('disposeCancelsAGenerationTimerThatIsStillArmed', async () => {
+    // Only the generation phase is running here, so the playback branch of
+    // dispose is skipped. Its sibling below covers the mirror image; between
+    // them each guard is exercised with its handle present and absent.
+    const t = new SpeechTimer({ generationTimeoutMs: 20, onGenerationTimeout: onGen });
+    t.startGeneration();
+    expect(t._genTimer).not.toBeNull();
+    t.dispose();
+    expect(t._genTimer).toBeNull();
+    await sleep(60);
+    expect(onGen).not.toHaveBeenCalled();
+  });
+
+  it('disposeCancelsAPlaybackTimerThatIsStillArmed', async () => {
+    const t = new SpeechTimer({ onPlaybackTimeout: onPlay });
+    t.speechStarted(0.5);
+    expect(t._playTimer).not.toBeNull();
+    t.dispose();
+    expect(t._playTimer).toBeNull();
+    await sleep(60);
+    expect(onPlay).not.toHaveBeenCalled();
+  });
+
+  it('disposeIsSafeBeforeAnyTimerIsArmed', () => {
+    // Both handles are null, so both guarded clearTimeout calls are skipped.
+    const t = new SpeechTimer();
+    expect(() => t.dispose()).not.toThrow();
+    expect(t._genTimer).toBeNull();
+    expect(t._playTimer).toBeNull();
+  });
+
+  it('refusesToStartAfterDispose', async () => {
+    const t = new SpeechTimer({ generationTimeoutMs: 10, onGenerationTimeout: onGen });
+    t.dispose();
+    t.startGeneration();
+    await sleep(40);
+    expect(onGen).not.toHaveBeenCalled();
+  });
+
+  it('refusesSpeechStartedAfterDispose', async () => {
+    const t = new SpeechTimer({ onPlaybackTimeout: onPlay });
+    t.dispose();
+    t.speechStarted(1);
+    await sleep(30);
+    expect(t.hasStarted).toBe(false);
+    expect(onPlay).not.toHaveBeenCalled();
+  });
+
+  it('refusesSpeechFinishedAfterDispose', () => {
+    const t = new SpeechTimer();
+    t.dispose();
+    expect(() => t.speechFinished()).not.toThrow();
   });
 });
