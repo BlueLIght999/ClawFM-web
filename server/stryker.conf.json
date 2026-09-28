@@ -1,0 +1,68 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+
+  "_comment": [
+    "Nightly mutation testing. The quality gate proves the suite passes; this",
+    "proves the suite would FAIL if the code were wrong -- the two are not the",
+    "same and coverage alone cannot tell them apart. Scope is deliberately the",
+    "three domains where a silent behaviour change costs the most: routing (which",
+    "song gets played), community (what other members see), playback (queue",
+    "integrity). Widening it is a cost decision, not a correctness one.",
+    "",
+    "break=70 fails the run below a 70% mutation score. Do not raise it to the",
+    "coverage floor: a mutant that survives because the equivalent code path is",
+    "unreachable is not the same as a missing test, and chasing the last points",
+    "buys assertions on internals rather than behaviour."
+  ],
+
+  "packageManager": "npm",
+  "testRunner": "vitest",
+  "plugins": ["@stryker-mutator/vitest-runner"],
+
+  "_mutate_comment": [
+    "No exclusion globs here on purpose. Tests live in the top-level __tests__/",
+    "directory, not beside the code, so nothing under domain/ needs excluding and",
+    "a `!domain/**/*.test.js` pattern would only add a warning that never fires.",
+    "`!**/index.js` stays: a barrel file is re-exports, and mutating it tests the",
+    "import graph rather than behaviour."
+  ],
+  "mutate": [
+    "domain/routing/**/*.js",
+    "domain/community/**/*.js",
+    "domain/playback/**/*.js",
+    "!**/index.js"
+  ],
+
+  "vitest": {
+    "configFile": "vitest.config.js"
+  },
+
+  "_sandbox_comment": [
+    "inPlace runs mutants against the working tree instead of a copied sandbox.",
+    "The alternative was to have Stryker copy (or symlink) ../client in, because",
+    "seven assertions in __tests__/ read client source as text -- ProfilePanel,",
+    "LoginOverlay, useDjSpeech, useRadioSocketEvents, useSpeechPlayback, useSocket.",
+    "An in-place run keeps those relative paths resolving with nothing to sync, at",
+    "the cost of mutating files under our feet: it must never run concurrently with",
+    "another gate, and a killed run can leave a mutated file behind. Recover with",
+    "`git checkout -- domain/`; the scope below is domain/ only for that reason."
+  ],
+  "inPlace": true,
+
+  "thresholds": {
+    "high": 85,
+    "low": 70,
+    "break": 70
+  },
+
+  "reporters": ["clear-text", "progress", "html", "json"],
+  "htmlReporter": { "fileName": "reports/mutation/index.html" },
+  "jsonReporter": { "fileName": "reports/mutation/mutation.json" },
+
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": true,
+  "concurrency": 4,
+  "timeoutMS": 20000,
+  "timeoutFactor": 2,
+  "ignoreStatic": true
+}

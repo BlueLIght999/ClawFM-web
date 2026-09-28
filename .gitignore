@@ -15,5 +15,12 @@ agent-radio-hero.jpg
 agent-radio.html
 community-hero.jpg
 community.html
+fix-plan-user-preference/
+spring-landscape/
 # Vendored NeteaseCloudMusicApi dev server (has its own .git; installed via npm dep)
 server/netease-api/
+# Stryker mutation testing: .stryker-tmp holds the per-run backup/sandbox that
+# an interrupted in-place run can leave behind, and reports/ is generated HTML
+# and JSON. Neither is source.
+server/.stryker-tmp/
+server/reports/

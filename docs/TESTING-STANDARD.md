@@ -9,15 +9,41 @@
 
 ## 0. 现状审计（改造基线）
 
+> 下表数据取自已落地的门禁实测值（`npm run quality`，2026-09-28）。
+> 早先版本此处写「仅 7 个测试、未装覆盖率工具」，早已过时，据实更正。
+
 | 项 | 现状 | 目标 |
 |----|------|------|
 | 测试框架 | vitest 4.1.9 ✅ | 保留 |
-| 现有测试 | 仅 `__tests__/speech-timer.test.js`（7 个，单元测试） | 扩展到金字塔各层 |
-| 架构测试 | dependency-cruiser 已搭建（arch:check）✅ | 纳入测试门禁 |
-| 覆盖率工具 | ❌ 未安装 | 安装 @vitest/coverage-v8 |
-| 集成/契约/E2E | ❌ 无 | 按金字塔补齐 |
+| 现有测试 | **212 个文件 / 2027 个用例，全部通过** ✅ | 随功能同步增长 |
+| 覆盖率工具 | @vitest/coverage-v8 ✅ 已接入 | 保留 |
+| 实测覆盖率 | 语句 88.64% / 分支 78.5% / 函数 89.8% / 行 90.84% ✅ | 只升不降 |
+| 架构测试 | dependency-cruiser ✅（`arch:check`，273 模块零违规） | 纳入门禁 |
+| 类型检查 | typescript 5.9.3 + `checkJs` ✅（`types:check`，0 error） | 纳入门禁 |
+| 静态门禁 | eslint 10 ✅（0 error） | 纳入门禁 |
+| 集成/契约 | 14 个路由/契约/集成测试文件 ✅ | 按金字塔补齐 E2E |
 
-> speech-timer 的 7 个测试是**单元测试样板**：纯对象 + 注入回调 + 假定时器，零外部依赖。
+`domain/playback`、`domain/hosting`、`domain/curation` 的覆盖率下限已写入
+`vitest.config.js`（行 ≥ 80%、分支 ≥ 70%），`domain/community` 与
+`domain/profile` 为行 ≥ 85%、分支 ≥ 80%。
+
+---
+
+## 0.1 统一门禁（`npm run quality`）
+
+顺序即优先级 —— **先架构冲突，再代码质量**：
+
+| 序 | 命令 | 拦截什么 |
+|----|------|---------|
+| 1 | `npm run lint` | 风格、复杂度、潜在缺陷 |
+| 2 | `npm run arch:check` | D1–D10 依赖禁令、循环、孤儿模块 |
+| 3 | `npm run types:check` | JSDoc 与实现分歧、空值路径 |
+| 4 | `npm run dup:check` | 重复代码 |
+| 5 | `npm test` | 行为回归 |
+
+> 顺序不可调换：架构违规（如 domain 跨上下文 import）会让后续所有修复都建在
+> 错误地基上，所以它必须先于类型与风格检查被拦下。
+
 
 ---
 
@@ -153,6 +179,98 @@ npm run arch:check  →  当前捕获：
 安装：  npm i -D @vitest/coverage-v8
 配置：  vitest.config.js 设 coverage.thresholds 按上表分目录设阈值
 门禁：  npm run test:coverage 低于阈值 → CI 失败
+```
+
+---
+
+## 4.1 变异测试门禁（覆盖率的补集）
+
+覆盖率回答的是「这行代码被执行过吗」，变异测试回答的是「这行代码改错
+了，测试会不会红」。二者不是同一件事，且**前者不能推出后者**：本项目
+实测有三个模块覆盖率数字漂亮却几乎没有一个变异体被杀死——
+`domain/community/followRules.js` 0/19 杀死，`domain/routing/mergedIntentResolver.js`
+22 个 NoCoverage，`domain/community/dmRules.js` 18 个 NoCoverage。
+三者共同的形态是**只有正常路径被测，错误路径从未执行**，而错误路径正是
+畸形/恶意输入唯一会走到的分支。
+
+```
+工具：  @stryker-mutator/core + @stryker-mutator/vitest-runner (10.x)
+配置：  server/stryker.conf.json
+运行：  npm run mutate              全量（按 conf 的 mutate 范围）
+        npm run mutate:community | mutate:routing | mutate:playback  单域
+门禁：  mutation score < 70 → 退出码 1
+产物：  server/reports/mutation/{index.html,mutation.json}
+```
+
+### 范围与阈值取舍
+
+```
+mutate 范围    仅 domain/routing + domain/community + domain/playback
+               这是「静默行为改变代价最高」的三个域：选哪首歌、别人看到
+               什么、队列完整性。扩大范围是成本决策，不是正确性决策。
+
+break = 70     刻意低于覆盖率地板。变异体存活的原因有两种，只有一种是
+               缺陷：等价变异体（equivalence）改的是同一数据的另一种写法，
+               no behavioural test can kill it。把阈值抬到覆盖率地板，
+               代价是逼着测试去断言内部浮点分数——而这恰恰是变异测试
+               想要劝阻的行为。
+```
+
+### 等价变异体的判定纪律
+
+```
+发现存活的变异体，先问「有没有任何输入能让它和原代码行为不同」，
+再决定是补测试还是标记等价。判定必须用 node -e 实测，不能靠推理：
+
+  例 1  L25 去重守卫 `part && !seen.has(part)`
+        普通用例里 label 与 second-loop 剥离结果同源，守卫永不起作用；
+        只有「label 用 featureToLabelPart（genre_rock→rock），而质心里
+        另有一个字面量 'rock' 键」时两条路径才碰撞。实测
+        clusterKeywords({genre_rock:1, rock:0.5}) → ["rock"] 才能杀死。
+
+  例 2  stripPrefix 的 artist_top/user_tags_count 别名
+        原测试的 {artist_top:1, user_tags_count:0.5} 两个键都进了 label，
+        label 路径先供给 'artist'/'tags'，second-loop 根本用不到别名。
+        必须把别名键压到第 4/5 位让它跌出 label：
+        {genre_rock:1, mood_happy:0.9, ts_night:0.8, artist_top:0.7}
+        → ["rock","happy","night","artist"]。
+
+  例 3  ArrayDeclaration 占位符 `["Stryker was here"]`
+        Array.isArray 守卫后的空数组换成单元素数组，输出完全一致——
+        等价，不补测试。
+
+  例 4  计时器句柄清理的 `if (h)` 守卫被改成恒真
+        speechTimer.js 的 speechFinished/dispose 里，每个 clearTimeout
+        都包在 `if (this._genTimer)` / `if (this._playTimer)` 中。把守卫
+        改成恒真后，最坏情况是 clearTimeout(null)——node 里就是空操作，
+        最终状态与原来逐字段相同（实测 clearTimeout(null) → undefined）。
+        这类守卫是防御性的，不是行为分支：真实调用路径里句柄一定非空，
+        「恒真」这一变异体在全部输入等价。7 个存活者全是这一形状
+        （L58/L76/L77/L78/L96/L100/L101），86.27% 即为该模块的可达上限，
+        不必再补测试。
+```
+
+### 变异分数的读法
+
+```
+分数不是越高越好，是「还差多少没解释」。收尾时必须能把每个存活者
+逐条归到「等价」或「无输入可达」，归不出来的才算欠账：
+  - 已归零的模块（如 TransitionOrchestrator 96.25% 的 3 个存活者是
+    console.log 字符串）视为收口；
+  - 归不出来的，先怀疑测试的输入选错了点（用 speechStarted(0.5) 这类
+    变异不敏感的取值，等于没测），而不是先怀疑等价性。
+```
+
+### 与 TDD 铁律的关系
+
+```
+变异测试不改变 TDD 的先后顺序，只改变了「一个测试写完了没有」的判据。
+测试一次就过的，不构成证据；把对应变异体杀死才构成证据。
+stryker.conf.json 设 inPlace:true，直接在工作树上跑变异——
+七个断言按相对路径读取 client/ 源码，沙箱拷不出去。代价是：
+  1. 不得与其他门禁并发运行；
+  2. 中途被杀会留下改过的文件，用 git checkout -- domain/ 复原。
+因此变异门禁只在夜间构建跑，不进每次提交的 npm run quality。
 ```
 
 ---
