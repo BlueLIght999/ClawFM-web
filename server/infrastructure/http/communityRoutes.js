@@ -138,7 +138,9 @@ export function createCommunityRouter(services) {
     }
   });
 
+  // 画像含听歌偏好/活跃时段等隐私数据，与 /refresh 一致：仅本人可读
   router.get('/profile/:userId', (req, res) => {
+    if (!assertSelf(req, res, req.params.userId)) return;
     const profile = memberProfileService.getProfile(req.params.userId);
     if (!profile) return fail(res, 'not_found', 404);
     return ok(res, profile);

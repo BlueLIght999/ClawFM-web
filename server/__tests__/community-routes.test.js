@@ -309,7 +309,15 @@ describe('community routes', () => {
     expect(res.body.data.meta.source).toBe('P-B');
   });
 
-  it('GET /profile/:userId 404 when not built', async () => {
+  it('GET /profile/:userId 403 when reading another member profile', async () => {
+    await request(app).post('/api/community/profile/u1/refresh');
+    const res = await request(app).get('/api/community/profile/u2');
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('forbidden');
+  });
+
+  it('GET /profile/:userId 404 when own profile not built', async () => {
+    mockAuth.uid = 'ghost';
     const res = await request(app).get('/api/community/profile/ghost');
     expect(res.status).toBe(404);
   });

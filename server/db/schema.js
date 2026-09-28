@@ -349,6 +349,30 @@ export function execute(sql, params = []) {
   else saveDb();
 }
 
+/**
+ * 执行事务：保证一组数据库操作的原子性（全部成功或全部回滚）
+ * 用于社区聚类保存、批量分发等需要多步操作的场景
+ * @param {Function} fn - 事务内执行的函数，返回值将被传递给调用者
+ * @returns {*} fn 的返回值
+ * @throws {Error} 事务内任何错误会导致 ROLLBACK 并重新抛出
+ */
+export function transaction(fn) {
+  const d = getDb();
+  try {
+    d.run('BEGIN TRANSACTION');
+    const result = fn();
+    d.run('COMMIT');
+    // 事务成功后触发持久化
+    if (saveDebouncer) saveDebouncer.schedule();
+    else saveDb();
+    return result;
+  } catch (e) {
+    d.run('ROLLBACK');
+    console.error('[DB] Transaction rolled back:', e.message);
+    throw e;
+  }
+}
+
 // Force immediate save of any pending debounced writes (use before shutdown)
 export function flushDb() {
   if (saveDebouncer) saveDebouncer.flush();

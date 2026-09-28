@@ -37,13 +37,20 @@ export function createClusterService({ communityRepository, eventPublisher, logg
       return { k: 0, clusters: repo.getClusterSnapshot(), memberAssignments: {}, degraded: true };
     }
 
+    // 快照 + 成员归属需原子写入：仓储提供 saveClusterResult（单事务），
+    // 未实现该方法的适配器回落为两步写入（保持 port 向后兼容）。
     try {
-      repo.saveClusterSnapshot(result.clusters);
-      for (const [userId, clusterId] of Object.entries(result.memberAssignments)) {
-        repo.setMemberCluster(userId, clusterId);
+      if (typeof repo.saveClusterResult === 'function') {
+        repo.saveClusterResult(result.clusters, result.memberAssignments);
+      } else {
+        repo.saveClusterSnapshot(result.clusters);
+        for (const [userId, clusterId] of Object.entries(result.memberAssignments)) {
+          repo.setMemberCluster(userId, clusterId);
+        }
       }
     } catch (e) {
       logger?.warn?.({ component: 'community', err: e?.message }, 'cluster snapshot persist failed');
+      return { k: 0, clusters: repo.getClusterSnapshot(), memberAssignments: {}, degraded: true };
     }
 
     for (const c of result.clusters) {

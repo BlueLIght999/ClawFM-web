@@ -78,6 +78,44 @@ describe('cluster service', () => {
     expect(result.k).toBe(0);
   });
 
+  it('runClustering_usesAtomicSaveWhenRepositorySupportsIt', () => {
+    const profiles = [
+      { userId: 'r1', profile: makeProfile('rock') },
+      { userId: 'r2', profile: makeProfile('rock') },
+    ];
+    const calls = { atomic: [] };
+    const repo = {
+      listAllProfiles: () => profiles,
+      getClusterSnapshot: () => [],
+      saveClusterResult: (clusters, assignments) => { calls.atomic.push({ clusters, assignments }); },
+      // 存在 saveClusterSnapshot/setMemberCluster 但不应被调用
+      saveClusterSnapshot: () => { throw new Error('should not be called'); },
+      setMemberCluster: () => { throw new Error('should not be called'); },
+    };
+    const service = createClusterService({ communityRepository: repo, eventPublisher: publisher });
+
+    const result = service.runClustering();
+
+    expect(result.degraded).toBe(false);
+    expect(calls.atomic.length).toBe(1);
+    expect(calls.atomic[0].clusters.length).toBe(result.clusters.length);
+    expect(Object.keys(calls.atomic[0].assignments).length).toBe(2);
+  });
+
+  it('runClustering_degradesWhenPersistThrows', () => {
+    const profiles = [{ userId: 'r1', profile: makeProfile('rock') }];
+    const repo = {
+      listAllProfiles: () => profiles,
+      getClusterSnapshot: () => [{ clusterId: 0, label: 'old', centroid: {}, memberUserIds: ['x'], memberCount: 1 }],
+      saveClusterResult: () => { throw new Error('disk full'); },
+    };
+    const service = createClusterService({ communityRepository: repo, eventPublisher: publisher });
+    const result = service.runClustering();
+    expect(result.degraded).toBe(true);
+    expect(result.clusters.length).toBe(1);
+    expect(publisher.emits.length).toBe(0);
+  });
+
   it('getClusters_returnsRepositorySnapshot', () => {
     const repo = makeMockRepo([]);
     const service = createClusterService({ communityRepository: repo, eventPublisher: publisher });

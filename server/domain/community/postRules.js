@@ -10,10 +10,20 @@ export const POST_TYPES = ['reflection', 'history', 'recommend', 'comment'];
 export const MAX_CONTENT_LENGTH = 2000;
 
 /**
- * 去除首尾空白。非字符串返回 ''。
+ * 去除首尾空白并进行 HTML 转义防护 XSS。非字符串返回 ''。
+ * HTML 实体转义：防止恶意脚本注入（如 <script>alert('XSS')</script>）
  */
 export function sanitizeContent(content) {
-  return typeof content === 'string' ? content.trim() : '';
+  if (typeof content !== 'string') return '';
+
+  return content
+    .trim()
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/\//g, '&#x2F;');
 }
 
 /**

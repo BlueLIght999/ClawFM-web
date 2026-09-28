@@ -4,7 +4,7 @@
  * 用 db/schema.js 的 queryAll/queryOne/execute 三个 helper（依赖注入，便于测试）。
  * DO（snake_case 行）→ DTO（camelCase）转换在此层完成，不外泄表结构（模型不透传）。
  */
-import { queryAll, queryOne, execute } from '../../../db/schema.js';
+import { queryAll, queryOne, execute, transaction } from '../../../db/schema.js';
 
 function parseJsonArray(raw) {
   if (!raw) return [];
@@ -335,6 +335,30 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
       }
     },
 
+    /**
+     * 原子写入聚类快照 + 成员簇归属。
+     * saveClusterSnapshot 会先 DELETE 全表再逐条 INSERT，若中途失败会丢失旧快照；
+     * setMemberCluster 逐成员 UPDATE 也可能部分成功。两者合并在一个事务中保证一致性。
+     * @param {Array} clusters
+     * @param {Record<string, number>} memberAssignments userId -> clusterId
+     */
+    saveClusterResult(clusters, memberAssignments = {}) {
+      const list = Array.isArray(clusters) ? clusters : [];
+      transaction(() => {
+        run('DELETE FROM community_clusters', []);
+        for (const c of list) {
+          run(
+            `INSERT INTO community_clusters (cluster_id, label, centroid, member_count, updated_at)
+             VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+            [Number(c.clusterId), c.label || '', JSON.stringify(c.centroid || {}), Number(c.memberCount) || 0]
+          );
+        }
+        for (const [userId, clusterId] of Object.entries(memberAssignments)) {
+          run('UPDATE community_members SET cluster_id = ? WHERE user_id = ?', [Number(clusterId), String(userId)]);
+        }
+      });
+    },
+
     getClusterSnapshot() {
       const rows = q('SELECT * FROM community_clusters', []);
       return rows.map((r) => {
@@ -493,11 +517,13 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
       if (existing) {
         run('DELETE FROM community_likes WHERE user_id = ? AND post_id = ?', [String(userId), Number(postId)]);
         run('UPDATE community_posts SET likes = MAX(0, likes - 1) WHERE id = ?', [Number(postId)]);
-        return { liked: false, likes: Math.max(0, Number(post.likes) - 1) };
+      } else {
+        run('INSERT OR IGNORE INTO community_likes (user_id, post_id) VALUES (?, ?)', [String(userId), Number(postId)]);
+        run('UPDATE community_posts SET likes = likes + 1 WHERE id = ?', [Number(postId)]);
       }
-      run('INSERT OR IGNORE INTO community_likes (user_id, post_id) VALUES (?, ?)', [String(userId), Number(postId)]);
-      run('UPDATE community_posts SET likes = likes + 1 WHERE id = ?', [Number(postId)]);
-      return { liked: true, likes: Number(post.likes) + 1 };
+      // 修复: 重新查询最新值，避免并发场景下返回旧值导致前端显示不一致
+      const updated = one('SELECT likes FROM community_posts WHERE id = ?', [Number(postId)]);
+      return { liked: !existing, likes: Number(updated?.likes) || 0 };
     },
 
     hasLiked(userId, postId) {

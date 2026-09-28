@@ -48,6 +48,7 @@
  * @property {(userId: string) => object|null} getProfile
  * @property {() => {userId:string, profile:object}[]} listAllProfiles
  * @property {(clusters: Array) => void} saveClusterSnapshot
+ * @property {(clusters: Array, memberAssignments: Record<string, number>) => void} [saveClusterResult] 原子写入快照+成员归属（可选；缺省时服务回落为 saveClusterSnapshot + setMemberCluster）
  * @property {() => Array} getClusterSnapshot
  * @property {(clusterId: number) => CommunityMember[]} listClusterMembers
  * @property {(entry: {userId:string, targetType:string, targetId:string, fromCluster:number|null, reason:string|null}) => number} createInbox
