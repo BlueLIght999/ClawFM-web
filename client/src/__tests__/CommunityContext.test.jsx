@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor, renderHook } from '@testing-library/react';
 import { CommunityProvider, useCommunity } from '../contexts/CommunityContext.jsx';
 
@@ -44,6 +44,13 @@ function renderCommunityHook(socket = null) {
 describe('CommunityContext', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // Provider 挂载后会拉一次 /api/auth/status 补登录态；未登录（ok:false）时该流程提前返回，
+    // 不影响 socket 断言。若不打桩，jsdom 无 fetch 会在 effect 里抛错。
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   // ── 默认 state ──
@@ -59,28 +66,28 @@ describe('CommunityContext', () => {
   // ── Socket emit（用 E.XXX 常量，不字面量）──
   it('identify emits community:identify with userId', () => {
     const emit = vi.fn();
-    renderWith({ emit });
+    renderWith({ emit, on: vi.fn(), off: vi.fn() });
     fireEvent.click(screen.getByText('Identify'));
     expect(emit).toHaveBeenCalledWith('community:identify', 'u1');
   });
 
   it('joinRoom emits room:join with roomId', () => {
     const emit = vi.fn();
-    renderWith({ emit });
+    renderWith({ emit, on: vi.fn(), off: vi.fn() });
     fireEvent.click(screen.getByText('JoinRoom'));
     expect(emit).toHaveBeenCalledWith('room:join', { roomId: 'r1' });
   });
 
   it('leaveRoom emits room:leave', () => {
     const emit = vi.fn();
-    renderWith({ emit });
+    renderWith({ emit, on: vi.fn(), off: vi.fn() });
     fireEvent.click(screen.getByText('LeaveRoom'));
     expect(emit).toHaveBeenCalledWith('room:leave', { roomId: 'r1' });
   });
 
   it('roomSkip emits room:skip', () => {
     const emit = vi.fn();
-    renderWith({ emit });
+    renderWith({ emit, on: vi.fn(), off: vi.fn() });
     fireEvent.click(screen.getByText('RoomSkip'));
     expect(emit).toHaveBeenCalledWith('room:skip', { roomId: 'r1' });
   });
@@ -233,5 +240,31 @@ describe('CommunityContext', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => renderHook(() => useCommunity())).toThrow('useCommunity must be used within CommunityProvider');
     spy.mockRestore();
+  });
+
+  // ── 自填标签（F1）──
+  it('updateSelfTags PUTs normalized tags to /members/:id/self-tags', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ ok: true, data: { userId: 'u1', selfTags: ['后摇'], profileBuilt: true } }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderCommunityHook();
+    await act(async () => { await result.current.updateState({ currentMember: { userId: 'u1', selfTags: [] } }); });
+    await act(async () => { await result.current.updateSelfTags('u1', [' 后摇 ']); });
+    expect(fetchMock).toHaveBeenCalledWith('/api/community/members/u1/self-tags', expect.objectContaining({ method: 'PUT' }));
+    // 本地用后端归一后的列表覆盖，而非原样保留前端输入
+    expect(result.current.currentMember.selfTags).toEqual(['后摇']);
+    vi.unstubAllGlobals();
+  });
+
+  it('updateSelfTags surfaces backend error code on rejection', async () => {
+    // 后端以 error 字段说明拒绝原因，前端透传该码而非笼统的 update_self_tags_failed
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 400, json: async () => ({ ok: false, error: 'self_tag_too_long' }),
+    }));
+    const { result } = renderCommunityHook();
+    await expect(act(async () => { await result.current.updateSelfTags('u1', ['x'.repeat(20)]); }))
+      .rejects.toThrow('self_tag_too_long');
+    vi.unstubAllGlobals();
   });
 });

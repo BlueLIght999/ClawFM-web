@@ -2,15 +2,31 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useCommunitySocketEvents } from '../hooks/useCommunitySocketEvents.js';
 
-// mock CommunityContext：把 6 个 handler 捕获到 mock fn，便于断言
+// mock CommunityContext：把 hook 订阅用到的 handler 捕获到 mock fn，便于断言
 const handlers = {
   onPostNew: vi.fn(),
   onAgentComment: vi.fn(),
+  onCommentNew: vi.fn(),
+  onFollow: vi.fn(),
   onPush: vi.fn(),
   onClusterUpdated: vi.fn(),
   onInvitation: vi.fn(),
+  onDmNew: vi.fn(),
   onRoomState: vi.fn(),
 };
+
+// 与 hook 内的订阅清单保持一致，避免数量断言随新事件加入而失效
+const SUBSCRIBED_EVENTS = [
+  'community:post-new',
+  'community:agent-comment',
+  'community:comment-new',
+  'community:follow',
+  'community:push',
+  'community:cluster-updated',
+  'community:invitation',
+  'community:dm-new',
+  'room:state',
+];
 
 vi.mock('../contexts/CommunityContext.jsx', () => ({
   useCommunity: () => handlers,
@@ -39,32 +55,26 @@ describe('useCommunitySocketEvents', () => {
     vi.clearAllMocks();
   });
 
-  it('registers 6 community event listeners when socket is provided', () => {
+  it('registers every community event listener when socket is provided', () => {
     const socket = makeMockSocket();
     renderHook(() => useCommunitySocketEvents(socket));
 
-    expect(socket.on).toHaveBeenCalledWith('community:post-new', expect.any(Function));
-    expect(socket.on).toHaveBeenCalledWith('community:agent-comment', expect.any(Function));
-    expect(socket.on).toHaveBeenCalledWith('community:push', expect.any(Function));
-    expect(socket.on).toHaveBeenCalledWith('community:cluster-updated', expect.any(Function));
-    expect(socket.on).toHaveBeenCalledWith('community:invitation', expect.any(Function));
-    expect(socket.on).toHaveBeenCalledWith('room:state', expect.any(Function));
-    expect(socket.on).toHaveBeenCalledTimes(6);
+    for (const event of SUBSCRIBED_EVENTS) {
+      expect(socket.on).toHaveBeenCalledWith(event, expect.any(Function));
+    }
+    expect(socket.on).toHaveBeenCalledTimes(SUBSCRIBED_EVENTS.length);
   });
 
-  it('cleanup removes all 6 listeners (no removeAllListeners)', () => {
+  it('cleanup removes every listener (no removeAllListeners)', () => {
     const socket = makeMockSocket();
     const { unmount } = renderHook(() => useCommunitySocketEvents(socket));
 
     unmount();
 
-    expect(socket.off).toHaveBeenCalledWith('community:post-new');
-    expect(socket.off).toHaveBeenCalledWith('community:agent-comment');
-    expect(socket.off).toHaveBeenCalledWith('community:push');
-    expect(socket.off).toHaveBeenCalledWith('community:cluster-updated');
-    expect(socket.off).toHaveBeenCalledWith('community:invitation');
-    expect(socket.off).toHaveBeenCalledWith('room:state');
-    expect(socket.off).toHaveBeenCalledTimes(6);
+    for (const event of SUBSCRIBED_EVENTS) {
+      expect(socket.off).toHaveBeenCalledWith(event);
+    }
+    expect(socket.off).toHaveBeenCalledTimes(SUBSCRIBED_EVENTS.length);
   });
 
   it('socket null — no registration, no throw', () => {
@@ -130,9 +140,9 @@ describe('useCommunitySocketEvents', () => {
     const socket2 = makeMockSocket();
     rerender({ s: socket2 });
 
-    // 旧 socket 的 6 个 listener 被解绑
-    expect(socket1.off).toHaveBeenCalledTimes(6);
-    // 新 socket 注册了 6 个 listener
-    expect(socket2.on).toHaveBeenCalledTimes(6);
+    // 旧 socket 的 listener 全部解绑
+    expect(socket1.off).toHaveBeenCalledTimes(SUBSCRIBED_EVENTS.length);
+    // 新 socket 注册了同样的 listener
+    expect(socket2.on).toHaveBeenCalledTimes(SUBSCRIBED_EVENTS.length);
   });
 });

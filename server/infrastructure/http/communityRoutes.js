@@ -8,8 +8,17 @@
  * 涉及身份的写操作（改凭据/发帖/agent 配置等）额外校验 body.userId === 当前登录 uid。
  */
 import express from 'express';
+import { SELF_TAG_ERRORS, validateSelfTags } from '../../domain/community/selfTagRules.js';
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024; // 2MB（解码后）
+
+/** 自填标签校验失败 → HTTP 状态码映射（长度/类型/数量属入参问题，一律 400）。 */
+const SELF_TAG_ERROR_STATUS = {
+  [SELF_TAG_ERRORS.NOT_ARRAY]: 400,
+  [SELF_TAG_ERRORS.INVALID_ENTRY]: 400,
+  [SELF_TAG_ERRORS.TOO_LONG]: 400,
+  [SELF_TAG_ERRORS.TOO_MANY]: 400,
+};
 
 function ok(res, data, status = 200) {
   return res.status(status).json({ ok: true, data });
@@ -116,6 +125,31 @@ export function createCommunityRouter(services) {
     const member = communityRepository.saveAvatar(userId, buf, typeof mimeType === 'string' ? mimeType : 'image/png');
     if (!member) return fail(res, 'not_found', 404);
     return ok(res, member, 201);
+  });
+
+  // 更新自填兴趣标签（PRD F1）。自填标签是画像融合路 3，也是跨用户「相似词条」匹配的显式信号。
+  // 写入后立即重建画像：标签是用户显式声明，理应即时反映到 persona 与相似度，而非等下次定时刷新。
+  router.put('/members/:userId/self-tags', async (req, res) => {
+    const { userId } = req.params;
+    if (!assertSelf(req, res, userId)) return;
+
+    const validated = validateSelfTags(req.body?.selfTags);
+    if (!validated.ok) {
+      return fail(res, validated.error, SELF_TAG_ERROR_STATUS[validated.error] ?? 400);
+    }
+    const member = communityRepository.getMember(userId);
+    if (!member) return fail(res, 'not_found', 404);
+    communityRepository.setMemberSelfTags(userId, validated.tags);
+
+    // 画像重建可能失败（如无凭据/无历史），但标签已落库——降级为 profileBuilt:false 而非整体报错
+    let profileBuilt = false;
+    try {
+      const result = await memberProfileService.buildProfile(userId);
+      profileBuilt = !!result?.ok;
+    } catch (e) {
+      req.log?.warn?.({ component: 'community', userId, err: e?.message }, 'profile rebuild after self-tags failed');
+    }
+    return ok(res, { userId, selfTags: validated.tags, profileBuilt });
   });
 
   // 取上传的头像图片（<img src> 直连；未上传返回 404 -> 前端回落派生占位）
@@ -410,7 +444,7 @@ export function createCommunityRouter(services) {
     });
 
     // GET /dm/threads — 我的会话列表
-    router.get('/dm/threads', (_req, res) => {
+    router.get('/dm/threads', (req, res) => {
       const threads = dmService.listThreads(req.communityUserId).map(withPeer);
       return ok(res, threads);
     });

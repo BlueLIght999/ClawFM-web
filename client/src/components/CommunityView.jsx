@@ -37,6 +37,10 @@ const NOTIFICATION_ICONS = {
   invitation: '✉',
 };
 
+// 与后端 domain/community/selfTagRules.js 的上限保持一致；前端只做即时提示，落库以服务端归一结果为准
+const SELF_TAG_MAX_LENGTH = 12;
+const SELF_TAG_MAX_COUNT = 20;
+
 export default function CommunityView() {
   const community = useCommunity();
   const {
@@ -44,7 +48,7 @@ export default function CommunityView() {
     rooms, roomState, invitations, authUid, dmThreads, dmMessagesByThread,
     fetchFeed, fetchInbox, fetchClusters, fetchFollowingFeed,
     createPost, likePost, triggerAgentComment, updateAgentConfig,
-    createMember, updateMemberProfile, updateAvatar, clearNotifications,
+    createMember, updateMemberProfile, updateAvatar, updateSelfTags, clearNotifications,
     fetchComments, createComment, follow, unfollow, fetchMember,
     fetchRooms, createRoom, joinRoomHttp, endRoom,
     invite, respondInvitation, fetchInvitations, bringPlaylist,
@@ -380,6 +384,7 @@ export default function CommunityView() {
           currentMember={currentMember}
           agentConfig={agentConfig}
           onUpdate={updateAgentConfig}
+          onUpdateSelfTags={updateSelfTags}
           onError={setError}
         />
       )}
@@ -970,7 +975,7 @@ function NotificationsTab({ notifications, onClear }) {
 }
 
 // ── Agent 配置 Tab（Suno settings card 风格）──────────────
-function AgentTab({ currentMember, agentConfig, onUpdate, onError }) {
+function AgentTab({ currentMember, agentConfig, onUpdate, onUpdateSelfTags, onError }) {
   const [rules, setRules] = useState({
     canComment: true,
     allowedTopics: [],
@@ -979,6 +984,11 @@ function AgentTab({ currentMember, agentConfig, onUpdate, onError }) {
   });
   const [topicInput, setTopicInput] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // 自填兴趣标签（F1）：与 rules 分开保存——标签改的是画像输入，规则改的是 agent 权限
+  const [tags, setTags] = useState([]);
+  const [tagInput, setTagInput] = useState('');
+  const [savingTags, setSavingTags] = useState(false);
 
   useEffect(() => {
     if (agentConfig) {
@@ -990,6 +1000,10 @@ function AgentTab({ currentMember, agentConfig, onUpdate, onError }) {
       });
     }
   }, [agentConfig]);
+
+  useEffect(() => {
+    setTags(currentMember?.selfTags || []);
+  }, [currentMember]);
 
   if (!currentMember) {
     return (
@@ -1019,6 +1033,33 @@ function AgentTab({ currentMember, agentConfig, onUpdate, onError }) {
       onError(err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAddTag = () => {
+    const t = tagInput.trim();
+    if (!t) return;
+    // 长度/数量与后端 selfTagRules 保持一致；这里只做即时提示，最终以服务端归一结果为准
+    if (t.length > SELF_TAG_MAX_LENGTH) { onError(`Tag too long (max ${SELF_TAG_MAX_LENGTH} chars)`); return; }
+    if (tags.some(x => x.toLowerCase() === t.toLowerCase())) { setTagInput(''); return; }
+    if (tags.length >= SELF_TAG_MAX_COUNT) { onError(`At most ${SELF_TAG_MAX_COUNT} tags`); return; }
+    setTags(prev => [...prev, t]);
+    setTagInput('');
+  };
+
+  const handleRemoveTag = (t) => setTags(prev => prev.filter(x => x !== t));
+
+  const handleSaveTags = async () => {
+    setSavingTags(true);
+    try {
+      const data = await onUpdateSelfTags(currentMember.userId, tags);
+      // 后端会 trim/去重/大小写归一，用落库结果回填，避免界面与库里不一致
+      if (data?.selfTags) setTags(data.selfTags);
+    } catch (err) {
+      // 后端错误码（self_tag_too_long / self_tags_too_many）比笼统文案更有指导性
+      onError(err.message);
+    } finally {
+      setSavingTags(false);
     }
   };
 
@@ -1087,6 +1128,53 @@ function AgentTab({ currentMember, agentConfig, onUpdate, onError }) {
           onClick={handleSave}
           disabled={saving}
         >{saving ? 'SAVING...' : 'SAVE RULES'}</button>
+      </div>
+
+      <div className="community-agent-section">
+        <div className="community-agent-rule" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: 8 }}>
+          <div className="community-agent-rule-info" style={{ width: '100%' }}>
+            <div className="community-agent-rule-label">My interests</div>
+            <div className="community-agent-rule-hint">
+              Free-form tags used to build your profile (F1). They feed the third source of profile fusion and
+              help my agent find members with matching taste.
+            </div>
+          </div>
+          <div className="community-composer-row" style={{ width: '100%' }}>
+            <input
+              className="community-composer-input"
+              type="text"
+              placeholder="e.g. post-rock"
+              maxLength={SELF_TAG_MAX_LENGTH}
+              value={tagInput}
+              onChange={e => setTagInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddTag(); } }}
+              aria-label="new interest tag"
+            />
+            <button type="button" className="community-btn" onClick={handleAddTag}>ADD</button>
+          </div>
+          {tags.length > 0 && (
+            <div className="community-card-tags" style={{ width: '100%' }}>
+              {tags.map(t => (
+                <button
+                  type="button"
+                  key={t}
+                  className="community-card-tag"
+                  onClick={() => handleRemoveTag(t)}
+                  style={{ cursor: 'pointer', background: 'transparent' }}
+                  title="remove"
+                >#{t} ✕</button>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+            <button
+              type="button"
+              className="community-btn community-btn-primary"
+              onClick={handleSaveTags}
+              disabled={savingTags}
+            >{savingTags ? 'SAVING...' : 'SAVE INTERESTS'}</button>
+          </div>
+        </div>
       </div>
     </>
   );

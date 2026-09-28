@@ -5,11 +5,12 @@ import { createCommunityRouter } from '../infrastructure/http/communityRoutes.js
 
 // mock services，专注测路由层（参数解析/状态码/响应格式），不碰真实 service 逻辑
 const mockAuth = { uid: 'u1' };
+// 记录 setMemberSelfTags 的落库值，供断言验证路由传下去的是归一后列表
+const savedSelfTags = { tags: null };
 
 function makeMockServices() {
   const profiles = new Map();
-  return {
-    communityService: {
+  return {    communityService: {
       createPost: (input) => {
         if (!input.userId) return { ok: false, error: 'user_id_required' };
         if (!input.content) return { ok: false, error: 'content_empty' };
@@ -44,7 +45,7 @@ function makeMockServices() {
     },
     memberProfileService: {
       buildProfile: async (userId) => {
-        if (userId === 'noref') return { ok: false, error: 'no_credentials' };
+        if (userId === 'noref' || userId === 'u3') return { ok: false, error: 'no_credentials' };
         const profile = { meta: { totalPlays: 10, source: 'P-B' } };
         profiles.set(userId, profile);
         return { ok: true, profile, degraded: false };
@@ -53,9 +54,10 @@ function makeMockServices() {
     },
     communityRepository: {
       createMember: ({ userId, nickname, avatarUrl }) => ({ userId, nickname, avatarUrl, clusterId: null, selfTags: [] }),
-      getMember: (userId) => userId === 'u1' || userId === 'u2'
+      getMember: (userId) => ['u1', 'u2', 'u3'].includes(userId)
         ? { userId, nickname: userId === 'u1' ? '阿七' : '阿八', avatarUrl: '', clusterId: 1, selfTags: [] }
         : null,
+      setMemberSelfTags: (userId, selfTags) => { savedSelfTags.tags = selfTags; },
       updateMemberProfile: (userId, { nickname, avatarUrl } = {}) => ({ userId, nickname: nickname || '', avatarUrl: avatarUrl || '', clusterId: 1, selfTags: [] }),
       saveAvatar: (userId, binary, mimeType) => ({ userId, nickname: '阿七', avatarUrl: `/api/community/members/${userId}/avatar`, clusterId: 1, selfTags: [] }),
       getAvatarBinary: (userId) => userId === 'u1' ? { avatar_binary: Buffer.from('img'), avatar_mime: 'image/png' } : null,
@@ -113,7 +115,7 @@ function makeApp() {
 }
 
 let app;
-beforeEach(() => { mockAuth.uid = 'u1'; app = makeApp(); });
+beforeEach(() => { mockAuth.uid = 'u1'; savedSelfTags.tags = null; app = makeApp(); });
 
 describe('community routes', () => {
   it('POST /members creates member', async () => {
@@ -549,5 +551,58 @@ describe('community routes', () => {
     const res = await request(app).put('/api/community/members/u2/profile').send({ nickname: '篡改' });
     expect(res.status).toBe(403);
     expect(res.body.error).toBe('forbidden');
+  });
+
+  describe('PUT /members/:userId/self-tags', () => {
+    it('persists normalized tags and rebuilds profile', async () => {
+      const res = await request(app).put('/api/community/members/u1/self-tags').send({ selfTags: [' 后摇 ', '爵士小号'] });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.data.selfTags).toEqual(['后摇', '爵士小号']);
+      expect(res.body.data.profileBuilt).toBe(true);
+      // 落库的是归一后的列表
+      expect(savedSelfTags.tags).toEqual(['后摇', '爵士小号']);
+    });
+
+    it('accepts empty array (clearing all tags)', async () => {
+      const res = await request(app).put('/api/community/members/u1/self-tags').send({ selfTags: [] });
+      expect(res.status).toBe(200);
+      expect(res.body.data.selfTags).toEqual([]);
+    });
+
+    it('rejects non-array body', async () => {
+      const res = await request(app).put('/api/community/members/u1/self-tags').send({ selfTags: '后摇' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('self_tags_not_array');
+    });
+
+    it('rejects a tag over the length limit', async () => {
+      const res = await request(app).put('/api/community/members/u1/self-tags').send({ selfTags: ['x'.repeat(13)] });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('self_tag_too_long');
+    });
+
+    it('forbids editing another user tags', async () => {
+      const res = await request(app).put('/api/community/members/u2/self-tags').send({ selfTags: ['后摇'] });
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('forbidden');
+    });
+
+    it('404 when authenticated member has no member row', async () => {
+      // 登录态有效但尚未建档（未 POST /members）——标签无处可写
+      mockAuth.uid = 'ghost';
+      const res = await request(app).put('/api/community/members/ghost/self-tags').send({ selfTags: ['后摇'] });
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('not_found');
+    });
+
+    it('succeeds with profileBuilt=false when profile rebuild fails', async () => {
+      // 网易云无凭据时画像建不出来，但标签本身已落库，不应整体失败
+      mockAuth.uid = 'u3';
+      const res = await request(app).put('/api/community/members/u3/self-tags').send({ selfTags: ['后摇'] });
+      expect(res.status).toBe(200);
+      expect(res.body.data.profileBuilt).toBe(false);
+      expect(savedSelfTags.tags).toEqual(['后摇']);
+    });
   });
 });

@@ -125,6 +125,26 @@ export function CommunityProvider({ socket, children }) {
     return member;
   }, [updateState]);
 
+  /** 更新自填兴趣标签（F1）。后端归一后重建画像，返回落库的标签列表。 */
+  const updateSelfTags = useCallback(async (userId, selfTags) => {
+    const res = await fetch(`/api/community/members/${encodeURIComponent(userId)}/self-tags`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selfTags }),
+    });
+    if (!res.ok) {
+      // 后端以 error 字段说明原因（too_long/too_many/not_array），前端据此提示
+      let error = 'update_self_tags_failed';
+      try { error = (await res.json()).error || error; } catch { /* 非 JSON 响应，沿用默认错误码 */ }
+      throw new Error(error);
+    }
+    const data = (await res.json()).data;
+    // 用后端归一后的列表覆盖本地，避免前端残留未 trim/未去重的原始输入
+    const current = stateRef.current.currentMember;
+    if (current) updateState({ currentMember: { ...current, selfTags: data.selfTags } });
+    return data;
+  }, [updateState]);
+
   // 刷新恢复：从 localStorage 读 currentMember，自动 re-identify（修复 B-C7）
   useEffect(() => {
     try {
@@ -655,7 +675,7 @@ export function CommunityProvider({ socket, children }) {
     // socket emit
     identify, joinRoom, leaveRoom, roomSkip,
     // http
-    createMember, updateMemberProfile, updateAvatar, refreshProfile, createPost, fetchFeed, likePost,
+    createMember, updateMemberProfile, updateAvatar, updateSelfTags, refreshProfile, createPost, fetchFeed, likePost,
     fetchInbox, fetchClusters, triggerAgentComment, updateAgentConfig,
     // F9 invitation http
     invite, respondInvitation, fetchInvitations, bringPlaylist,
