@@ -103,5 +103,16 @@ describe('selfTagRules', () => {
     it('tagJaccard_caseInsensitive', () => {
       expect(tagJaccard(['Rock'], ['rock'])).toBe(1);
     });
+
+    it('tagJaccard_foldsSynonymsAndSpellingVariants', () => {
+      // 判等必须与召回层同源：『爵士』『Jazz』『爵士乐』在 tagRecall 里是同一个桶，
+      // 所以它们之间的 Jaccard 必须是 1。曾经这里只做小写比较，会把同一群人
+      // 算成完全不重合——候选被召回、又被重排踢掉。
+      expect(tagJaccard(['爵士'], ['Jazz'])).toBe(1);
+      expect(tagJaccard(['爵士乐'], ['Jazz'])).toBe(1);
+      expect(tagJaccard(['後搖'], ['post-rock'])).toBe(1);
+      // 不同概念仍须分开：归一化过头会让推荐失去区分度。
+      expect(tagJaccard(['摇滚'], ['金属'])).toBe(0);
+    });
   });
 });

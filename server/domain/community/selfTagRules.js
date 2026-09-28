@@ -14,6 +14,7 @@
  * 本模块只做校验与归一，不碰存储（D1/D2）；错误以 {ok, error} 返回而非抛异常，
  * 由 route 层决定 HTTP 状态码（与 communityRoutes 既有风格一致）。
  */
+import { canonicalizeTags } from './tagRecall.js';
 
 /** 单个标签最大长度（字符）。12 字足够覆盖「深夜后摇」「爵士小号」这类词组。 */
 export const MAX_TAG_LENGTH = 12;
@@ -78,15 +79,20 @@ export function validateSelfTags(input) {
 }
 
 /**
- * 计算两组标签的 Jaccard 相似度（交集/并集，大小写不敏感）。
+ * 计算两组标签的 Jaccard 相似度（交集/并集）。
  * @param {string[]} a
  * @param {string[]} b
  * @returns {number} 0..1；任一方为空返回 0
  * 用途：跨用户相似度重排的显式标签分项，可解释性来源。
+ *
+ * 判等走 tagRecall 的 normalizeTagKey，而不是本模块的 lowercase：
+ * 召回层按归一键建桶（「爵士」「Jazz」「爵士乐」同桶），重排若退回小写比较，
+ * 就会出现「因共享标签被召回、却在重排里算出零重合」的自相矛盾。
+ * 同上下文内部 import，不触 D10。
  */
 export function tagJaccard(a, b) {
-  const setA = new Set(normalizeTagList(a).map((t) => t.toLowerCase()));
-  const setB = new Set(normalizeTagList(b).map((t) => t.toLowerCase()));
+  const setA = new Set(canonicalizeTags(a));
+  const setB = new Set(canonicalizeTags(b));
   if (setA.size === 0 || setB.size === 0) return 0;
   let inter = 0;
   for (const t of setA) {
