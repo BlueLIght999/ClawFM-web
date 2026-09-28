@@ -15,7 +15,7 @@ const CHINESE_ORDINALS = {
  * Constraint: only parses the small ordinal range currently exposed in plan UI.
  */
 export function planSelectionIndex(text = '') {
-  const match = String(text).match(/第?([一二三四五]|[0-9]+)/);
+  const match = String(text).match(/第?([一二三四五]|\d+)/);
   if (!match) return 0;
 
   const raw = match[1];

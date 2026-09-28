@@ -12,6 +12,10 @@ import { rankSongsByPreference, rankSongsByTopArtists, seedSongMatchesPreference
 import { resolveActiveBlockHints } from './planBlockProgression.js';
 import { preferenceFallbackPlan } from './preferenceFallbackRules.js';
 
+// Cap on tracks a single genre-sweep strategy contributes. Was a bare `20` in two
+// near-identical loops; naming it keeps the two in step if it ever changes.
+const GENRE_FILL_LIMIT = 20;
+
 /**
  * Pure: collect songs from multiple strategies, deduplicating against recentIds.
  *
@@ -45,42 +49,72 @@ export async function collectFromStrategies(strategies, strategyNames, recentIds
     return true;
   }
 
+  // The three passes below were one 53-branch function; each is now a named step
+  // reading exactly as its comment did, so the ordering intent is visible without
+  // holding the whole loop nest in mind.
   if (perStrategyQuota > 0) {
-    // Round-robin pass: each strategy contributes up to perStrategyQuota
-    for (let si = 0; si < strategySongs.length; si++) {
-      if (allSongs.length >= targetSize) break;
-      const songs = strategySongs[si];
-      let added = 0;
-      for (const s of songs) {
-        if (added >= perStrategyQuota || allSongs.length >= targetSize) break;
-        if (tryAdd(s)) added++;
-      }
-    }
+    addWithQuota(strategySongs, perStrategyQuota, targetSize, tryAdd, allSongs);
     // Second pass: fill remaining from any strategy in order
-    if (allSongs.length < targetSize) {
-      for (let si = 0; si < strategySongs.length; si++) {
-        if (allSongs.length >= targetSize) break;
-        const songs = strategySongs[si];
-        for (const s of songs) {
-          if (allSongs.length >= targetSize) break;
-          tryAdd(s);
-        }
-      }
-    }
+    fillAny(strategySongs, targetSize, tryAdd, allSongs);
   } else {
     // Original sequential behavior (backward compat)
-    for (let si = 0; si < strategySongs.length; si++) {
-      const songs = strategySongs[si];
-      for (const s of songs) {
-        if (!tryAdd(s)) {
-          if (allSongs.length >= targetSize) break;
-        }
-      }
-      if (allSongs.length >= targetSize) break;
-    }
+    addSequential(strategySongs, targetSize, tryAdd, allSongs);
   }
 
   return allSongs;
+}
+
+/**
+ * Round-robin pass: each strategy contributes up to `quota` songs.
+ * @param {Array<Array>} strategySongs
+ * @param {number} quota
+ * @param {number} targetSize
+ * @param {(song: object) => boolean} tryAdd
+ * @param {Array} allSongs accumulated output, read for its length
+ */
+function addWithQuota(strategySongs, quota, targetSize, tryAdd, allSongs) {
+  for (const songs of strategySongs) {
+    if (allSongs.length >= targetSize) return;
+    let added = 0;
+    for (const s of songs) {
+      if (added >= quota || allSongs.length >= targetSize) break;
+      if (tryAdd(s)) added++;
+    }
+  }
+}
+
+/**
+ * Second pass: fill any remaining slots from every strategy, ignoring quota.
+ * @param {Array<Array>} strategySongs
+ * @param {number} targetSize
+ * @param {(song: object) => boolean} tryAdd
+ * @param {Array} allSongs
+ */
+function fillAny(strategySongs, targetSize, tryAdd, allSongs) {
+  if (allSongs.length >= targetSize) return;
+  for (const songs of strategySongs) {
+    if (allSongs.length >= targetSize) return;
+    for (const s of songs) {
+      if (allSongs.length >= targetSize) return;
+      tryAdd(s);
+    }
+  }
+}
+
+/**
+ * Quota-free sequential fill, preserving the original strategy priority.
+ * @param {Array<Array>} strategySongs
+ * @param {number} targetSize
+ * @param {(song: object) => boolean} tryAdd
+ * @param {Array} allSongs
+ */
+function addSequential(strategySongs, targetSize, tryAdd, allSongs) {
+  for (const songs of strategySongs) {
+    for (const s of songs) {
+      if (!tryAdd(s) && allSongs.length >= targetSize) break;
+    }
+    if (allSongs.length >= targetSize) return;
+  }
 }
 
 /**
@@ -141,11 +175,14 @@ export class QueueFillStrategies {
       () => this.fetchDailyRecommendations(recentIds, hourArtists),
       () => this.fetchGenreSearch(recentIds, hourArtists),
     );
-    const strategyNames = activeBlockHints
-      ? ['genreHints', 'personalFm', 'similarSongs', 'dailyRecs', 'genreSearch']
-      : this.topGenres.length > 0
-        ? ['userGenres', 'personalFm', 'similarSongs', 'dailyRecs', 'genreSearch']
-        : ['personalFm', 'similarSongs', 'dailyRecs', 'genreSearch'];
+    let strategyNames;
+    if (activeBlockHints) {
+      strategyNames = ['genreHints', 'personalFm', 'similarSongs', 'dailyRecs', 'genreSearch'];
+    } else if (this.topGenres.length > 0) {
+      strategyNames = ['userGenres', 'personalFm', 'similarSongs', 'dailyRecs', 'genreSearch'];
+    } else {
+      strategyNames = ['personalFm', 'similarSongs', 'dailyRecs', 'genreSearch'];
+    }
     return { strategies, strategyNames };
   }
 
@@ -257,41 +294,36 @@ export class QueueFillStrategies {
   // ─── Strategy implementations ────────────────────────────────────
 
   async fetchByGenreHints(recentIds, _hourArtists, hints) {
-    const songs = [];
-    const genreEngine = this.genreSearchEngine;
-    if (!genreEngine) return songs;
-    for (const block of hints) {
-      const genres = block.genreHints || [];
-      for (const genre of genres.slice(0, 2)) {
-        if (songs.length >= 20) break;
-        try {
-          const tracks = (await genreEngine.search(genre, { limit: 8 })).filter(t => {
-            const sid = String(t.id);
-            return !recentIds.has(sid);
-          });
-          for (const t of tracks) {
-            if (songs.length >= 20) break;
-            songs.push(t);
-          }
-        } catch { /* skip failed genre search */ }
-      }
-    }
-    return songs;
+    if (!this.genreSearchEngine) return [];
+    // Two genres per block, preserving the original per-block cap (a flat slice
+    // over all blocks would have let one hint-rich block starve the others).
+    const genres = hints.flatMap((block) => (block.genreHints || []).slice(0, 2));
+    return this._collectByGenres(genres, recentIds);
   }
 
   async fetchByUserGenres(recentIds) {
+    if (!this.genreSearchEngine) return [];
+    return this._collectByGenres(this.topGenres.slice(0, 2), recentIds);
+  }
+
+  /**
+   * Search a bounded list of genres and collect up to GENRE_FILL_LIMIT unseen
+   * tracks. Shared by the two genre strategies above, whose loops were identical
+   * once the genre list was supplied (CODING-STYLE no-duplication).
+   *
+   * @param {string[]} genres
+   * @param {Set<string>} recentIds
+   * @returns {Promise<Array>}
+   */
+  async _collectByGenres(genres, recentIds) {
     const songs = [];
-    const genreEngine = this.genreSearchEngine;
-    if (!genreEngine) return songs;
-    for (const genre of this.topGenres.slice(0, 2)) {
-      if (songs.length >= 20) break;
+    for (const genre of genres) {
+      if (songs.length >= GENRE_FILL_LIMIT) break;
       try {
-        const tracks = (await genreEngine.search(genre, { limit: 8 })).filter(t => {
-          const sid = String(t.id);
-          return !recentIds.has(sid);
-        });
+        const tracks = (await this.genreSearchEngine.search(genre, { limit: 8 }))
+          .filter((t) => !recentIds.has(String(t.id)));
         for (const t of tracks) {
-          if (songs.length >= 20) break;
+          if (songs.length >= GENRE_FILL_LIMIT) break;
           songs.push(t);
         }
       } catch { /* skip failed genre search */ }
@@ -331,6 +363,10 @@ export class QueueFillStrategies {
         ...this.topArtists.slice(0, 10).map(a => a.name),
       ].filter(Boolean);
       if (candidates.length === 0) return [];
+      // Picks a random genre/artist to seed a search. Unpredictability is not a
+      // requirement here -- any candidate gives a valid search -- so Math.random is
+      // correct, and it is the only source usable in this pure domain layer.
+      // eslint-disable-next-line sonarjs/pseudo-random
       const query = candidates[Math.floor(Math.random() * candidates.length)];
       return (await this.music.search(query, 10)).slice(0, 5);
     } catch { return []; }

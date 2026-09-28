@@ -35,7 +35,12 @@ const FAST_ROUTES = [
   { pattern: /^(根据你对我的了解|根据我的口味|推荐一些|推荐一下|有什么好听的|来点我喜欢的|最近有什么适合|推荐点)/, route: 'ncm', action: 'play_personalized', params: {} },
   { pattern: /^(推荐|推荐歌曲|来点推荐)$/, route: 'ncm', action: 'play_personalized', params: {} },
   { pattern: /^(换个风格|换风格|来点不一样的|换个口味|换换口味|换歌单|换个心情)$/, route: 'ncm', action: 'plan_refresh', params: {} },
-  { pattern: /^(切换|选|换到).*(第[一二三四五]|[0-9]+).*(个主题|个板块|个块|主题|板块)/, route: 'ncm', action: 'plan_select', params: {} },
+  // Two adjacent `.*` wildcards made the split between them ambiguous: on a
+  // non-matching subject the engine retried every division of the input between
+  // them, which is the quadratic behaviour sonarjs flags. The plan ordinals are
+  // short, but this pattern runs on every unmatched user message, so bound the
+  // gaps explicitly -- a plan selector never spans more than a short clause.
+  { pattern: /^(切换|选|换到)[^，。！？]{0,12}(第[一二三四五]|\d+)[^，。！？]{0,12}(个主题|个板块|个块|主题|板块)/, route: 'ncm', action: 'plan_select', params: {} },
   { pattern: /^(钉住|锁定|固定|pin).*(这个|当前|风格|板块|主题)/, route: 'ncm', action: 'plan_pin', params: {} },
   { pattern: /^(取消|解除|自动|auto|自动推荐|自动模式|恢复自动)/, route: 'ncm', action: 'plan_clear', params: {} },
 ];

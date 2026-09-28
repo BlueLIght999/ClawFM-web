@@ -211,6 +211,9 @@ export async function decideProactiveSpeech(ctx) {
       { role: 'user', content: prompt },
     ], { maxTokens: 200, temperature: 0.7 }))?.trim() || '';
     // Strip markdown code fences if present
+    // Anchored fence strip. Both quantifiers sit next to a literal (``` and the
+    // string end), so there is no ambiguity for the engine to backtrack into.
+    // eslint-disable-next-line sonarjs/super-linear-regex
     const json = raw.replace(/^```json?\s*/i, '').replace(/\s*```\s*$/, '');
     try { return JSON.parse(json); } catch {
       console.error('[Claude] Proactive parse failed:', json);

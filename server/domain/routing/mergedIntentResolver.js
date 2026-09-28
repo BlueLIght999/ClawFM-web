@@ -8,26 +8,33 @@
  */
 import { moodToQuery } from './moodToQuery.js';
 
-const ACTION_TO_ROUTE = {
-  play_mood: 'hybrid',
-  play_artist: 'hybrid',
-  play_song: 'hybrid',
-  play_personalized: 'ncm',
-  reject_recommend: 'ncm',
-  recommend_rollback: 'ncm',
-  recommend_retry: 'ncm',
-  recommend: 'ncm',
-  skip: 'ncm',
-  pause: 'ncm',
-  resume: 'ncm',
-  replay: 'ncm',
-  now_playing: 'ncm',
-  plan_refresh: 'ncm',
-  plan_select: 'ncm',
-  plan_pin: 'ncm',
-  plan_clear: 'ncm',
-  chat: 'merged',
-};
+/**
+ * Route table, as a Map rather than an object literal. An object lookup walks
+ * the prototype chain, so `ACTION_TO_ROUTE['constructor']` -- or 'toString',
+ * 'valueOf', 'hasOwnProperty' -- returns an inherited function instead of
+ * undefined, and the documented "unknown action falls back to merged" guarantee
+ * would silently break for those keys. A Map has no prototype chain to walk.
+ */
+const ACTION_TO_ROUTE = new Map([
+  ['play_mood', 'hybrid'],
+  ['play_artist', 'hybrid'],
+  ['play_song', 'hybrid'],
+  ['play_personalized', 'ncm'],
+  ['reject_recommend', 'ncm'],
+  ['recommend_rollback', 'ncm'],
+  ['recommend_retry', 'ncm'],
+  ['recommend', 'ncm'],
+  ['skip', 'ncm'],
+  ['pause', 'ncm'],
+  ['resume', 'ncm'],
+  ['replay', 'ncm'],
+  ['now_playing', 'ncm'],
+  ['plan_refresh', 'ncm'],
+  ['plan_select', 'ncm'],
+  ['plan_pin', 'ncm'],
+  ['plan_clear', 'ncm'],
+  ['chat', 'merged'],
+]);
 
 /**
  * Infer the route field from an action.
@@ -35,8 +42,9 @@ const ACTION_TO_ROUTE = {
  * @returns {string} route ('hybrid'|'ncm'|'merged')
  */
 export function inferRouteFromAction(action) {
-  return ACTION_TO_ROUTE[action] || 'merged';
+  return ACTION_TO_ROUTE.get(action) || 'merged';
 }
+
 
 const MUSIC_SEARCH_ACTIONS = new Set(['play_mood', 'play_artist', 'play_song']);
 
@@ -48,11 +56,8 @@ const LIVE_PATTERNS = [
 
 function isLiveVersion(song) {
   const title = song.name || song.title || '';
-  for (const p of LIVE_PATTERNS) {
-    if (p.test(title)) return true;
-  }
-  if (/[([]\s*live(\s+version)?\s*[)\]]/i.test(title)) return true;
-  return false;
+  if (LIVE_PATTERNS.some((p) => p.test(title))) return true;
+  return /[([]\s*live(\s+version)?\s*[)\]]/i.test(title);
 }
 
 function filterLive(songs) {

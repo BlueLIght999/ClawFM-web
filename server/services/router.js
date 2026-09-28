@@ -28,7 +28,6 @@ export async function routeIntent(text, dependencies = {}) {
   });
 }
 
-// eslint-disable-next-line complexity
 export async function routeIntentWithDependencies(text, {
   music = null,
   mergedChat = null,
@@ -38,21 +37,11 @@ export async function routeIntentWithDependencies(text, {
   // Fast path: simple commands that don't need AI
   const fast = matchFastRoute(msg);
   if (fast) {
-    // Mood-based fast routes: if hybrid+play_mood with mood param, search directly
+    // Mood-based fast routes: hybrid+play_mood carries a mood param, which is the
+    // same shape handlePlayMood already accepts on the AI path. Calling it here
+    // instead of repeating the search-and-fallback body keeps one implementation.
     if (fast.route === 'hybrid' && fast.action === 'play_mood' && fast.params?.mood) {
-      if (!music) return CHAT_FALLBACK;
-      try {
-        const query = moodToQuery(fast.params.mood);
-        return {
-          route: 'hybrid',
-          action: 'play_mood',
-          params: fast.params,
-          results: filterLiveVersions(await searchSongsViaMusic(music, query, 5)).slice(0, 5),
-        };
-      } catch (e) {
-        console.warn('[Router] Mood search failed (degraded to chat):', e.message);
-        return CHAT_FALLBACK;
-      }
+      return handlePlayMood(fast, text, { music });
     }
     return fast;
   }
@@ -62,42 +51,8 @@ export async function routeIntentWithDependencies(text, {
   // Note: "帮我找" / "找一首" are conversational and stay on AI path for better intent extraction
   const searchMatch = matchSearchRoute(msg);
   if (searchMatch) {
-    const query = searchMatch.query;
-    // If query is a genre/instrument/style, route to personalized recommendation
-    if (isGenreQuery(query)) {
-      // Use GenreSearchEngine for multi-source genre search when music port is available
-      if (music) {
-        try {
-          const genreEngine = createGenreSearchEngine(music);
-          const songs = await genreEngine.search(query, { limit: 15 });
-          if (songs && songs.length > 0) {
-            return {
-              route: 'ncm',
-              action: 'play_personalized',
-              params: { preference: query },
-              results: songs.slice(0, 5),
-            };
-          }
-        } catch (e) {
-          console.warn('[Router] GenreSearchEngine failed, falling back to plain search:', e.message);
-        }
-      }
-      return { route: 'ncm', action: 'play_personalized', params: { preference: query } };
-    }
-    if (music) {
-      try {
-        const songs = filterLiveVersions(await searchSongsViaMusic(music, query, 5));
-        return {
-          route: 'ncm',
-          action: 'play_search',
-          params: { query },
-          results: songs.slice(0, 3),
-        };
-      } catch (e) {
-        // Fall through to claude (degraded search)
-        console.warn('[Router] Search failed, falling through to LLM:', e.message);
-      }
-    }
+    const resolved = await resolveSearchRoute(searchMatch.query, music);
+    if (resolved) return resolved;
   }
 
   // Merged path: if mergedChat adapter is available, return merged route
@@ -110,6 +65,54 @@ export async function routeIntentWithDependencies(text, {
   const intent = await extractIntent(text);
   const handler = AI_ACTION_HANDLERS[intent?.action];
   return handler ? handler(intent, text, { music }) : handleChat(intent);
+}
+
+/**
+ * Resolve a matched search query into a route, or null to fall through to AI.
+ *
+ * Genre/instrument/style queries go through GenreSearchEngine for multi-source
+ * results and degrade to a preference-carrying personalized route; anything else
+ * is a plain search. A failed search also returns null so the caller can try the
+ * LLM path -- that degradation is deliberate and documented at each catch.
+ *
+ * @param {string} query
+ * @param {any} music music port, or null when unavailable
+ * @returns {Promise<object|null>}
+ */
+async function resolveSearchRoute(query, music) {
+  if (isGenreQuery(query)) {
+    if (music) {
+      try {
+        const genreEngine = createGenreSearchEngine(music);
+        const songs = await genreEngine.search(query, { limit: 15 });
+        if (songs && songs.length > 0) {
+          return {
+            route: 'ncm',
+            action: 'play_personalized',
+            params: { preference: query },
+            results: songs.slice(0, 5),
+          };
+        }
+      } catch (e) {
+        console.warn('[Router] GenreSearchEngine failed, falling back to plain search:', e.message);
+      }
+    }
+    return { route: 'ncm', action: 'play_personalized', params: { preference: query } };
+  }
+  if (!music) return null;
+  try {
+    const songs = filterLiveVersions(await searchSongsViaMusic(music, query, 5));
+    return {
+      route: 'ncm',
+      action: 'play_search',
+      params: { query },
+      results: songs.slice(0, 3),
+    };
+  } catch (e) {
+    // Degraded search: fall through to claude by reporting no route.
+    console.warn('[Router] Search failed, falling through to LLM:', e.message);
+    return null;
+  }
 }
 
 const CHAT_FALLBACK = { route: 'claude', action: 'chat', params: {} };

@@ -328,30 +328,49 @@ export function matchGenre(text) {
   const lower = (text || '').toLowerCase().trim();
   if (!lower) return null;
 
-  // Phase 1: exact key match (score 1.0)
+  // Three lookup phases with decreasing confidence. Each is extracted below so the
+  // precedence (exact key > exact alias > partial, longest wins) reads off the call
+  // order instead of being buried in nested loops.
+  return exactKeyMatch(lower) || exactAliasMatch(lower) || partialMatch(lower);
+}
+
+/**
+ * Phase 1: the input IS a dictionary key. Highest confidence.
+ * @param {string} lower lowercased, trimmed input
+ * @returns {{key: string, entry: object, matchScore: number}|null}
+ */
+function exactKeyMatch(lower) {
   for (const [key, entry] of Object.entries(GENRE_DICT)) {
-    if (lower === key) {
-      return { key, entry, matchScore: 1.0 };
+    if (lower === key) return { key, entry, matchScore: 1.0 };
+  }
+  return null;
+}
+
+/**
+ * Phase 2: the input IS one of a key's aliases.
+ * @param {string} lower
+ * @returns {{key: string, entry: object, matchScore: number}|null}
+ */
+function exactAliasMatch(lower) {
+  for (const [key, entry] of Object.entries(GENRE_DICT)) {
+    for (const alias of entry.aliases || []) {
+      if (lower === alias.toLowerCase()) return { key, entry, matchScore: 0.9 };
     }
   }
+  return null;
+}
 
-  // Phase 2: exact alias match (score 0.9)
-  for (const [key, entry] of Object.entries(GENRE_DICT)) {
-    const aliases = entry.aliases || [];
-    for (const alias of aliases) {
-      if (lower === alias.toLowerCase()) {
-        return { key, entry, matchScore: 0.9 };
-      }
-    }
-  }
-
-  // Phase 3: partial/contains match (score 0.5)
-  // Check key first, then aliases, for longest-match priority
+/**
+ * Phase 3: the input CONTAINS a key or alias. Keys and aliases are checked
+ * together and the longest candidate wins, so "indie rock" beats "rock".
+ * @param {string} lower
+ * @returns {{key: string, entry: object, matchScore: number}|null}
+ */
+function partialMatch(lower) {
   let bestMatch = null;
   let bestLen = 0;
   for (const [key, entry] of Object.entries(GENRE_DICT)) {
-    const candidates = [key, ...(entry.aliases || [])];
-    for (const cand of candidates) {
+    for (const cand of [key, ...(entry.aliases || [])]) {
       const candLower = cand.toLowerCase();
       if (lower.includes(candLower) && candLower.length > bestLen) {
         bestMatch = { key, entry, matchScore: 0.5 };
@@ -359,7 +378,6 @@ export function matchGenre(text) {
       }
     }
   }
-
   return bestMatch;
 }
 

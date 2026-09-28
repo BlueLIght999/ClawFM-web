@@ -45,6 +45,72 @@ export class ClusterStrategy {
   autoTune(_vectors) {
     return {};
   }
+
+  // ── Shared vector math ────────────────────────────────────────
+  // Hoisted from the two concrete strategies, which carried byte-identical
+  // copies (jscpd + sonarjs/no-identical-functions both flagged them).
+
+  /**
+   * Set the dimension list used by _distance for the current clustering run.
+   *
+   * All vectors reaching a strategy come from one feature extractor, so they
+   * share a key set. Caching it once per run replaces the per-pair union that
+   * used to be rebuilt inside _distance -- that union is called n*k times per
+   * k-means iteration and dominated the inner loop. Callers with a partial
+   * vector fall back to the union (see _distance).
+   *
+   * @param {Array<Object>} vectors
+   */
+  _useDimensions(vectors) {
+    const keys = new Set();
+    for (const v of vectors) for (const key of Object.keys(v)) keys.add(key);
+    this._dims = [...keys];
+  }
+
+  /**
+   * Euclidean distance between two feature vectors.
+   * Falls back to a per-pair union when either vector carries a key outside the
+   * cached dimension list, so a partial vector still compares correctly.
+   *
+   * @param {Object} a
+   * @param {Object} b
+   * @returns {number}
+   */
+  _distance(a, b) {
+    const dims = this._dims;
+    if (!dims) return this._distanceWith(this._unionKeys(a, b), a, b);
+    for (let i = 0; i < dims.length; i++) {
+      if (!(dims[i] in a) || !(dims[i] in b)) return this._distanceWith(this._unionKeys(a, b), a, b);
+    }
+    return this._distanceWith(dims, a, b);
+  }
+
+  _unionKeys(a, b) {
+    return [...new Set([...Object.keys(a), ...Object.keys(b)])];
+  }
+
+  _distanceWith(keys, a, b) {
+    let sum = 0;
+    for (let i = 0; i < keys.length; i++) {
+      const diff = (a[keys[i]] || 0) - (b[keys[i]] || 0);
+      sum += diff * diff;
+    }
+    return Math.sqrt(sum);
+  }
+
+  /**
+   * Arithmetic mean of a set of vectors, over the union of their keys.
+   * @param {Array<Object>} vectors - non-empty
+   * @returns {Object}
+   */
+  _average(vectors) {
+    const keys = new Set(vectors.flatMap((v) => Object.keys(v)));
+    const avg = {};
+    for (const key of keys) {
+      avg[key] = vectors.reduce((sum, v) => sum + (v[key] || 0), 0) / vectors.length;
+    }
+    return avg;
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -75,6 +141,7 @@ export class KMeansClusterStrategy extends ClusterStrategy {
    * If options.k is omitted, the optimal K is auto-selected via silhouette.
    */
   cluster(vectors, options = {}) {
+    this._useDimensions(vectors);
     const k = options.k || this._findOptimalK(vectors);
     return this._kmeans(vectors, k);
   }
@@ -138,7 +205,13 @@ export class KMeansClusterStrategy extends ClusterStrategy {
 
   _initCentroids(vectors, k) {
     const indices = [...vectors.keys()];
+    // Fisher-Yates with Math.random is the correct choice for k-means seeding: the
+    // requirement is spread across the input, not unpredictability, and a
+    // cryptographic source would be slower while changing nothing about the result.
+    // Math.random is also the only option available in this pure domain layer,
+    // which must not import node:crypto.
     for (let i = indices.length - 1; i > 0; i--) {
+      // eslint-disable-next-line sonarjs/pseudo-random
       const j = Math.floor(Math.random() * (i + 1));
       [indices[i], indices[j]] = [indices[j], indices[i]];
     }
@@ -158,25 +231,6 @@ export class KMeansClusterStrategy extends ClusterStrategy {
     return nearest;
   }
 
-  _distance(a, b) {
-    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-    let sum = 0;
-    for (const key of keys) {
-      const diff = (a[key] || 0) - (b[key] || 0);
-      sum += diff * diff;
-    }
-    return Math.sqrt(sum);
-  }
-
-  _average(vectors) {
-    const keys = new Set(vectors.flatMap((v) => Object.keys(v)));
-    const avg = {};
-    for (const key of keys) {
-      avg[key] = vectors.reduce((sum, v) => sum + (v[key] || 0), 0) / vectors.length;
-    }
-    return avg;
-  }
-
   _silhouetteScore(vectors, k) {
     if (k < 2 || vectors.length < k) return 0;
     const result = this._kmeans(vectors, k);
@@ -189,27 +243,52 @@ export class KMeansClusterStrategy extends ClusterStrategy {
 
     let totalScore = 0;
     for (let i = 0; i < vectors.length; i++) {
-      const myCluster = assignments[i];
-      const sameCluster = vectors.filter((_, j) => assignments[j] === myCluster && j !== i);
-      if (sameCluster.length === 0) {
-        totalScore += 1;
-        continue;
-      }
-      const a = sameCluster.reduce((sum, v) => sum + this._distance(vectors[i], v), 0) / sameCluster.length;
-
-      let b = Infinity;
-      for (let c = 0; c < k; c++) {
-        if (c === myCluster) continue;
-        const otherCluster = vectors.filter((_, j) => assignments[j] === c);
-        if (otherCluster.length === 0) continue;
-        const meanDist =
-          otherCluster.reduce((sum, v) => sum + this._distance(vectors[i], v), 0) / otherCluster.length;
-        if (meanDist < b) b = meanDist;
-      }
-
-      totalScore += b === Infinity ? 1 : (b - a) / Math.max(a, b);
+      totalScore += this._silhouetteFor(vectors, assignments, i, k);
     }
     return totalScore / vectors.length;
+  }
+
+  /**
+   * Silhouette value for a single point: (b - a) / max(a, b), where a is its mean
+   * distance to its own cluster and b its mean distance to the nearest other
+   * cluster. A point alone in its cluster scores 1.
+   *
+   * Extracted from the loop in _silhouetteScore to keep that method's branching
+   * readable; the arithmetic is unchanged.
+   *
+   * @param {Array<Object>} vectors
+   * @param {number[]} assignments cluster index per vector
+   * @param {number} i index of the point being scored
+   * @param {number} k cluster count
+   * @returns {number}
+   */
+  _silhouetteFor(vectors, assignments, i, k) {
+    const myCluster = assignments[i];
+    const sameCluster = vectors.filter((_, j) => assignments[j] === myCluster && j !== i);
+    if (sameCluster.length === 0) return 1;
+    const a = this._meanDistanceTo(vectors[i], sameCluster);
+
+    let b = Infinity;
+    for (let c = 0; c < k; c++) {
+      if (c === myCluster) continue;
+      const otherCluster = vectors.filter((_, j) => assignments[j] === c);
+      if (otherCluster.length === 0) continue;
+      const meanDist = this._meanDistanceTo(vectors[i], otherCluster);
+      if (meanDist < b) b = meanDist;
+    }
+
+    return b === Infinity ? 1 : (b - a) / Math.max(a, b);
+  }
+
+  /**
+   * Mean Euclidean distance from `point` to every member of `others`.
+   * @param {Object} point
+   * @param {Array<Object>} others non-empty
+   * @returns {number}
+   */
+  _meanDistanceTo(point, others) {
+    const sum = others.reduce((acc, v) => acc + this._distance(point, v), 0);
+    return sum / others.length;
   }
 
   _sameVector(a, b) {
@@ -242,6 +321,7 @@ export class DBSCANClusterStrategy extends ClusterStrategy {
   }
 
   cluster(vectors, _options = {}) {
+    this._useDimensions(vectors);
     const visited = new Set();
     const noise = new Set();
     const clusters = [];
@@ -304,24 +384,5 @@ export class DBSCANClusterStrategy extends ClusterStrategy {
       if (this._distance(vectors[i], point) <= this.eps) neighbors.push(i);
     }
     return neighbors;
-  }
-
-  _distance(a, b) {
-    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-    let sum = 0;
-    for (const key of keys) {
-      const diff = (a[key] || 0) - (b[key] || 0);
-      sum += diff * diff;
-    }
-    return Math.sqrt(sum);
-  }
-
-  _average(vectors) {
-    const keys = new Set(vectors.flatMap((v) => Object.keys(v)));
-    const avg = {};
-    for (const key of keys) {
-      avg[key] = vectors.reduce((sum, v) => sum + (v[key] || 0), 0) / vectors.length;
-    }
-    return avg;
   }
 }

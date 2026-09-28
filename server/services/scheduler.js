@@ -21,11 +21,7 @@ import {
 import { songId } from '../domain/curation/songId.js';
 import { AudioUrlCache } from '../domain/playback/AudioUrlCache.js';
 import { TransitionOrchestrator } from '../domain/playback/TransitionOrchestrator.js';
-import {
-  startSongPlayhead,
-  transitionDelayForPlayback,
-  skipOutcome,
-} from '../domain/playback/playbackProgressionRules.js';
+import { startSongPlayhead, transitionDelayForPlayback } from '../domain/playback/playbackProgressionRules.js';
 import { buildSchedulerState } from '../domain/playback/schedulerStateRules.js';
 import { shouldTriggerRefill, refillOutcome } from '../domain/playback/refillRules.js';
 

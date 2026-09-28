@@ -11,6 +11,42 @@ import { shouldFilterChunk, stripJsonFromText } from '../../domain/djJsonGuard.j
 const DJ_UNAVAILABLE_TEXT = 'DJ 暂时离线，请稍后再试。';
 
 /**
+ * Consume a token stream, forwarding clean tokens to the caller.
+ *
+ * P0 buffer: once a token looks like the start of a JSON block, stop emitting —
+ * the rest of the JSON would otherwise leak to the frontend token by token. The
+ * full text is kept regardless, so the buffered JSON can be stripped and emitted
+ * as one clean line afterwards.
+ *
+ * `onProgress` receives the text accumulated so far after every token. The stream
+ * may throw part-way through (a dropped connection), and the caller's error
+ * payload reports what the DJ had already said — state that would otherwise die
+ * with this function's frame.
+ *
+ * Extracted from streamReply so that method reads as "open, consume, report"
+ * rather than carrying the filter state inline.
+ *
+ * @param {AsyncIterable<string>} stream
+ * @param {{mergedStream: AsyncIterable<string>|null, messageId: string, onChunk: Function, onProgress: (fullText: string) => void}} ctx
+ * @returns {Promise<{fullText: string, jsonBuffering: boolean}>}
+ */
+async function consumeTokenStream(stream, { mergedStream, messageId, onChunk, onProgress }) {
+  let fullText = '';
+  let jsonBuffering = false;
+
+  for await (const chunk of stream) {
+    const token = mergedStream ? chunk : streamTokenFromChunk(chunk);
+    if (!token) continue;
+    fullText += token;
+    onProgress(fullText);
+    if (!jsonBuffering && shouldFilterChunk(token)) jsonBuffering = true;
+    if (!jsonBuffering) onChunk({ messageId, token });
+  }
+
+  return { fullText, jsonBuffering };
+}
+
+/**
  * Application service for chat LLM streaming.
  *
  * It keeps the socket protocol outside the service: callers pass an `onChunk`
@@ -36,7 +72,7 @@ export function createStreamingConversationService({
      * @throws Does not intentionally throw; stream errors are returned as `streamError`.
      * Constraint: `onChunk` is transport-agnostic and must not be a socket object.
      */
-    // eslint-disable-next-line complexity
+     
     async streamReply({ text, contextPrompt, routing, messageId, onChunk = () => {}, mergedStream = null }) {
       const stream = mergedStream
         ? mergedStream
@@ -47,25 +83,20 @@ export function createStreamingConversationService({
         };
       }
 
+      // fullText is assigned through onProgress on every token rather than from the
+      // return value, so the catch below still has it when the stream throws
+      // part-way through.
       let fullText = '';
-      let jsonBuffering = false;  // P0: buffer JSON tokens to prevent leaking to frontend
       try {
-        for await (const chunk of stream) {
-          const token = mergedStream ? chunk : streamTokenFromChunk(chunk);
-          if (token) {
-            fullText += token;
-            // P0: detect JSON start — buffer instead of emitting to frontend
-            if (!jsonBuffering && shouldFilterChunk(token)) {
-              jsonBuffering = true;
-            }
-            if (!jsonBuffering) {
-              onChunk({ messageId, token });
-            }
-          }
-        }
+        const buffered = await consumeTokenStream(stream, {
+          mergedStream,
+          messageId,
+          onChunk,
+          onProgress: (accumulated) => { fullText = accumulated; },
+        });
 
         // If we buffered JSON, strip it and emit only the clean text
-        if (jsonBuffering) {
+        if (buffered.jsonBuffering) {
           const cleaned = stripJsonFromText(fullText);
           if (cleaned) {
             onChunk({ messageId, token: cleaned });

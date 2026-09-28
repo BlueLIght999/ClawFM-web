@@ -123,7 +123,11 @@ export class SongQueue {
   }
 
   _fisherYates(arr) {
+    // Shuffle for playback variety, not for secrecy: Math.random is appropriate,
+    // and is the only source usable here since this pure domain layer must not
+    // import node:crypto.
     for (let i = arr.length - 1; i > 0; i--) {
+      // eslint-disable-next-line sonarjs/pseudo-random
       const j = Math.floor(Math.random() * (i + 1));
       [arr[i], arr[j]] = [arr[j], arr[i]];
     }

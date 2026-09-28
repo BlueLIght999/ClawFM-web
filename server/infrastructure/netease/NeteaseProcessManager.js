@@ -160,12 +160,17 @@ export class NeteaseProcessManager {
       try {
         body = await res.json();
       } catch {
+        // Unparseable body means something other than the Netease API answered on
+        // the port -- a stray static server, a proxy, an HTML error page. That is
+        // exactly the 'foreign' case this probe exists to detect, so the parse
+        // failure IS the answer: no separate handling is warranted.
         return 'foreign';
       }
       return res.ok && this._isNeteaseResponse(body) ? 'ready' : 'foreign';
-    } catch (error) {
-      // AbortError (probe timeout) is ambiguous — the port may be free but
-      // slow to respond, or genuinely occupied. Treat as 'absent' so
+    } catch {
+      // Every failure mode here is treated alike, so the error is not bound.
+      // AbortError (probe timeout) is ambiguous: the port may be free but slow
+      // to respond, or genuinely occupied. Treat any of them as 'absent' so
       // ensureStarted() spawns a new process rather than fatally exiting.
       return 'absent';
     } finally {

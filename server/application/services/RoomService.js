@@ -5,6 +5,7 @@
  * 主从同步：房主控制 → buildRoomStatePayload → emitToRoom('room:state') 给房内成员。
  * 依赖 CommunityRepository / domain roomRules / eventPublisher（emitToRoom）。
  */
+import { randomUUID } from 'node:crypto';
 import { canControl, buildRoomStatePayload, transitionRoom } from '../../domain/community/roomRules.js';
 
 /**
@@ -20,7 +21,10 @@ export function createRoomService({communityRepository, eventPublisher, logger} 
 
   function createRoom({ hostUserId, name, topicTags }) {
     if (!hostUserId) return { ok: false, error: 'host_required' };
-    const roomId = `room_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    // roomId is a capability: knowing it is enough to join, and it is the room's
+    // primary key. `Date.now() + Math.random()` is guessable and collides under
+    // concurrent creation (same millisecond, 36^6 suffix); randomUUID removes both.
+    const roomId = `room_${randomUUID()}`;
     const room = repo.createRoom({ roomId, hostUserId, name: name || '', topicTags: topicTags || [] });
     return { ok: true, room };
   }

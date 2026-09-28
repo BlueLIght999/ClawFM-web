@@ -178,11 +178,15 @@ async function handlePersonalizedRecommendation({
   queue.future.push(...oldFuture);
   const profile = repositories.profile.get();
 
+  // Hoisted out of the tool-results template: a conditional nested inside an
+  // already-interpolated string is hard to read and easy to break on edit.
+  const preferenceNote = preference ? ` for "${preference}"` : '';
+
   return {
     handled: false,
     snapshot,
     queueUpdate: queueUpdate(queue),
-    toolResults: `DJ used personalized recommendation pipeline${preference ? ` for "${preference}"` : ''}. Added ${added.length} songs to queue. Listener's top artists: ${topArtistNames(profile, 5, 'none yet')}. Seed pool: ${recommender.seedPool?.length || 0} songs. Queue now has ${queue.future.length} upcoming tracks. Pre-recommendation snapshot saved. Respond naturally in Chinese — mention 1-2 highlights, don't list all. If added=0, apologize briefly.`,
+    toolResults: `DJ used personalized recommendation pipeline${preferenceNote}. Added ${added.length} songs to queue. Listener's top artists: ${topArtistNames(profile, 5, 'none yet')}. Seed pool: ${recommender.seedPool?.length || 0} songs. Queue now has ${queue.future.length} upcoming tracks. Pre-recommendation snapshot saved. Respond naturally in Chinese — mention 1-2 highlights, don't list all. If added=0, apologize briefly.`,
   };
 }
 

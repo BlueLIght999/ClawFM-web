@@ -95,6 +95,9 @@ async function streamMessageTokens(message, events, messageId, tokenDelayMs) {
   for (let i = 0; i < chars.length; i += 3) {
     const token = chars.slice(i, i + 3).join('');
     events.djStreamChunk(messageId, token);
+    // Randomised typing jitter so the streamed DJ message does not arrive at a
+    // mechanical fixed cadence. Timing cosmetics, not a security decision.
+    // eslint-disable-next-line sonarjs/pseudo-random
     const delay = tokenDelayMs ?? (30 + Math.random() * 30);
     if (delay > 0) await new Promise(r => setTimeout(r, delay));
   }
@@ -105,6 +108,10 @@ function maybeSynthesizeSpeech(message, speech, events, scheduler) {
   const speechAvailable = speech && speech.health().available !== false;
   if (!shouldSynthesizeSpeech({
     speechAvailable,
+    // Probability gate deciding whether this proactive message is also spoken
+    // aloud. A predictable draw would make the same messages consistently spoken;
+    // there is nothing to guess and no adversary, so Math.random fits.
+    // eslint-disable-next-line sonarjs/pseudo-random
     randomValue: Math.random(),
     isAdvancing: scheduler?.isAdvancing || false,
   })) return;

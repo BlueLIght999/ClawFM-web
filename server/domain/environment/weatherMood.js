@@ -8,21 +8,49 @@
  */
 
 /**
+ * Weather categories produced by classifyWeather. Declared as a named union so
+ * the range table and the return type stay in step: adding a category to one
+ * without the other is a type error rather than a silent gap.
+ *
+ * @typedef {'sunny'|'cloudy'|'overcast'|'foggy'|'rainy'|'heavyRain'|'snowy'|'stormy'} WeatherCategory
+ */
+
+/**
+ * WMO weather code ranges -> weather category, in match order.
+ *
+ * Replaces a 10-branch if-chain (sonarjs cognitive-complexity 19). The list is
+ * ordered and the first containing range wins, which is how the chain read.
+ * Codes outside every range fall through to cloudy, matching the old default.
+ * The old first branch was `code <= 1` and so also caught negative input; WMO
+ * codes are 0-99, so the range starts at 0 and a negative value is treated as
+ * out of range like any other unmapped code.
+ *
+ * @type {Array<{min: number, max: number, category: WeatherCategory}>}
+ */
+const WMO_RANGES = [
+  { min: 0, max: 1, category: 'sunny' },
+  { min: 2, max: 2, category: 'cloudy' },
+  { min: 3, max: 3, category: 'overcast' },
+  { min: 45, max: 48, category: 'foggy' },
+  { min: 51, max: 55, category: 'rainy' },
+  { min: 61, max: 62, category: 'rainy' },
+  { min: 63, max: 65, category: 'heavyRain' },
+  { min: 71, max: 75, category: 'snowy' },
+  // 80-82 is a shower group: 82 is violent enough to count as heavy rain.
+  { min: 80, max: 81, category: 'rainy' },
+  { min: 82, max: 82, category: 'heavyRain' },
+  { min: 95, max: 99, category: 'stormy' },
+];
+
+/**
  * WMO weather code → weather category.
  * @param {number} code - WMO weather interpretation code
  * @returns {'sunny'|'cloudy'|'overcast'|'foggy'|'rainy'|'heavyRain'|'snowy'|'stormy'}
  */
 export function classifyWeather(code) {
-  if (code <= 1) return 'sunny';
-  if (code <= 2) return 'cloudy';
-  if (code === 3) return 'overcast';
-  if (code >= 45 && code <= 48) return 'foggy';
-  if (code >= 51 && code <= 55) return 'rainy';
-  if (code >= 61 && code <= 62) return 'rainy';
-  if (code >= 63 && code <= 65) return 'heavyRain';
-  if (code >= 71 && code <= 75) return 'snowy';
-  if (code >= 80 && code <= 82) return code === 82 ? 'heavyRain' : 'rainy';
-  if (code >= 95 && code <= 99) return 'stormy';
+  for (const { min, max, category } of WMO_RANGES) {
+    if (code >= min && code <= max) return category;
+  }
   return 'cloudy';
 }
 

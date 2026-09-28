@@ -45,7 +45,11 @@ export function registerHttpRoutes(app, services) {
 
   app.get('/health', async (req, res) => {
     const result = await healthChecker.check();
-    const statusCode = result.status === 'ok' ? 200 : result.status === 'degraded' ? 200 : 503;
+    // healthCheck.js only ever reports ok / degraded / down. Ready is 200 for the
+    // first two and 503 only for down, so the condition is written against `down`
+    // rather than enumerating the healthy states -- an unrecognised string must not
+    // silently read as healthy.
+    const statusCode = result.status === 'down' ? 503 : 200;
     res.status(statusCode).json(result);
   });
 

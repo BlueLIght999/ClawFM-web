@@ -78,6 +78,10 @@ export async function pushBubbles(io, deps) {
  * @param {number} probability - chance to push (0-1)
  */
 export async function maybePushBubbles(io, deps, probability = BUBBLE_SONG_CHANGE_PROBABILITY) {
+  // Throttles bubbled song suggestions to roughly `probability` of song changes so
+  // they feel occasional rather than systematic. Nothing is protected by this draw
+  // and nothing is guessed from it, so the fast PRNG is the right tool.
+  // eslint-disable-next-line sonarjs/pseudo-random
   if (Math.random() < probability) {
     await pushBubbles(io, deps);
   }

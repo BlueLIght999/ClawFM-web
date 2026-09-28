@@ -42,12 +42,22 @@ process.on('uncaughtException', (err) => {
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: ['http://localhost:5173', 'http://localhost:3333'], methods: ['GET', 'POST'] },
+  cors: { origin: config.cors.origins, methods: ['GET', 'POST'] },
   pingInterval: 5000,
   pingTimeout: 3000,
 });
 
-app.use(cors());
+// Same allow-list as Socket.IO. Requests with no Origin header (curl, the health
+// probe, server-to-server) are passed through untouched: CORS is a browser
+// same-origin control, and blocking them would break the readiness checks without
+// adding any protection.
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || config.cors.origins.includes(origin)) return callback(null, true);
+    return callback(null, false);
+  },
+  credentials: true,
+}));
 app.use(httpLogger());
 app.use(express.json({ limit: '5mb' }));
 

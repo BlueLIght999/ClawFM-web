@@ -35,6 +35,17 @@ export default {
     lat: Number(process.env.WEATHER_LAT) || 0,
     lon: Number(process.env.WEATHER_LON) || 0,
   },
+  // CORS — one allow-list shared by the HTTP app and the Socket.IO server.
+  // They had drifted: Socket.IO listed the two dev origins, while `app.use(cors())`
+  // granted every origin. On a server that carries member auth cookies, that is a
+  // cross-origin read of authenticated responses. Origins are env-overridable so a
+  // real deployment sets its own host without a code change.
+  cors: {
+    origins: (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3333')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  },
   // Observability
   logging: {
     level: process.env.LOG_LEVEL || 'info',

@@ -107,6 +107,137 @@ function preFlightCheck(text, snapshot, { djStatus, agentTurnService }) {
 }
 
 /**
+ * Assemble the ReAct call's opening state: the system messages, the tool
+ * catalogue and the loop budget. Extracted from handleMessage so the loop body
+ * there reads as the Thought → Action → Observation cycle it documents.
+ *
+ * @param {string} text - the user's message
+ * @param {object} ctx - { persona, contextBuilder, weather, toolRegistry, queue, maxIterations }
+ * @returns {Promise<{messages: Array, tools: Array, loopState: object}>}
+ */
+async function buildReactSession(text, { persona, contextBuilder, weather, toolRegistry, queue, maxIterations }) {
+  const loopState = createAgentLoopState(maxIterations);
+  loopState.start();
+
+  const weatherText = weather ? await weather.current() : '';
+  const contextPrompt = contextBuilder
+    ? contextBuilder.assemble({
+        userInput: text,
+        toolResults: '',
+        environment: { weather: weatherText },
+        execTrace: buildAgentExecTrace({ routing: { action: 'react' }, queue }),
+      })
+    : '';
+
+  return {
+    messages: buildReactMessages(persona, contextPrompt, text),
+    tools: toolRegistry.describeAll(),
+    loopState,
+  };
+}
+
+/**
+ * Drive the Thought → Action → Observation cycle to completion.
+ *
+ * Owns the iteration budget and the accumulator state, so handleMessage only
+ * has to handle the two outcomes: a usable response, or none at all (which the
+ * caller answers by falling back to AgentTurnService).
+ *
+ * @param {object} ctx - { functionCalling, messages, tools, loopState, toolRegistry, queue, snapshot }
+ * @returns {Promise<{lastResponse: object|null, conversationResults: Array, queueUpdate: object|null}>}
+ */
+async function runReactLoop({ functionCalling, messages, tools, loopState, toolRegistry, queue, snapshot }) {
+  const conversationResults = [];
+  let queueUpdatePayload = null;
+  let lastResponse = null;
+
+  while (loopState.canContinue()) {
+    const response = await functionCalling.completeWithTools({
+      messages, tools, maxTokens: 300, temperature: 0.75,
+    });
+    lastResponse = response;
+    if (shouldStop(response, loopState)) break;
+
+    const execResult = await executeToolCalls(response, {
+      toolRegistry, loopState, messages, queue, snapshot,
+    });
+    conversationResults.push(...execResult.conversationResults);
+    if (execResult.queueUpdate) queueUpdatePayload = execResult.queueUpdate;
+
+    // Performance: if LLM already provided content alongside tool calls,
+    // use it as the final reply — saves one LLM round-trip (~1-3s)
+    if (response.content) break;
+  }
+
+  return { lastResponse, conversationResults, queueUpdate: queueUpdatePayload };
+}
+
+/**
+ * Final response, or — when the last turn was tool calls with no prose — one
+ * last wrap-up request so the DJ still says something. Returns the original
+ * response unchanged when a wrap-up is not needed or fails to produce one.
+ *
+ * @param {object} response
+ * @param {{functionCalling: object, messages: Array}} ctx
+ * @returns {Promise<object>}
+ */
+async function finalResponseOf(response, { functionCalling, messages }) {
+  if (!hasToolCalls(response) || response.content) return response;
+  const wrapUp = await requestWrapUp(functionCalling, messages);
+  return wrapUp || response;
+}
+
+/**
+ * Run one user message through the ReAct cycle, or hand it to AgentTurnService.
+ *
+ * The last-chat recorder fires before every branch, including the pre-flight
+ * redirect: a message that gets fast-pathed is still the user's most recent
+ * activity, and the proactive/typing paths read it.
+ *
+ * @param {{text: string, snapshot?: object|null}} input
+ * @param {object} ctx - the service's assembled dependencies
+ * @returns {Promise<object>}
+ */
+async function handleAgentMessage({ text, snapshot = null }, ctx) {
+  ctx.userActivity.setLastUserChat(text);
+
+  const redirect = preFlightCheck(text, snapshot, ctx);
+  if (redirect) return redirect;
+  if (!ctx.reactEnabled) return ctx.agentTurnService.handleMessage({ text, snapshot });
+  return runReactMessage({ text, snapshot }, ctx);
+}
+
+/**
+ * The ReAct path proper, entered only once pre-flight and capability checks pass.
+ * @param {{text: string, snapshot: object|null}} input
+ * @param {object} ctx
+ * @returns {Promise<object>}
+ */
+async function runReactMessage({ text, snapshot }, ctx) {
+  const { messages, tools, loopState } = await buildReactSession(text, ctx);
+
+  const { lastResponse, conversationResults, queueUpdate } = await runReactLoop({
+    functionCalling: ctx.functionCalling,
+    messages, tools, loopState,
+    toolRegistry: ctx.toolRegistry,
+    queue: ctx.queue,
+    snapshot,
+  });
+
+  // The loop never got a response out of the LLM; let the fallback service try.
+  if (!lastResponse) return ctx.agentTurnService.handleMessage({ text, snapshot });
+
+  const finalResponse = await finalResponseOf(lastResponse, {
+    functionCalling: ctx.functionCalling, messages,
+  });
+  const result = buildFinalResult(finalResponse, loopState, {
+    text, messageId: String(ctx.now()), conversationResults, queueUpdate, snapshot,
+  });
+  result.mergedStream = singleChunkStream(finalResponse?.content || '');
+  return result;
+}
+
+/**
  * ReAct agent loop service.
  *
  * Implements the Thought → Action → Observation multi-step cycle:
@@ -127,21 +258,8 @@ function preFlightCheck(text, snapshot, { djStatus, agentTurnService }) {
  * @param {object} [deps.queue] - Song queue
  * @param {Function} [deps.now] - Timestamp factory
  * @param {number} [deps.maxIterations] - Max ReAct iterations (default 5)
- */
-// eslint-disable-next-line complexity
-/**
- * @param {object} deps
- * @param {object} deps.agentTurnService
- * @param {object} [deps.functionCalling]
- * @param {object} [deps.toolRegistry]
- * @param {string} [deps.persona]
- * @param {object} [deps.contextBuilder]
- * @param {object} [deps.weather]
- * @param {object} [deps.queue]
- * @param {() => number} [deps.now]
- * @param {number} [deps.maxIterations]
- * @param {{setLastUserChat: (text: string) => void}} [deps.userActivity]
- * @param {{isConfigured: () => boolean}} [deps.djStatus]
+ * @param {{setLastUserChat: (text: string) => void}} [deps.userActivity] - Last-chat recorder
+ * @param {{isConfigured: () => boolean}} [deps.djStatus] - DJ readiness probe
  */
 export function createAgentLoopService({
   agentTurnService,
@@ -156,80 +274,33 @@ export function createAgentLoopService({
   userActivity = { setLastUserChat: () => {} },
   djStatus = { isConfigured: () => true },
 }) {
-  const reactEnabled = !!(functionCalling?.isConfigured() && toolRegistry);
+  // One bag rather than a dozen positional parameters: the message handlers are
+  // module-level functions that take this context, which keeps each handler's own
+  // branching out of the factory.
+  const ctx = {
+    agentTurnService,
+    functionCalling,
+    toolRegistry,
+    persona,
+    contextBuilder,
+    weather,
+    queue,
+    now,
+    maxIterations,
+    userActivity,
+    djStatus,
+    reactEnabled: !!(functionCalling?.isConfigured() && toolRegistry),
+  };
 
   return {
-    // eslint-disable-next-line complexity
-    async handleMessage({ text, snapshot = null }) {
-      userActivity.setLastUserChat(text);
-
-      const redirect = preFlightCheck(text, snapshot, { djStatus, agentTurnService });
-      if (redirect) return redirect;
-
-      if (!reactEnabled) {
-        return agentTurnService.handleMessage({ text, snapshot });
-      }
-
-      const loopState = createAgentLoopState(maxIterations);
-      loopState.start();
-
-      const weatherText = weather ? await weather.current() : '';
-      const contextPrompt = contextBuilder
-        ? contextBuilder.assemble({
-            userInput: text,
-            toolResults: '',
-            environment: { weather: weatherText },
-            execTrace: buildAgentExecTrace({ routing: { action: 'react' }, queue }),
-          })
-        : '';
-
-      const messages = buildReactMessages(persona, contextPrompt, text);
-      const tools = toolRegistry.describeAll();
-      const conversationResults = [];
-      let queueUpdatePayload = null;
-      let lastResponse = null;
-
-      while (loopState.canContinue()) {
-        const response = await functionCalling.completeWithTools({
-          messages, tools, maxTokens: 300, temperature: 0.75,
-        });
-        lastResponse = response;
-        if (shouldStop(response, loopState)) break;
-
-        const execResult = await executeToolCalls(response, {
-          toolRegistry, loopState, messages, queue, snapshot,
-        });
-        conversationResults.push(...execResult.conversationResults);
-        if (execResult.queueUpdate) queueUpdatePayload = execResult.queueUpdate;
-
-        // Performance: if LLM already provided content alongside tool calls,
-        // use it as the final reply — saves one LLM round-trip (~1-3s)
-        if (response.content) break;
-      }
-
-      if (!lastResponse) {
-        return agentTurnService.handleMessage({ text, snapshot });
-      }
-
-      if (hasToolCalls(lastResponse) && !lastResponse.content) {
-        const wrapUp = await requestWrapUp(functionCalling, messages);
-        if (wrapUp) lastResponse = wrapUp;
-      }
-
-      const messageId = String(now());
-      const result = buildFinalResult(lastResponse, loopState, {
-        text, messageId, conversationResults, queueUpdate: queueUpdatePayload, snapshot,
-      });
-      result.mergedStream = singleChunkStream(lastResponse?.content || '');
-      return result;
-    },
+    handleMessage: (input) => handleAgentMessage(input, ctx),
 
     createLoopState() {
       return createAgentLoopState(maxIterations);
     },
 
     isReactEnabled() {
-      return reactEnabled;
+      return ctx.reactEnabled;
     },
   };
 }

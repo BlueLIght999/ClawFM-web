@@ -67,7 +67,7 @@ function assertSelf(req, res, claimedUserId) {
  */
 export function createCommunityRouter(services) {
   const { communityService, memberProfileService, communityRepository, cookieCipherPort,
-          clusterService, memberAgentService, distributionService, authRepository, dmService } = services;
+          clusterService, memberAgentService, authRepository, dmService } = services;
   const router = express.Router();
   // 加大 body 限制以支持头像 base64 上传
   router.use(express.json({ limit: '5mb' }));

@@ -171,22 +171,13 @@ export function aggregateRadioSignals(listens) {
     loyalist: 0, night_owl: 0, morning_person: 0,
   };
   const timeSlotCounts = { morning: 0, afternoon: 0, evening: 0, night: 0, late_night: 0 };
+  /** @type {Record<string, number>} */
   const artistCount = {};
 
+  // Each listen contributes to up to three tallies; the per-listen work is one
+  // step, so the loop body stays a single call (sonarjs cognitive-complexity).
   for (const l of list) {
-    const action = l?.action;
-    if (action === 'skipped') behaviorCounts.skip_prone += 1;
-    if (action === 'liked') behaviorCounts.replay_lover += 1;
-
-    const artist = String(l?.artist || '').trim();
-    if (artist) artistCount[artist] = (artistCount[artist] || 0) + 1;
-
-    const slot = hourToSlot(parseHour(l?.playedAt));
-    if (slot) {
-      timeSlotCounts[slot] += 1;
-      if (slot === 'late_night' || slot === 'night') behaviorCounts.night_owl += 1;
-      if (slot === 'morning') behaviorCounts.morning_person += 1;
-    }
+    tallyListen(l, behaviorCounts, timeSlotCounts, artistCount);
   }
 
   const artistEntries = Object.values(artistCount);
@@ -200,4 +191,31 @@ export function aggregateRadioSignals(listens) {
     chatStyleCounts: {},
     timeSlotCounts,
   };
+}
+
+/**
+ * Accumulate one listen entry into the behavior / time-slot / artist tallies.
+ *
+ * `night_owl` is driven by time slot rather than action, so a late-night listen
+ * counts regardless of how it ended; `explorer` and `loyalist` are derived from
+ * the finished artist histogram in the caller, not here.
+ *
+ * @param {{action?: string, artist?: string, playedAt?: string|number}} listen
+ * @param {Record<string, number>} behaviorCounts mutated in place
+ * @param {Record<string, number>} timeSlotCounts mutated in place
+ * @param {Record<string, number>} artistCount mutated in place
+ */
+function tallyListen(listen, behaviorCounts, timeSlotCounts, artistCount) {
+  const action = listen?.action;
+  if (action === 'skipped') behaviorCounts.skip_prone += 1;
+  if (action === 'liked') behaviorCounts.replay_lover += 1;
+
+  const artist = String(listen?.artist || '').trim();
+  if (artist) artistCount[artist] = (artistCount[artist] || 0) + 1;
+
+  const slot = hourToSlot(parseHour(listen?.playedAt));
+  if (!slot) return;
+  timeSlotCounts[slot] += 1;
+  if (slot === 'late_night' || slot === 'night') behaviorCounts.night_owl += 1;
+  if (slot === 'morning') behaviorCounts.morning_person += 1;
 }

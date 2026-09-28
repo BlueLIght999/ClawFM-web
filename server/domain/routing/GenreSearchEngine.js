@@ -30,6 +30,11 @@ const PLAY_BONUS_10M = 0.15;  // playCount > 10,000,000
 // Seed artist bonus - song's artist matches a seed artist in genreDict
 const SEED_BONUS = 0.2;
 
+// Play count thresholds, named so the two bonuses read as the rule they encode
+// rather than as bare digit strings.
+const PLAY_COUNT_1M = 1000000;
+const PLAY_COUNT_10M = 10000000;
+
 // Defaults
 const DEFAULT_LIMIT = 15;
 const DEFAULT_PLAYLIST_SEARCH_LIMIT = 2;     // top 2 playlists
@@ -38,6 +43,46 @@ const DEFAULT_ARTIST_SEARCH_LIMIT = 2;       // top 2 artists from keyword searc
 const DEFAULT_ARTIST_SONG_LIMIT = 5;         // 5 hot songs per artist
 const DEFAULT_SONG_SEARCH_LIMIT = 10;        // 10 songs from enhanced query
 const DEFAULT_SEED_ARTIST_SEARCH_LIMIT = 3;  // 3 songs per seed artist
+
+/**
+ * Score one song against its source weight, play count and the seed-artist set.
+ * Extracted from the merge loop so the branch chain that builds the score sits in
+ * one place and the loop reads as "score, then keep the best".
+ *
+ * @param {object} song
+ * @param {number} sourceWeight
+ * @param {Set<string>} seedSet lowercased seed artist names
+ * @returns {number}
+ */
+function scoreSong(song, sourceWeight, seedSet) {
+  let score = sourceWeight;
+
+  const playCount = song.playCount || 0;
+  if (playCount > PLAY_COUNT_10M) score += PLAY_BONUS_10M;
+  else if (playCount > PLAY_COUNT_1M) score += PLAY_BONUS_1M;
+
+  if (seedSet.size > 0 && songMatchesSeed(song, seedSet)) score += SEED_BONUS;
+
+  return score;
+}
+
+/**
+ * Does the song's artist name contain any seed artist? Substring, not equality:
+ * the port reports display names ("周杰伦 (Jay Chou)") that carry the seed name
+ * inside them, so a strict compare would drop most seed matches.
+ *
+ * @param {object} song
+ * @param {Set<string>} seedSet lowercased seed artist names
+ * @returns {boolean}
+ */
+function songMatchesSeed(song, seedSet) {
+  const artistName = (song.artist || '').toLowerCase();
+  if (!artistName) return false;
+  for (const seed of seedSet) {
+    if (artistName.includes(seed)) return true;
+  }
+  return false;
+}
 
 /**
  * Merge and rank songs from three sources.
@@ -65,19 +110,7 @@ export function mergeAndRank({ playlistSongs = [], artistSongs = [], songSearch 
     for (const song of songs) {
       if (!song || !song.id) continue;
       const sid = String(song.id);
-
-      let score = sourceWeight;
-
-      // Play count bonus
-      const playCount = song.playCount || 0;
-      if (playCount > 10000000) score += PLAY_BONUS_10M;
-      else if (playCount > 1000000) score += PLAY_BONUS_1M;
-
-      // Seed artist bonus
-      const artistName = (song.artist || '').toLowerCase();
-      if (seedSet.size > 0 && [...seedSet].some(s => artistName.includes(s))) {
-        score += SEED_BONUS;
-      }
+      const score = scoreSong(song, sourceWeight, seedSet);
 
       // Keep the highest-scoring version of each song
       const existing = seen.get(sid);
@@ -102,6 +135,40 @@ export function mergeAndRank({ playlistSongs = [], artistSongs = [], songSearch 
     .map(entry => entry.song);
 
   return ranked.slice(0, limit);
+}
+
+/**
+ * Flatten a Promise.allSettled result set into one song array.
+ *
+ * Every stage of this engine fans out over several port calls and keeps whatever
+ * came back, so they all shared the same `status === 'fulfilled' && Array.isArray`
+ * loop verbatim (CODING-STYLE no-duplication > 3). Extracting it also means a
+ * rejected call cannot silently contribute a non-array: the check lives once.
+ *
+ * @param {Array<PromiseSettledResult<Array>>} settled
+ * @param {number} [perResultLimit] - cap tracks taken from each result, if any
+ * @returns {Array} concatenated songs
+ */
+function flattenSettledSongs(settled, perResultLimit) {
+  const songs = [];
+  for (const result of settled) {
+    if (result.status !== 'fulfilled' || !Array.isArray(result.value)) continue;
+    const value = perResultLimit ? result.value.slice(0, perResultLimit) : result.value;
+    songs.push(...value);
+  }
+  return songs;
+}
+
+/**
+ * The songs from a single settled stage result, or [] if it rejected. The three
+ * parallel stages in search() are best-effort, so a failure degrades to "this
+ * stage found nothing" rather than failing the whole query.
+ *
+ * @param {PromiseSettledResult<Array>} result
+ * @returns {Array}
+ */
+function settledSongs(result) {
+  return result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : [];
 }
 
 /**
@@ -137,14 +204,10 @@ export function createGenreSearchEngine(musicPort) {
       _searchSongs(entry),
     ]);
 
-    const playlistSongs = playlistResult.status === 'fulfilled' ? playlistResult.value : [];
-    const artistSongs = artistResult.status === 'fulfilled' ? artistResult.value : [];
-    const songSearch = songResult.status === 'fulfilled' ? songResult.value : [];
-
     return mergeAndRank({
-      playlistSongs,
-      artistSongs,
-      songSearch,
+      playlistSongs: settledSongs(playlistResult),
+      artistSongs: settledSongs(artistResult),
+      songSearch: settledSongs(songResult),
       seedArtists: entry.seedArtists,
       limit,
     });
@@ -167,63 +230,62 @@ export function createGenreSearchEngine(musicPort) {
     const trackResults = await Promise.allSettled(
       topPlaylists.map(pl => musicPort.getPlaylistTracks(pl.id)),
     );
-
-    const songs = [];
-    for (const result of trackResults) {
-      if (result.status === 'fulfilled' && Array.isArray(result.value)) {
-        songs.push(...result.value.slice(0, DEFAULT_PLAYLIST_TRACK_LIMIT));
-      }
-    }
-    return songs;
+    return flattenSettledSongs(trackResults, DEFAULT_PLAYLIST_TRACK_LIMIT);
   }
 
   /** Stage 2: Search artists by genre keyword + fetch hot songs from seed artists */
   async function _searchArtists(entry, genreText) {
-    const songs = [];
+    // The two sources below are independent and both optional; each is one call
+    // here so the stage reads as its two documented halves (2a / 2b).
+    const byKeyword = await _songsFromGenreArtists(genreText);
+    const bySeed = await _songsFromSeedArtists(entry);
+    return [...byKeyword, ...bySeed];
+  }
 
-    // 2a: Search artists by genre keyword
-    if (musicPort.searchArtists && musicPort.artistHotSongs) {
-      try {
-        const artists = await musicPort.searchArtists(genreText, DEFAULT_ARTIST_SEARCH_LIMIT);
-        if (artists && artists.length > 0) {
-          const topArtists = artists
-            .filter(a => a && a.id)
-            .sort((a, b) => (b.songCount || 0) - (a.songCount || 0))
-            .slice(0, DEFAULT_ARTIST_SEARCH_LIMIT);
+  /**
+   * 2a: find artists by genre keyword, then pull each one's hot songs. Returns []
+   * when the port lacks either capability or the search fails -- this stage is
+   * best-effort and the next stage covers the shortfall.
+   * @param {string} genreText
+   * @returns {Promise<Array>}
+   */
+  async function _songsFromGenreArtists(genreText) {
+    if (!musicPort.searchArtists || !musicPort.artistHotSongs) return [];
+    try {
+      const artists = await musicPort.searchArtists(genreText, DEFAULT_ARTIST_SEARCH_LIMIT);
+      if (!artists || artists.length === 0) return [];
+      const topArtists = artists
+        .filter(a => a && a.id)
+        .sort((a, b) => (b.songCount || 0) - (a.songCount || 0))
+        .slice(0, DEFAULT_ARTIST_SEARCH_LIMIT);
 
-          const hotResults = await Promise.allSettled(
-            topArtists.map(a => musicPort.artistHotSongs(a.id)),
-          );
-          for (const result of hotResults) {
-            if (result.status === 'fulfilled' && Array.isArray(result.value)) {
-              songs.push(...result.value.slice(0, DEFAULT_ARTIST_SONG_LIMIT));
-            }
-          }
-        }
-      } catch { /* ignore */ }
-    }
-
-    // 2b: Also directly search songs from seed artists
-    if (musicPort.search && entry.seedArtists) {
-      const seedResults = await Promise.allSettled(
-        entry.seedArtists.slice(0, 3).map(artist =>
-          musicPort.search(artist, DEFAULT_SEED_ARTIST_SEARCH_LIMIT),
-        ),
+      const hotResults = await Promise.allSettled(
+        topArtists.map(a => musicPort.artistHotSongs(a.id)),
       );
-      for (const result of seedResults) {
-        if (result.status === 'fulfilled' && Array.isArray(result.value)) {
-          songs.push(...result.value);
-        }
-      }
-    }
+      return flattenSettledSongs(hotResults, DEFAULT_ARTIST_SONG_LIMIT);
+    } catch { return []; /* ignore -- the song-search stage covers the shortfall */ }
+  }
 
-    return songs;
+  /**
+   * 2b: directly search songs by each seed artist's name.
+   * @param {{seedArtists?: string[]}} entry
+   * @returns {Promise<Array>}
+   */
+  async function _songsFromSeedArtists(entry) {
+    if (!musicPort.search || !entry.seedArtists) return [];
+    const seedResults = await Promise.allSettled(
+      entry.seedArtists.slice(0, 3).map(artist =>
+        musicPort.search(artist, DEFAULT_SEED_ARTIST_SEARCH_LIMIT),
+      ),
+    );
+    return flattenSettledSongs(seedResults);
   }
 
   /** Stage 3: Fallback song search with enhanced query */
   async function _searchSongs(entry) {
     if (!musicPort.search) return [];
-    return musicPort.search(entry.enhancedQuery, DEFAULT_SONG_SEARCH_LIMIT);
+    const songs = await musicPort.search(entry.enhancedQuery, DEFAULT_SONG_SEARCH_LIMIT);
+    return Array.isArray(songs) ? songs : [];
   }
 
   return { search };

@@ -308,7 +308,13 @@ function createRepositories() {
  * would then bind to nothing.
  */
 function createApplicationServices({ legacy, adapters, repositories, eventPublisher, logger, metricsCollector }) {
+  // Both bindings below are kept so the destructured contract matches the call
+  // site (see the note above); `void` is how core no-unused-vars is told they are
+  // intentional. sonarjs/void-use wants them removed, which would reintroduce the
+  // lint error it is meant to prevent -- hence the suppression, not a rewrite.
+  // eslint-disable-next-line sonarjs/void-use
   void logger;
+  // eslint-disable-next-line sonarjs/void-use
   void metricsCollector;
   const { queue, scheduler, recommender, assemblePrompt, getTimeOfDayMood,
     isTtsAvailable, generatePlan, getPlan } = legacy;
