@@ -56,6 +56,7 @@
  * @property {(userId: string, profile: object) => void} saveProfile
  * @property {(userId: string) => object|null} getProfile
  * @property {() => {userId:string, profile:object}[]} listAllProfiles
+ * @property {() => Array<{userId:string, nickname:string, avatarUrl:string, tags:string[]}>} listMembersWithTags - 全体成员的公开字段 + 自填标签，供相似成员召回建倒排索引；与 listAllProfiles 的分工见实现处注释
  * @property {(clusters: Array) => void} saveClusterSnapshot
  * @property {(clusters: Array, memberAssignments: Record<string, number>) => void} [saveClusterResult] 原子写入快照+成员归属（可选；缺省时服务回落为 saveClusterSnapshot + setMemberCluster）
  * @property {() => Array} getClusterSnapshot

@@ -67,7 +67,8 @@ function assertSelf(req, res, claimedUserId) {
  */
 export function createCommunityRouter(services) {
   const { communityService, memberProfileService, communityRepository, cookieCipherPort,
-          clusterService, memberAgentService, authRepository, dmService } = services;
+          clusterService, memberAgentService, authRepository, dmService,
+          similarMembersService } = services;
   const router = express.Router();
   // 加大 body 限制以支持头像 base64 上传
   router.use(express.json({ limit: '5mb' }));
@@ -127,9 +128,30 @@ export function createCommunityRouter(services) {
     return ok(res, member, 201);
   });
 
+  /**
+   * 重建画像并让相似成员索引失效；失败降级为 profileBuilt:false。
+   *
+   * 与「校验 + 落库」分开：这段是「写完之后要连带做什么」，与「这次写入是否
+   * 合法」是两回事。混在一起时 handler 同时承担校验分支、异常分支与失效分支，
+   * 圈复杂度会叠过上限——而它们本来不该在一个抽象层上。
+   */
+  async function rebuildProfileAfterTagWrite(req, userId) {
+    try {
+      const result = await memberProfileService.buildProfile(userId);
+      if (!result?.ok) return false;
+      // 画像重建会重写 profile.userTags（相似成员的查询标签取自它），故要再失效一次。
+      // 幂等：连续调用只是把缓存置空。
+      similarMembersService?.invalidate?.();
+      return true;
+    } catch (e) {
+      req.log?.warn?.({ component: 'community', userId, err: e?.message }, 'profile rebuild after self-tags failed');
+      return false;
+    }
+  }
+
   // 更新自填兴趣标签（PRD F1）。自填标签是画像融合路 3，也是跨用户「相似词条」匹配的显式信号。
   // 写入后立即重建画像：标签是用户显式声明，理应即时反映到 persona 与相似度，而非等下次定时刷新。
-  router.put('/members/:userId/self-tags', async (req, res) => {
+  async function updateSelfTags(req, res) {
     const { userId } = req.params;
     if (!assertSelf(req, res, userId)) return;
 
@@ -137,19 +159,29 @@ export function createCommunityRouter(services) {
     if (!validated.ok) {
       return fail(res, validated.error, SELF_TAG_ERROR_STATUS[validated.error] ?? 400);
     }
-    const member = communityRepository.getMember(userId);
-    if (!member) return fail(res, 'not_found', 404);
-    communityRepository.setMemberSelfTags(userId, validated.tags);
+    if (!communityRepository.getMember(userId)) return fail(res, 'not_found', 404);
 
-    // 画像重建可能失败（如无凭据/无历史），但标签已落库——降级为 profileBuilt:false 而非整体报错
-    let profileBuilt = false;
-    try {
-      const result = await memberProfileService.buildProfile(userId);
-      profileBuilt = !!result?.ok;
-    } catch (e) {
-      req.log?.warn?.({ component: 'community', userId, err: e?.message }, 'profile rebuild after self-tags failed');
-    }
+    communityRepository.setMemberSelfTags(userId, validated.tags);
+    // 标签变了，相似成员索引必须跟着失效——否则用户写完标签立刻看「相似成员」，
+    // 看到的还是按旧标签算出来的人。服务侧的 TTL 是兜底，不是这里的替代品。
+    similarMembersService?.invalidate?.();
+
+    const profileBuilt = await rebuildProfileAfterTagWrite(req, userId);
     return ok(res, { userId, selfTags: validated.tags, profileBuilt });
+  }
+
+  router.put('/members/:userId/self-tags', updateSelfTags);
+
+  // 与我兴趣标签最重合的其他成员（F1 自填标签的下游消费）。
+  // 仅本人可读：返回的是**别人**的昵称/头像/共享标签，但这些字段本就在公开成员接口里，
+  // 而查询用的标签是调用者自己声明的——所以不泄露调用者没写过的信息。若放开给他人读，
+  // 就等于把别人声明的兴趣标签集合暴露出去，那是 /profile/:userId 的隐私注释要挡住的东西。
+  router.get('/members/:userId/similar', (req, res) => {
+    if (!similarMembersService) return fail(res, 'similar_members_not_enabled', 501);
+    const { userId } = req.params;
+    if (!assertSelf(req, res, userId)) return;
+    const limit = req.query.limit !== undefined ? Number(req.query.limit) : undefined;
+    return ok(res, similarMembersService.findSimilar({ userId, limit }));
   });
 
   // 取上传的头像图片（<img src> 直连；未上传返回 404 -> 前端回落派生占位）

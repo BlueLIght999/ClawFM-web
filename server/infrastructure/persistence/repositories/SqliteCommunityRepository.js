@@ -336,6 +336,33 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
       return out;
     },
 
+    /**
+     * 列出全体成员的公开字段 + 自填标签，供 SimilarMembersService 建倒排索引。
+     *
+     * 为何不复用 listAllProfiles()：那个读的是 community_profiles.profile_json，
+     * 标签埋在 profile.userTags = [{tag, weight}] 里，调用方还要再拆一层形状；
+     * 而这里要的就是 self_tags 这一列，直接一条 SQL 读到、形状即索引输入。
+     * 用 JOIN 而非两次查询：画像尚不存在（刚注册、未刷过画像）的成员也该能被
+     * 别人召回——他可能已经填了自填标签，只是画像还没重建。
+     *
+     * 标签为空的成员不在这里过滤：过滤是「是否进索引」的业务判断，归服务层。
+     * 仓储只负责把行读出来，判断留在能看见业务规则的那一层。
+     */
+    listMembersWithTags() {
+      const rows = q(
+        `SELECT m.user_id, m.nickname, m.avatar_url, m.self_tags
+           FROM community_members m
+          ORDER BY m.user_id`,
+        []
+      );
+      return rows.map((r) => ({
+        userId: String(r.user_id),
+        nickname: r.nickname || '',
+        avatarUrl: r.avatar_url || '',
+        tags: parseJsonArray(r.self_tags),
+      }));
+    },
+
     saveClusterSnapshot(clusters) {
       run('DELETE FROM community_clusters', []);
       const list = Array.isArray(clusters) ? clusters : [];

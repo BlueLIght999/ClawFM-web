@@ -92,6 +92,7 @@ import './application/ports/services/ClusterPort.js';
 import { createCommunityService } from './application/services/CommunityService.js';
 import { createMemberProfileService } from './application/services/MemberProfileService.js';
 import { createClusterService } from './application/services/ClusterService.js';
+import { createSimilarMembersService } from './application/services/SimilarMembersService.js';
 import { createDistributionService } from './application/services/DistributionService.js';
 import { createMemberAgentService } from './application/services/MemberAgentService.js';
 import { createInvitationService } from './application/services/InvitationService.js';
@@ -232,6 +233,7 @@ export function createServices(io) {
     logger,
   });
   const clusterService = createClusterService({ communityRepository, eventPublisher: communityEventPublisher, logger });
+  const similarMembersService = createSimilarMembersService({ communityRepository, logger });
   const distributionService = createDistributionService({ communityRepository, eventPublisher: communityEventPublisher, logger });
   const memberAgentService = createMemberAgentService({ communityRepository, memberAgentLoopPort, eventPublisher: communityEventPublisher, logger });
   const invitationService = createInvitationService({
@@ -278,6 +280,7 @@ export function createServices(io) {
     communityService,
     memberProfileService,
     clusterService,
+    similarMembersService,
     distributionService,
     memberAgentService,
     invitationService,

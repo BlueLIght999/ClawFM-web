@@ -65,11 +65,13 @@ beforeAll(async () => {
 });
 
 let repo;
+let helpers;
 beforeEach(() => {
   // 每个测试独立内存 db，互不污染
   const db = new SQL.Database();
   db.run(DDL);
-  repo = createSqliteCommunityRepository(makeHelpers(db));
+  helpers = makeHelpers(db);
+  repo = createSqliteCommunityRepository(helpers);
 });
 
 describe('community sqlite repository', () => {
@@ -96,6 +98,29 @@ describe('community sqlite repository', () => {
     repo.createMember({ userId: 'u2', nickname: 'u2', avatarUrl: '' });
     repo.setMemberSelfTags('u2', ['通勤', '失恋']);
     expect(repo.getMember('u2').selfTags).toEqual(['通勤', '失恋']);
+  });
+
+  it('listMembersWithTags_returnsPublicFieldsInStableUserIdOrder', () => {
+    // 顺序是契约：索引构建按这个顺序喂行，抖动会传导到召回结果的稳定性
+    repo.createMember({ userId: 'u3', nickname: '丙', avatarUrl: '' });
+    repo.createMember({ userId: 'u1', nickname: '甲', avatarUrl: 'https://x/a.png' });
+    repo.createMember({ userId: 'u2', nickname: '乙', avatarUrl: '' });
+    repo.setMemberSelfTags('u2', ['后摇']);
+
+    const rows = repo.listMembersWithTags();
+
+    expect(rows.map((r) => r.userId)).toEqual(['u1', 'u2', 'u3']);
+    expect(rows[1]).toEqual({ userId: 'u2', nickname: '乙', avatarUrl: '', tags: ['后摇'] });
+    // 没填标签的成员仍返回（tags 空数组）；是否入索引由服务层决定
+    expect(rows[0].tags).toEqual([]);
+  });
+
+  it('listMembersWithTags_treatsNullSelfTagsAsEmptyList', () => {
+    // 直接写 NULL 列值，模拟建表时未写 self_tags 的历史行
+    helpers.queryAll("INSERT INTO community_members (user_id, nickname, avatar_url, self_tags) VALUES ('u9', '玖', '', NULL)");
+    const rows = repo.listMembersWithTags();
+    expect(rows.map((r) => r.userId)).toEqual(['u9']);
+    expect(rows[0].tags).toEqual([]);
   });
 
   it('setMemberCluster_andTouchActive', () => {

@@ -7,6 +7,8 @@ import { createCommunityRouter } from '../infrastructure/http/communityRoutes.js
 const mockAuth = { uid: 'u1' };
 // 记录 setMemberSelfTags 的落库值，供断言验证路由传下去的是归一后列表
 const savedSelfTags = { tags: null };
+// 记录相似成员索引的显式失效次数：写标签后必须失效，否则用户立刻查相似成员会看到旧结果
+const invalidationCount = { n: 0 };
 
 function makeMockServices() {
   const profiles = new Map();
@@ -104,6 +106,16 @@ function makeMockServices() {
         return { ok: true, playlists: [{ id: 'pl1', name: 'MyPlaylist' }] };
       },
     },
+    similarMembersService: {
+      findSimilar: ({ userId, limit }) => ({
+        userId,
+        hasTags: true,
+        candidates: [
+          { userId: 'u2', nickname: '阿八', avatarUrl: '', score: 0.5, sharedTags: ['后摇'] },
+        ].slice(0, limit === undefined ? 50 : limit),
+      }),
+      invalidate: () => { invalidationCount.n += 1; },
+    },
   };
 }
 
@@ -115,7 +127,7 @@ function makeApp() {
 }
 
 let app;
-beforeEach(() => { mockAuth.uid = 'u1'; savedSelfTags.tags = null; app = makeApp(); });
+beforeEach(() => { mockAuth.uid = 'u1'; savedSelfTags.tags = null; invalidationCount.n = 0; app = makeApp(); });
 
 describe('community routes', () => {
   it('POST /members creates member', async () => {
@@ -603,6 +615,59 @@ describe('community routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.profileBuilt).toBe(false);
       expect(savedSelfTags.tags).toEqual(['后摇']);
+    });
+
+    it('invalidates the similarity index on write', async () => {
+      // 只失效一次：画像重建失败时不再多失效一次（重建没写 userTags，没什么可失效的）
+      mockAuth.uid = 'u3';
+      await request(app).put('/api/community/members/u3/self-tags').send({ selfTags: ['后摇'] });
+      expect(invalidationCount.n).toBe(1);
+    });
+
+    it('invalidates again after a successful profile rebuild', async () => {
+      // 重建会重写 profile.userTags，相似成员的查询标签取自它——所以要第二次失效
+      await request(app).put('/api/community/members/u1/self-tags').send({ selfTags: ['后摇'] });
+      expect(invalidationCount.n).toBe(2);
+    });
+
+    it('does not invalidate when the write is rejected', async () => {
+      await request(app).put('/api/community/members/u1/self-tags').send({ selfTags: '后摇' });
+      expect(invalidationCount.n).toBe(0);
+    });
+  });
+
+  describe('GET /members/:userId/similar', () => {
+    it('returns the top matches for the logged-in user', async () => {
+      const res = await request(app).get('/api/community/members/u1/similar');
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.data.userId).toBe('u1');
+      expect(res.body.data.hasTags).toBe(true);
+      expect(res.body.data.candidates[0].userId).toBe('u2');
+    });
+
+    it('passes the limit through as a number', async () => {
+      const res = await request(app).get('/api/community/members/u1/similar?limit=0');
+      expect(res.status).toBe(200);
+      expect(res.body.data.candidates).toEqual([]);
+    });
+
+    it('forbids asking for another user similarity', async () => {
+      // 别人的自填标签集合不是公开信息（与 /profile/:userId 的隐私口径一致）
+      const res = await request(app).get('/api/community/members/u2/similar');
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('forbidden');
+    });
+
+    it('501 when the similarity service is not wired', async () => {
+      const bare = express();
+      bare.use(express.json());
+      const services = makeMockServices();
+      delete services.similarMembersService;
+      bare.use('/api/community', createCommunityRouter(services));
+      const res = await request(bare).get('/api/community/members/u1/similar');
+      expect(res.status).toBe(501);
+      expect(res.body.error).toBe('similar_members_not_enabled');
     });
   });
 });
