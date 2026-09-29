@@ -73,7 +73,8 @@ v2 payload 带 `schemaVersion: 2`，Song 形态固定为：
 ## 已知遗留
 
 - v1 Socket 事件仍保留原始字段，作为一个大版本过渡兼容；删除前必须重新进行协议版本决策。
-- 仍有 `36` 条 ESLint warning，主要集中在既有复杂度、测试 helper 和 orphan 模块。
+- 仍有 `62` 条 ESLint warning（本节原记 36 条，是写下时的数字，后续节点新增的代码抬高了它；
+  以 `npm run lint` 的实际输出为准），主要是既有函数复杂度与工厂行数。都是 warning，门禁只卡 error。
 - `10` 条架构 warning 是 orphan 提示，不是 dependency error。
 - REST 接口仍未整体迁移到 `/api/v1`，本节点不扩大 REST 破坏性变更范围。
 - `socket/handler.js` 仍是组合入口，剩余复杂度应继续拆到 application service 或纯规则模块。
