@@ -1,3 +1,5 @@
+import { ensureQueueDepth, queueNeedsRefill } from './QueueDepthService.js';
+
 const SUPPORTED_MODES = new Set(['sequential', 'shuffle', 'fm']);
 const SONG_REQUEST_SEARCH_LIMIT = 5;
 
@@ -67,14 +69,24 @@ export function createPlaybackService({
 
     async skip() {
       await scheduler.skip();
+      // refill 的字面量 null 会被推成 null 类型，后续赋 promise 即报错，
+      // 故显式标注联合类型。
+      /** @type {{state: object, queueUpdate: object, refill: Promise<any[]|null>|null}} */
       const result = {
         state: scheduler.getState(),
         queueUpdate: queueUpdate(queue),
         refill: null,
       };
-      if (queue.needsMore(10)) {
-        const cachedPlan = getPlan();
-        result.refill = recommender.fillQueue(12, cachedPlan?.plan?.blocks || null);
+      // 不 await：用户手动跳歌的响应不该等补歌往返。refill 保留 promise 形态，
+      // 由调用方决定何时 await（socket/handler.js 用 result?.refill?.then 追加
+      // 一次 queue:update）。
+      //
+      // 先同步判深度、再决定要不要发起补歌，是为了保住「队列充足时
+      // refill === null」这个既有契约：ensureQueueDepth 是 async，直接赋值会
+      // 得到一个恒解析为 null 的 promise，handler 便会多发一次 queue:update。
+      // 阈值本身仍取自同一个模块，不存在两处各写一个 10。
+      if (queueNeedsRefill({ queue })) {
+        result.refill = ensureQueueDepth({ queue, recommender, getPlan });
       }
       return result;
     },

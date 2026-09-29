@@ -56,6 +56,19 @@ describe('PlaybackService', () => {
     expect(deps.recommender.fillQueue).toHaveBeenCalledWith(12, [{ id: 'morning' }]);
   });
 
+  it('skip_queueAlreadyDeepEnough_leavesRefillNull', async () => {
+    // 契约：队列充足时 refill 必须是 null，不是「解析为 null 的 promise」。
+    // socket/handler.js 用 `result?.refill?.then(...)` 追加一次 queue:update，
+    // 若这里返回 promise，队列充足时也会多发一次广播。
+    const deps = createDeps(); // needsMore 默认 false
+    const service = createPlaybackService(deps);
+
+    const result = await service.skip();
+
+    expect(result.refill).toBeNull();
+    expect(deps.recommender.fillQueue).not.toHaveBeenCalled();
+  });
+
   it('pause_pausesSchedulerAndReturnsAnimationState', () => {
     const deps = createDeps();
     const service = createPlaybackService(deps);
