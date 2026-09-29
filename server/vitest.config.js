@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 
 /**
  * Vitest configuration with coverage thresholds per TESTING-STANDARD.md
@@ -16,6 +16,16 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['__tests__/**/*.test.js'],
+    // 墙钟预算基准移出默认门禁，改由 `npm run bench` 触发。
+    //
+    // 判据：这个文件里是否存在 Date.now 差值断言。存在就意味着它的红绿
+    // 取决于机器负载，而门禁的红绿必须只取决于代码。留在门禁里的代价不是
+    // 慢，是**可信度**——一条因机器忙而红的断言，最终会被调松阈值而不是被修。
+    // 所以基准在这里排除，而不是在文件里加 skip。
+    //
+    // 用 configDefaults.exclude 展开而非手写：vi 的默认排除项随版本变化，
+    // 硬编码一份会把 .git 之类的默认保护一起丢掉。
+    exclude: [...configDefaults.exclude, '__tests__/**/*-bench.test.js'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'lcov'],

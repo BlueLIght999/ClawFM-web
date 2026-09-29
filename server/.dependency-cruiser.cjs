@@ -180,7 +180,12 @@ module.exports = {
 
   options: {
     doNotFollow: { path: 'node_modules' },
-    exclude: { path: '(node_modules|__tests__|netease-api|vitest\\.config\\.js|eslint\\.config\\.js)' },
+    // vitest.bench.config.js 也在此列：它与 vitest.config.js 一样只被
+    // package.json 的脚本按路径调用，没有任何模块 import 它，
+    // 不排除就会被 no-orphans 当成死代码候选报出来。
+    exclude: {
+      path: '(node_modules|__tests__|netease-api|vitest\\.bench\\.config\\.js|vitest\\.config\\.js|eslint\\.config\\.js)',
+    },
     tsPreCompilationDeps: false,
     combinedDependencies: false,
   },
