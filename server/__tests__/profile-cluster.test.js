@@ -242,6 +242,290 @@ describe('KMeansClusterStrategy', () => {
     // Well-separated clusters should have a high silhouette score
     expect(score).toBeGreaterThan(0.5);
   });
+
+  // ── 采样 silhouette（成本优化）────────────────────────────────
+  // 精确 silhouette 是 O(k·n²)，n=400 时单轮 auto-K 约 3.4s 且全程阻塞事件循环。
+  // 超过 silhouetteSampleSize 后改为等距采样估计；以下锁住采样的选取规则与边界。
+
+  describe('silhouette sampling', () => {
+    it('sampleIndices_nBelowSampleSize_returnsEveryIndex', () => {
+      const strategy = new KMeansClusterStrategy({ silhouetteSampleSize: 64 });
+      expect(strategy._silhouetteSampleIndices(10)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    });
+
+    it('sampleIndices_nAtSampleSize_returnsEveryIndex', () => {
+      // 边界包含：n 恰好等于样本量时不去采样，保证小样本行为与精确路径一致
+      const strategy = new KMeansClusterStrategy({ silhouetteSampleSize: 5 });
+      expect(strategy._silhouetteSampleIndices(5)).toEqual([0, 1, 2, 3, 4]);
+    });
+
+    it('sampleIndices_nAboveSampleSize_returnsEvenlySpacedIndices', () => {
+      const strategy = new KMeansClusterStrategy({ silhouetteSampleSize: 4 });
+      expect(strategy._silhouetteSampleIndices(10)).toEqual([0, 2, 5, 7]);
+    });
+
+    it('sampleIndices_isDeterministic', () => {
+      // 采样必须可复现：若用 Math.random，同一批成员每次算出的 k 会跳变，
+      // 簇归属随之抖动并把通知发给不同的人。
+      const strategy = new KMeansClusterStrategy({ silhouetteSampleSize: 8 });
+      const first = strategy._silhouetteSampleIndices(500);
+      const second = strategy._silhouetteSampleIndices(500);
+      expect(first).toEqual(second);
+      expect(first).toHaveLength(8);
+    });
+
+    it('sampleIndices_lastIndexStaysInBounds', () => {
+      // 步长取整不得越界（floor(t*step) 在 t 最大时可能等于 n）
+      const strategy = new KMeansClusterStrategy({ silhouetteSampleSize: 7 });
+      const idx = strategy._silhouetteSampleIndices(10);
+      for (const i of idx) {
+        expect(i).toBeGreaterThanOrEqual(0);
+        expect(i).toBeLessThan(10);
+      }
+    });
+
+    it('sampleIndices_nonPositiveSampleSize_returnsEveryIndex', () => {
+      // <=0 是「显式要求精确计算」的开关
+      for (const size of [0, -1]) {
+        const strategy = new KMeansClusterStrategy({ silhouetteSampleSize: size });
+        expect(strategy._silhouetteSampleIndices(12)).toHaveLength(12);
+      }
+    });
+
+    it('sampleSizeNotANumber_fallsBackToExactInsteadOfThrowing', () => {
+      // Infinity/NaN 若走进 new Array(want) 会抛 RangeError；必须回落精确路径
+      for (const size of [Number.NaN, Number.POSITIVE_INFINITY, 'abc']) {
+        const strategy = new KMeansClusterStrategy({ silhouetteSampleSize: size });
+        expect(() => strategy._silhouetteSampleIndices(12)).not.toThrow();
+        expect(strategy._silhouetteSampleIndices(12)).toHaveLength(12);
+      }
+    });
+
+    it('silhouetteScore_sampledPath_stillScoresWellSeparatedDataHigh', () => {
+      // 采样是估计，不该把明显分离的数据算成低分
+      const vectors = [];
+      for (let i = 0; i < 60; i++) {
+        vectors.push({ x: 0 + (i % 5) * 0.02, y: 0 });
+        vectors.push({ x: 10 + (i % 5) * 0.02, y: 10 });
+      }
+      const strategy = new KMeansClusterStrategy({ silhouetteSampleSize: 16 });
+      expect(strategy._silhouetteScore(vectors, 2)).toBeGreaterThan(0.5);
+    });
+
+    it('findOptimalK_sampledPath_picksKNearlyAsGoodAsExactPicks', () => {
+      // 采样只是估计，不能断言「与精确路径选出同一个 k」：_initCentroids 用
+      // Math.random 播种，两条路径各自跑 kmeans，个别 k 上会出现等价最优的平局，
+      // 断言相等会让测试随机失败。
+      //
+      // 真正要守的契约是：采样选出的 k，其**精确** silhouette 分数不显著低于
+      // 精确路径所选 k 的分数——即采样没有因为省成本而选出一个明显更差的结构。
+      const vectors = [];
+      for (let i = 0; i < 80; i++) {
+        vectors.push({ x: (i % 4) * 0.05, y: (i % 4) * 0.05 });
+        vectors.push({ x: 10 + (i % 4) * 0.05, y: 10 });
+        vectors.push({ x: -10 + (i % 4) * 0.05, y: 5 });
+      }
+      const exact = new KMeansClusterStrategy({ maxK: 5, silhouetteSampleSize: 0 });
+      const sampled = new KMeansClusterStrategy({ maxK: 5, silhouetteSampleSize: 32 });
+
+      const exactK = exact._findOptimalK(vectors);
+      const sampledK = sampled._findOptimalK(vectors);
+
+      // 选出的 k 都必须落在声明的搜索区间内
+      for (const k of [exactK, sampledK]) {
+        expect(k).toBeGreaterThanOrEqual(2);
+        expect(k).toBeLessThanOrEqual(5);
+      }
+
+      // 用精确分数评估两者，采样不得落后多于 0.05（值域 [-1,1]）
+      const exactScoreOfExactK = exact._silhouetteScore(vectors, exactK);
+      const exactScoreOfSampledK = exact._silhouetteScore(vectors, sampledK);
+      expect(exactScoreOfSampledK).toBeGreaterThan(exactScoreOfExactK - 0.05);
+    });
+  });
+
+  // ── 预计算 kmeans 结果的复用 ──────────────────────────────────
+  describe('kmeans result reuse', () => {
+    it('silhouetteScore_withProvidedKmeansResult_matchesSelfComputed', () => {
+      // 传入预计算结果与内部现算必须同值：_findOptimalK 靠这个契约
+      // 省掉每个候选 k 上重复的一整轮 _kmeans。
+      const vectors = [...CLUSTER_A, ...CLUSTER_B];
+      const strategy = new KMeansClusterStrategy({ silhouetteSampleSize: 0 });
+      strategy._useDimensions(vectors);
+      const km = strategy._kmeans(vectors, 2);
+      expect(strategy._silhouetteScore(vectors, 2, km)).toBe(strategy._silhouetteScore(vectors, 2));
+    });
+
+    it('searchOptimalK_returnsKAndItsScore_consistentWithSilhouetteScore', () => {
+      const vectors = [...CLUSTER_A, ...CLUSTER_B];
+      const strategy = new KMeansClusterStrategy({ maxK: 4, silhouetteSampleSize: 0 });
+      strategy._useDimensions(vectors);
+      const { k, score } = strategy._searchOptimalK(vectors);
+      expect(score).toBe(strategy._silhouetteScore(vectors, k));
+    });
+
+    it('searchOptimalK_fewerVectorsThanMinK_scoresZeroWithoutClustering', () => {
+      const strategy = new KMeansClusterStrategy({ minK: 5, maxK: 8 });
+      expect(strategy._searchOptimalK([{ x: 1 }, { x: 2 }])).toEqual({ k: 2, score: 0 });
+    });
+
+    it('autoTune_score_comesFromTheSelectedK', () => {
+      // autoTune 过去在 _findOptimalK 之后重算了一遍 silhouetteScore(optimalK)，
+      // 现在直接复用搜索时的分数——必须仍是该 k 自己的分数。
+      const vectors = [...CLUSTER_A, ...CLUSTER_B];
+      const strategy = new KMeansClusterStrategy({ maxK: 4, silhouetteSampleSize: 0 });
+      const tuned = strategy.autoTune(vectors);
+      expect(tuned.score).toBe(strategy._silhouetteScore(vectors, tuned.k));
+    });
+  });
+
+  // ── 确定性播种 ────────────────────────────────────────────────
+  // 原先 _initCentroids 用 Math.random，同一份输入时而选出 k=3 时而 k=4，
+  // 且簇归属每次重排（成员会被反复随机分组、通知对象随之改变）。
+  // 现改为由向量内容派生种子，随机性保留、不可复现性去掉。
+  describe('deterministic seeding', () => {
+    it('cluster_sameInputTwice_producesIdenticalAssignments', () => {
+      const strategy = new KMeansClusterStrategy({ maxK: 4 });
+      const vectors = [...CLUSTER_A, ...CLUSTER_B];
+      const a = strategy.cluster(vectors);
+      const b = strategy.cluster(vectors);
+
+      expect(a.k).toBe(b.k);
+      expect(a.clusters.map((c) => c.memberCount)).toEqual(b.clusters.map((c) => c.memberCount));
+      // 成员序列也必须一致，不只是计数
+      expect(a.clusters.map((c) => c.members.map((m) => m.x))).toEqual(
+        b.clusters.map((c) => c.members.map((m) => m.x)),
+      );
+    });
+
+    it('cluster_repeatedCalls_neverDriftAcrossManyRuns', () => {
+      // 单次比对可能撞上巧合；连跑 20 次确认没有任何一次偏移
+      const strategy = new KMeansClusterStrategy({ maxK: 5 });
+      const vectors = [];
+      for (let i = 0; i < 40; i++) {
+        vectors.push({ x: (i % 4) * 0.05, y: 0 });
+        vectors.push({ x: 10 + (i % 4) * 0.05, y: 10 });
+      }
+      const baseline = strategy.cluster(vectors);
+      for (let run = 0; run < 20; run++) {
+        const again = strategy.cluster(vectors);
+        expect(again.k).toBe(baseline.k);
+        expect(again.clusters.map((c) => c.memberCount)).toEqual(baseline.clusters.map((c) => c.memberCount));
+      }
+    });
+
+    it('findOptimalK_sameInput_repeatedlyReturnsSameK', () => {
+      const strategy = new KMeansClusterStrategy({ maxK: 5 });
+      const vectors = [];
+      for (let i = 0; i < 40; i++) {
+        vectors.push({ x: (i % 4) * 0.05, y: 0 });
+        vectors.push({ x: 10 + (i % 4) * 0.05, y: 10 });
+      }
+      const first = strategy._findOptimalK(vectors);
+      for (let run = 0; run < 20; run++) {
+        expect(strategy._findOptimalK(vectors)).toBe(first);
+      }
+    });
+
+    it('initCentroids_isDeterministicForSameVectors', () => {
+      const strategy = new KMeansClusterStrategy();
+      const vectors = [...CLUSTER_A, ...CLUSTER_B];
+      const a = strategy._initCentroids(vectors, 3);
+      const b = strategy._initCentroids(vectors, 3);
+      expect(a).toEqual(b);
+    });
+
+    it('initCentroids_isIndependentOfVectorInsertionOrder', () => {
+      // 同一批成员的**数组顺序**参与哈希（见 initCentroids_reversedVectorOrder_mayDiffer），
+      // 但无论顺序如何都不能抛错、都必须给出 k 个中心。
+      const strategy = new KMeansClusterStrategy();
+      const a = strategy._initCentroids([...CLUSTER_A, ...CLUSTER_B], 3);
+      const shuffled = [...CLUSTER_B, ...CLUSTER_A];
+      const b = strategy._initCentroids(shuffled, 3);
+      expect(a).toHaveLength(3);
+      expect(b).toHaveLength(3);
+    });
+
+    it('initCentroids_keyOrderWithinVector_doesNotChangeResult', () => {
+      // deriveVectorSeed 对键名排序后再哈希，所以 {x,y} 与 {y,x} 是同一个向量。
+      // 断言前必须按键排序比较：{...first} 让中心继承了源对象的键书写顺序，
+      // 直接 toEqual 会拿 "键序" 当差异，把等价结果判成不等价。
+      const strategy = new KMeansClusterStrategy();
+      const keyOrdered = (centroids) =>
+        JSON.stringify(centroids.map((c) => Object.keys(c).sort().map((k) => [k, c[k]])));
+
+      const ordered = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }];
+      const flipped = [{ y: 0, x: 0 }, { y: 0, x: 1 }, { y: 0, x: 2 }];
+
+      expect(keyOrdered(strategy._initCentroids(ordered, 2)))
+        .toBe(keyOrdered(strategy._initCentroids(flipped, 2)));
+    });
+
+    it('initCentroids_reversedVectorOrder_mayDiffer', () => {
+      // 对照上一条：向量**数组**顺序参与哈希，换序会得到不同种子。
+      // 这不是缺陷——生产路径的成员顺序由上游查询决定且稳定，
+      // 这里只是把「种子绑定内容」这个事实钉住，防止误以为结果与排序无关。
+      const strategy = new KMeansClusterStrategy();
+      const points = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 5, y: 5 }];
+      expect(strategy._initCentroids(points, 2))
+        .not.toEqual(strategy._initCentroids([...points].reverse(), 2));
+    });
+
+    it('initCentroids_returnsExactlyKCentroids', () => {
+      const strategy = new KMeansClusterStrategy();
+      const vectors = [...CLUSTER_A, ...CLUSTER_B];
+      for (const k of [1, 2, 3, 6]) {
+        expect(strategy._initCentroids(vectors, k)).toHaveLength(k);
+      }
+    });
+
+    it('initCentroids_identicalVectors_padsToKWithoutInfiniteLoop', () => {
+      // D² 加权在全等向量上权重和为 0：不能死循环，仍须返回 k 个中心
+      const strategy = new KMeansClusterStrategy();
+      const vectors = Array.from({ length: 5 }, () => ({ x: 1, y: 1 }));
+      const centroids = strategy._initCentroids(vectors, 4);
+      expect(centroids).toHaveLength(4);
+      for (const c of centroids) expect(c).toEqual({ x: 1, y: 1 });
+    });
+
+    it('kmeansPlusPlus_isDeterministicWithSameRandomSource', () => {
+      const strategy = new KMeansClusterStrategy();
+      const vectors = [...CLUSTER_A, ...CLUSTER_B];
+      const makeRand = () => {
+        let a = 12345 >>> 0;
+        return () => {
+          a = (a + 0x6d2b79f5) >>> 0;
+          let t = a;
+          t = Math.imul(t ^ (t >>> 15), 1 | t);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      };
+      expect(strategy._kmeansPlusPlus(vectors, 3, makeRand())).toEqual(
+        strategy._kmeansPlusPlus(vectors, 3, makeRand()),
+      );
+    });
+
+    it('sampleByWeight_picksIndexWithinBounds', () => {
+      const strategy = new KMeansClusterStrategy();
+      const weights = [1, 0, 3, 0, 2];
+      const total = 6;
+      for (let i = 0; i < 50; i++) {
+        const idx = strategy._sampleByWeight(weights, total, Math.random);
+        expect(idx).toBeGreaterThanOrEqual(0);
+        expect(idx).toBeLessThan(weights.length);
+        expect(weights[idx]).toBeGreaterThan(0);
+      }
+    });
+
+    it('sampleByWeight_zeroWeightSlotsAreNeverPicked', () => {
+      // [0, 5, 0]：只有下标 1 有权重，抽样必须恒为 1
+      const strategy = new KMeansClusterStrategy();
+      for (let i = 0; i < 30; i++) {
+        expect(strategy._sampleByWeight([0, 5, 0], 5, Math.random)).toBe(1);
+      }
+    });
+  });
 });
 
 // ══════════════════════════════════════════════════════════════
