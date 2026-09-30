@@ -9,6 +9,8 @@ const mockAuth = { uid: 'u1' };
 const savedSelfTags = { tags: null };
 // 记录相似成员索引的显式失效次数：写标签后必须失效，否则用户立刻查相似成员会看到旧结果
 const invalidationCount = { n: 0 };
+// 邀请的「被邀请方」身份，可被单个用例改写以模拟越权（默认与登录身份一致）
+const invitationInvitee = { uid: 'u1' };
 
 function makeMockServices() {
   const profiles = new Map();
@@ -96,13 +98,17 @@ function makeMockServices() {
         if (toUserId === 'blocked') return { ok: false, error: 'not_authorized', reasons: ['canBeInvited=false'] };
         return { ok: true, id: 1, fromUserId, toUserId, contextType: contextType || 'feed', contextId: contextId || null, status: 'pending' };
       },
-      respond: (invitationId, status) => {
+      // 认身份的 mock：路由必须把调用者传下来，否则这里一律 not_participant。
+      // 一个忽略第三参的 mock 会让越权路径测不出来——这正是缺口此前存活的原因。
+      respond: (invitationId, status, callerUserId) => {
         if (invitationId === 999) return { ok: false, error: 'not_found' };
+        if (callerUserId !== invitationInvitee.uid) return { ok: false, error: 'not_participant' };
         return { ok: true, status };
       },
       listForUser: (userId) => [{ id: 1, fromUserId: 'u2', toUserId: userId, status: 'pending', contextType: 'feed' }],
-      bringPlaylist: async (invitationId) => {
+      bringPlaylist: async (invitationId, callerUserId) => {
         if (invitationId === 999) return { ok: false, error: 'invitation_not_found' };
+        if (callerUserId !== invitationInvitee.uid) return { ok: false, error: 'not_participant' };
         return { ok: true, playlists: [{ id: 'pl1', name: 'MyPlaylist' }] };
       },
     },
@@ -127,7 +133,7 @@ function makeApp() {
 }
 
 let app;
-beforeEach(() => { mockAuth.uid = 'u1'; savedSelfTags.tags = null; invalidationCount.n = 0; app = makeApp(); });
+beforeEach(() => { mockAuth.uid = 'u1'; invitationInvitee.uid = 'u1'; savedSelfTags.tags = null; invalidationCount.n = 0; app = makeApp(); });
 
 describe('community routes', () => {
   it('POST /members creates member', async () => {
@@ -520,6 +526,44 @@ describe('community routes', () => {
     const res = await request(app).post('/api/community/invitations/999/bring-playlist');
     expect(res.status).toBe(404);
     expect(res.body.error).toBe('invitation_not_found');
+  });
+
+  // ── 邀请参与方校验（授权缺口修复，路由层）────────────────
+  // 这两条端点此前不看调用者，任何成员遍历到自增 id 即可替他人表态或触发他人
+  // cookie 解密。断言路由确实把 req.communityUserId 传下去、且越权回 403。
+
+  it('POST /invitations/:id/respond 403 when caller is not the invitee', async () => {
+    invitationInvitee.uid = 'someone-else';
+    const res = await request(app).post('/api/community/invitations/1/respond').send({ status: 'accepted' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('not_participant');
+  });
+
+  it('POST /invitations/:id/bring-playlist 403 when caller is not the invitee', async () => {
+    invitationInvitee.uid = 'someone-else';
+    const res = await request(app).post('/api/community/invitations/1/bring-playlist');
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('not_participant');
+  });
+
+  it('POST /invitations/:id/bring-playlist 409 when the invitation is not active', async () => {
+    // 409 而非 400：请求本身合法，是与当前资源状态冲突
+    const services = makeMockServices();
+    services.invitationService.bringPlaylist = async () => ({ ok: false, error: 'invitation_not_active' });
+    const app2 = express();
+    app2.use(express.json());
+    app2.use('/api/community', createCommunityRouter(services));
+    const res = await request(app2).post('/api/community/invitations/1/bring-playlist');
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('invitation_not_active');
+  });
+
+  it('POST /invitations/:id/respond 401 when not logged in', async () => {
+    mockAuth.uid = '';
+    app = makeApp();
+    const res = await request(app).post('/api/community/invitations/1/respond').send({ status: 'accepted' });
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe('auth_required');
   });
 
   // ── 改头像 / 改昵称（B-Fix）──

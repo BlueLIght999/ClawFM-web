@@ -20,6 +20,22 @@ const SELF_TAG_ERROR_STATUS = {
   [SELF_TAG_ERRORS.TOO_MANY]: 400,
 };
 
+/**
+ * 邀请操作失败 → HTTP 状态码映射。
+ *
+ * not_participant 用 403 而不是 404：调用者确实存在且已认证，只是无权操作这条
+ * 邀请。回 404 会把「无权」伪装成「不存在」，看起来像防枚举，实际会误导正常用户
+ * ——被邀请方本人若因拼错 id 拿到 404，与越权者拿到同一个码，两边都看不出真正原因。
+ * 邀请 id 是自增的，本来也不构成不可枚举的资源。
+ */
+const INVITATION_ERROR_STATUS = {
+  not_found: 404,
+  invitation_not_found: 404,
+  not_participant: 403,
+  not_authorized: 403,
+  invitation_not_active: 409,
+};
+
 function ok(res, data, status = 200) {
   return res.status(status).json({ ok: true, data });
 }
@@ -413,12 +429,13 @@ export function createCommunityRouter(services) {
       return ok(res, r, 201);
     });
 
-    // POST /invitations/:id/respond — 接受/拒绝
+    // POST /invitations/:id/respond — 接受/拒绝（仅被邀请方本人）
     router.post('/invitations/:id/respond', (req, res) => {
       const { status } = req.body || {};
       if (!status) return fail(res, 'status_required');
-      const r = services.invitationService.respond(Number(req.params.id), status);
-      if (!r.ok) return fail(res, r.error, r.error === 'not_found' ? 404 : 400);
+      // 传调用者身份：此前不校验，任何成员遍历到自增 id 就能替别人表态
+      const r = services.invitationService.respond(Number(req.params.id), status, req.communityUserId);
+      if (!r.ok) return fail(res, r.error, INVITATION_ERROR_STATUS[r.error] ?? 400);
       return ok(res, r);
     });
 
@@ -430,11 +447,12 @@ export function createCommunityRouter(services) {
       return ok(res, services.invitationService.listForUser(userId));
     });
 
-    // POST /invitations/:id/bring-playlist — 触发被邀请方 agent 把歌单带入上下文
+    // POST /invitations/:id/bring-playlist — 触发被邀请方 agent 把歌单带入上下文（仅被邀请方本人）
     router.post('/invitations/:id/bring-playlist', async (req, res) => {
       try {
-        const r = await services.invitationService.bringPlaylist(Number(req.params.id));
-        if (!r.ok) return fail(res, r.error, r.error === 'invitation_not_found' ? 404 : 400);
+        // 这条路径会解密被邀请方的网易云 cookie，调用者必须是其本人
+        const r = await services.invitationService.bringPlaylist(Number(req.params.id), req.communityUserId);
+        if (!r.ok) return fail(res, r.error, INVITATION_ERROR_STATUS[r.error] ?? 400);
         return ok(res, r);
       } catch {
         return fail(res, 'bring_playlist_failed', 500);

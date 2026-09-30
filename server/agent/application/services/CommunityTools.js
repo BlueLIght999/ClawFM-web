@@ -82,14 +82,22 @@ export function registerCommunityTools({ registry, distributionService, memberAg
 
   registry.register(createToolDefinition({
     name: 'bring_playlist',
-    description: '被邀请的 agent 把主人网易云歌单带入目标上下文（需邀请已 active）。',
+    description: '被邀请的 agent 把主人网易云歌单带入目标上下文（需邀请已 active，且仅被邀请方本人可触发）。',
     parameters: {
       type: 'object',
       properties: { invitationId: { type: 'number' } },
       required: ['invitationId'],
     },
     execute: async (args) => {
-      const r = await invitationService.bringPlaylist(args.invitationId);
+      // 本工具拿不到可信调用者身份：args 全部由 LLM 生成，只有 invitationId，
+      // 没有任何字段能证明「谁在调用」。bringPlaylist 现在的授权前提是调用者必须是
+      // 被邀请方本人（它要解密那个人的 cookie），所以这里无法安全地代填一个身份——
+      // 传空串会被 not_participant 挡下，等于显式失败；这正是本步想要的效果。
+      //
+      // 不在工具层补一个 fromUserId 参数：那只是把「模型自报身份」当成身份，比不校验
+      // 更糟（看起来有校验）。要恢复这条路径，正确做法是让 socket 侧把已认证的成员 id
+      // 注入工具上下文，而不是从 args 取。在那之前，这条工具路径保持显式失败。
+      const r = await invitationService.bringPlaylist(args.invitationId, null);
       return r.ok
         ? { handled: true, invitationId: args.invitationId, playlistCount: r.playlists.length }
         : { handled: false, error: r.error };

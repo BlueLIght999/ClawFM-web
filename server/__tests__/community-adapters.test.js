@@ -59,13 +59,19 @@ describe('register community tools', () => {
     const distCalls = [];
     const commentCalls = [];
     const inviteCalls = [];
+    const bringCalls = [];
     return {
       services: {
         distributionService: { distribute: (a) => { distCalls.push(a); return { pushedTo: 2, skipped: 0, matchedClusters: [{ clusterId: 0, score: 1, label: 'rock' }] }; } },
         memberAgentService: { commentOnPost: async (a) => { commentCalls.push(a); return { ok: true, commentId: 9, content: '同感' }; } },
-        invitationService: { invite: (a) => { inviteCalls.push(a); return { ok: true, id: 1, status: 'pending' }; }, listForUser: () => [] },
+        invitationService: {
+          invite: (a) => { inviteCalls.push(a); return { ok: true, id: 1, status: 'pending' }; },
+          listForUser: () => [],
+          // 记录调用者实参：该工具拿不到可信身份，必须显式传 null 而不是编一个
+          bringPlaylist: async (id, callerUserId) => { bringCalls.push({ id, callerUserId }); return { ok: false, error: 'not_participant' }; },
+        },
       },
-      distCalls, commentCalls, inviteCalls,
+      distCalls, commentCalls, inviteCalls, bringCalls,
     };
   }
 
@@ -111,6 +117,16 @@ describe('register community tools', () => {
     expect(r.handled).toBe(true);
     expect(r.id).toBe(1);
     expect(mocks.inviteCalls[0]).toEqual({ fromUserId: 'a', toUserId: 'b', contextType: 'feed', contextId: undefined });
+  });
+
+  it('bring_playlist_failsExplicitlyWithoutTrustedIdentity', async () => {
+    registerCommunityTools({ registry, ...mocks.services });
+    const r = await registry.tools.get('bring_playlist').execute({ invitationId: 7 });
+    // 工具的 args 全由 LLM 生成，没有可信调用者身份。不能编一个传下去——
+    // 那等于把「模型自报身份」当身份用。显式传 null，由 service 的 fail-closed 挡下。
+    expect(mocks.bringCalls[0]).toEqual({ id: 7, callerUserId: null });
+    expect(r.handled).toBe(false);
+    expect(r.error).toBe('not_participant');
   });
 
   it('skipsRegistrationWhenServicesMissing', () => {
