@@ -56,6 +56,16 @@ export const SYNONYM_GROUPS = [
   { canonical: 'blues', members: ['blues', '布鲁斯', '蓝调'] },
   { canonical: 'punk', members: ['punk', '朋克'] },
   { canonical: 'instrumental', members: ['instrumental', '纯音乐', '器乐'] },
+  // 情绪组：代表键取 profileFusionRules.MOOD_TAGS 的写法，帖子标签、画像关键词、
+  // 自填标签才能落进同一个桶。刻意不收「快乐」：它会被剥掉装饰后缀「乐」折成「快」。
+  { canonical: 'happy', members: ['happy', '开心', '欢快'] },
+  { canonical: 'sad', members: ['sad', '伤感', '悲伤', '难过', 'emo'] },
+  { canonical: 'energetic', members: ['energetic', '热血', '动感', '带感'] },
+  { canonical: 'calm', members: ['calm', 'chill', '治愈', '安静', '平静', '舒缓'] },
+  { canonical: 'nostalgic', members: ['nostalgic', '怀旧', '回忆'] },
+  { canonical: 'romantic', members: ['romantic', '浪漫'] },
+  { canonical: 'angry', members: ['angry', '愤怒', '暴躁'] },
+  { canonical: 'dreamy', members: ['dreamy', '梦幻'] },
 ];
 
 /**

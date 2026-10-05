@@ -240,6 +240,8 @@ export function createCommunityRouter(services) {
     const limit = req.query.limit ? Number(req.query.limit) : 20;
     const cursor = req.query.cursor ? Number(req.query.cursor) : null;
     const forUserId = req.query.forUserId ? String(req.query.forUserId) : null;
+    // 个性化按「forUserId 邀请了谁」加权：替别人取等于泄露对方的邀请关系与被邀请方品味
+    if (forUserId !== null && !assertSelf(req, res, forUserId)) return;
     return ok(res, communityService.getFeed({ limit, cursor, forUserId }));
   });
 

@@ -73,6 +73,14 @@ describe('community member agent rules', () => {
     expect(r.allowed).toBe(true);
   });
 
+  it('evaluateAgentAction_topicMatchesThroughSynonymFolding', () => {
+    // 帖子 autoTags 是归一键（'jazz'），成员在设置页写的是自己的写法（'爵士'）
+    const r = evaluateAgentAction({ rules: { canComment: true, allowedTopics: ['爵士'] }, action: 'comment', topic: 'jazz' });
+    expect(r.allowed).toBe(true);
+    const denied = evaluateAgentAction({ rules: { canComment: true, allowedTopics: ['爵士'] }, action: 'comment', topic: 'rock' });
+    expect(denied.allowed).toBe(false);
+  });
+
   it('evaluateAgentAction_emptyTopicsAllowsAnyTopic', () => {
     const r = evaluateAgentAction({ rules: { canComment: true, allowedTopics: [] }, action: 'comment', topic: 'anything' });
     expect(r.allowed).toBe(true);

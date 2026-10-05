@@ -86,6 +86,19 @@ describe('community service', () => {
     expect(r.post.songId).toBe('s9');
   });
 
+  it('createPost_derivesAutoTagsFromContentWhenNoneGiven', () => {
+    // 此前帖子 autoTags 恒为空：F9 按品味加权与 F4 按簇分发拿到的都是 0 分
+    const r = service.createPost({ userId: 'u1', type: 'reflection', content: '深夜循环后摇，很治愈' });
+    expect(r.ok).toBe(true);
+    expect(r.post.autoTags).toEqual(['postrock', 'calm']);
+  });
+
+  it('createPost_tagsFromRawContentNotTheEscapedCopy', () => {
+    // 落库的正文已 HTML 转义（& → &amp;），打标签要读原文
+    const r = service.createPost({ userId: 'u1', type: 'reflection', content: '今晚 R&B' });
+    expect(r.post.autoTags).toEqual(['rnb']);
+  });
+
   it('createPost_passesAgentFlagsThrough', () => {
     const r = service.createPost({
       userId: 'u1', type: 'comment', content: '代发', parentId: 5,

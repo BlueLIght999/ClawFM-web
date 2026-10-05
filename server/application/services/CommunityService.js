@@ -6,6 +6,7 @@
  */
 import { validatePost } from '../../domain/community/postRules.js';
 import { validateFollow } from '../../domain/community/followRules.js';
+import { extractPostTags } from '../../domain/community/postTagRules.js';
 
 /**
  * @param {{communityRepository: import('../ports/repos/CommunityRepository.js').CommunityRepository, feedPersonalizer?: ((userId: string, posts: Array) => Array), eventPublisher?: {emit?: (event:string, payload:object, targetUserId?:string|null)=>void}}} [deps]
@@ -40,7 +41,11 @@ export function createCommunityService({communityRepository, feedPersonalizer, e
       playlistId: post.playlistId,
       songTitle: input.songTitle || null,
       cover: input.cover || null,
-      autoTags: Array.isArray(input.autoTags) ? input.autoTags : [],
+      // 调用方给了就用（agent 评论沿用父帖标签）；否则从原文认——读 input.content
+      // 而非已转义的 post.content，后者会把「R&B」变成「R&amp;B」
+      autoTags: Array.isArray(input.autoTags) && input.autoTags.length > 0
+        ? input.autoTags
+        : extractPostTags(input.content),
       isAgent: !!input.isAgent,
       agentAuthorUserId: input.agentAuthorUserId || null,
     });

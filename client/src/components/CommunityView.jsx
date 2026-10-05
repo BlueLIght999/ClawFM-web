@@ -108,15 +108,19 @@ export default function CommunityView() {
     }
   }, [currentMember, nicknameDraft, updateMemberProfile]);
 
+  // 带上当前成员 id：服务端据此按其 active 邀请的被邀请方品味重排（F9 主目的地）。
+  // 未登录时为 null，服务端回原序。
+  const feedForUserId = currentMember?.userId ?? null;
+
   // 首屏拉取公共数据
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setError(null);
       try {
-        const posts = await fetchFeed({ limit: 20 });
+        const posts = await fetchFeed({ limit: 20, forUserId: feedForUserId });
         if (cancelled) return;
-        setFeedCursor(posts.length > 0 ? posts[posts.length - 1].id : null);
+        setFeedCursor(posts.length > 0 ? oldestPostId(posts) : null);
         setHasMoreFeed(posts.length >= 20);
       } catch (e) {
         if (!cancelled) setError(e.message || 'feed_load_failed');
@@ -128,7 +132,7 @@ export default function CommunityView() {
       }
     })();
     return () => { cancelled = true; };
-  }, [fetchFeed, fetchClusters]);
+  }, [fetchFeed, fetchClusters, feedForUserId]);
 
   // 切到 inbox 时拉收件箱
   useEffect(() => {
@@ -169,15 +173,15 @@ export default function CommunityView() {
     if (!hasMoreFeed || loadingFeed) return;
     setLoadingFeed(true);
     try {
-      const posts = await fetchFeed({ cursor: feedCursor, limit: 20 });
-      setFeedCursor(posts.length > 0 ? posts[posts.length - 1].id : feedCursor);
+      const posts = await fetchFeed({ cursor: feedCursor, limit: 20, forUserId: feedForUserId });
+      setFeedCursor(posts.length > 0 ? oldestPostId(posts) : feedCursor);
       setHasMoreFeed(posts.length >= 20);
     } catch (e) {
       setError(e.message);
     } finally {
       setLoadingFeed(false);
     }
-  }, [hasMoreFeed, loadingFeed, feedCursor, fetchFeed]);
+  }, [hasMoreFeed, loadingFeed, feedCursor, fetchFeed, feedForUserId]);
 
   const notifyCount = notifications.length;
   const pendingInvitationCount = useMemo(
@@ -464,6 +468,15 @@ function JoinHero({ onCreate, onError, authUid }) {
       </div>
     </form>
   );
+}
+
+/**
+ * 本页最旧帖的 id，作下一页游标（服务端按 id < cursor 取下一页）。
+ * 不能取最后一条：个性化 feed 在页内按品味重排，最后一条不再是最旧的，
+ * 拿它当游标会跳过比它更旧、却被排到前面的帖。
+ */
+function oldestPostId(posts) {
+  return posts.reduce((min, p) => (p.id < min ? p.id : min), posts[0].id);
 }
 
 // ── Feed Tab — 卡片网格（Suno trending grid 风格）─────────

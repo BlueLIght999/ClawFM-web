@@ -27,7 +27,7 @@ export function createMemberAgentService({ communityRepository, memberAgentLoopP
 
     const config = repo.getMemberAgentConfig(byUserId);
     const rules = normalizeAgentRules(config?.rules);
-    const topic = (Array.isArray(post.autoTags) && post.autoTags[0]) || 'general';
+    const topic = Array.isArray(post.autoTags) && post.autoTags.length > 0 ? post.autoTags : 'general';
     const allowed = evaluateAgentAction({ rules, action: 'comment', topic });
     if (!allowed.allowed) {
       logger?.warn?.({ component: 'community', byUserId, reason: allowed.reason }, 'agent comment denied by rules');

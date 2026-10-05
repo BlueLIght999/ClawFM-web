@@ -342,10 +342,17 @@ describe('community routes', () => {
     expect(res.status).toBe(404);
   });
 
-  it('GET /feed passes forUserId through', async () => {
-    const res = await request(app).get('/api/community/feed?forUserId=u9');
+  it('GET /feed passes the caller own forUserId through', async () => {
+    const res = await request(app).get('/api/community/feed?forUserId=u1');
     expect(res.status).toBe(200);
     expect(res.body.data.length).toBe(2);
+  });
+
+  it('GET /feed rejects a forUserId that is not the caller', async () => {
+    // 个性化 feed 按「谁邀请了谁」加权：替别人取等于把对方的邀请关系与被邀请方品味泄露出去
+    const res = await request(app).get('/api/community/feed?forUserId=u9');
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('forbidden');
   });
 
   it('POST /rooms creates room', async () => {

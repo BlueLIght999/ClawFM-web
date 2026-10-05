@@ -128,6 +128,17 @@ describe('community feed personalization rules', () => {
     expect(result[2].id).toBe(3);
   });
 
+  it('personalizeFeed_matchesSelfTagsThroughSynonymFolding', () => {
+    // 被邀请方自填「后摇」，帖子归一标签是 'postrock'：判等必须与召回层同源（normalizeTagKey）
+    const posts = [{ id: 1, autoTags: ['pop'] }, { id: 2, autoTags: ['postrock'] }];
+    const invitee = { tags: {}, userTags: [{ tag: '后摇', weight: 1 }] };
+    expect(personalizeFeed(posts, [invitee]).map((p) => p.id)).toEqual([2, 1]);
+  });
+
+  it('scorePostForTaste_foldsBothSides', () => {
+    expect(scorePostForTaste({ autoTags: ['爵士'] }, ['Jazz'])).toBe(1);
+  });
+
   it('personalizeFeed_noProfilesReturnsOriginalOrder', () => {
     const posts = [{ id: 1 }, { id: 2 }];
     expect(personalizeFeed(posts, []).map((p) => p.id)).toEqual([1, 2]);

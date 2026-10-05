@@ -1,9 +1,11 @@
 /**
- * CommunityView 邀请面板（F9）的候选选人测试。
+ * CommunityView 组件测试。
  *
- * 这是 CommunityView 的第一个组件测试：该文件此前只有手测覆盖。测试只钉
- * 「候选能选、能带进 onInvite」这一条真实缺口——邀请表单此前只收手打 userId，
- * 用户必须事先知道对方 id 才能邀请。服务端 findSimilar 早就完整，前端零调用。
+ * 该组件此前只有手测覆盖，这里只钉真实缺口：
+ *   - 邀请面板（F9）的候选选人：邀请表单此前只收手打 userId，用户必须事先知道
+ *     对方 id 才能邀请。服务端 findSimilar 早就完整，前端零调用。
+ *   - 发现流（F9 主目的地）：服务端早有按被邀请方品味重排的 feed，前端从不带
+ *     forUserId，于是重排从未生效。
  *
  * mock 掉 useCommunity：本视图的依赖全从这个 hook 来，替身能精确控制候选与标签状态。
  */
@@ -79,6 +81,38 @@ async function openInvitations() {
   await waitFor(() => expect(ctx.fetchInvitations).toHaveBeenCalled());
 }
 
+describe('CommunityView 发现流', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ctx.currentMember = { userId: 'u1', nickname: '我' };
+    ctx.feed = [];
+  });
+
+  it('首屏 feed 带上当前成员 id，服务端才会按被邀请方品味重排', async () => {
+    ctx.fetchFeed = vi.fn().mockResolvedValue([]);
+    render(<CommunityView />);
+    await waitFor(() => {
+      expect(ctx.fetchFeed).toHaveBeenCalledWith({ limit: 20, forUserId: 'u1' });
+    });
+  });
+
+  it('翻页游标取本页最小 id 而不是最后一条的 id', async () => {
+    // 重排后最后一条不再是最旧的帖：拿它当游标会跳过比它更旧、却被排到前面的帖
+    const page = Array.from({ length: 20 }, (_, i) => ({
+      id: 100 - i, userId: 'u2', type: 'reflection', content: `p${i}`, autoTags: [], likes: 0,
+    }));
+    [page[0], page[19]] = [page[19], page[0]]; // 最旧的 81 被重排到了第一位
+    ctx.feed = page;
+    ctx.fetchFeed = vi.fn().mockResolvedValue(page);
+    render(<CommunityView />);
+    const more = await screen.findByRole('button', { name: /more/i });
+    fireEvent.click(more);
+    await waitFor(() => {
+      expect(ctx.fetchFeed).toHaveBeenLastCalledWith({ cursor: 81, limit: 20, forUserId: 'u1' });
+    });
+  });
+});
+
 describe('CommunityView 邀请候选', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -86,6 +120,8 @@ describe('CommunityView 邀请候选', () => {
     ctx.similarMembers = [];
     ctx.similarHasTags = false;
     ctx.invitations = [];
+    ctx.feed = [];
+    ctx.fetchFeed = noop;
     ctx.fetchInvitations = vi.fn().mockResolvedValue([]);
     ctx.fetchSimilarMembers = vi.fn().mockResolvedValue({ candidates: [] });
     ctx.invite = vi.fn().mockResolvedValue({ ok: true });

@@ -63,6 +63,17 @@ describe('member agent service', () => {
     expect(r.error).toBe('topic_not_allowed');
   });
 
+  it('commentOnPost_allowedWhenAnyPostTagIsAllowed', async () => {
+    // 帖子有多个归一标签时只看第一个，会让「流行+爵士」帖对只允许爵士的 agent 永远被拒
+    const repo = makeMockRepo({
+      post: { id: 5, content: 'x', autoTags: ['pop', 'jazz'] },
+      config: { rules: { canComment: true, allowedTopics: ['爵士'] } },
+    });
+    const service = createMemberAgentService({ communityRepository: repo, memberAgentLoopPort: { generateComment: async () => 'x' }, eventPublisher: publisher });
+    const r = await service.commentOnPost({ postId: 5, byUserId: 'u1' });
+    expect(r.ok).toBe(true);
+  });
+
   it('commentOnPost_postNotFound', async () => {
     const repo = makeMockRepo({ post: null });
     const service = createMemberAgentService({ communityRepository: repo, memberAgentLoopPort: { generateComment: async () => 'x' }, eventPublisher: publisher });

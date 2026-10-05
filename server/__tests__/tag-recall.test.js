@@ -193,6 +193,14 @@ describe('normalizeTagKey', () => {
     expect(normalizeTagKey('风')).toBe('');
   });
 
+  it('foldsChineseMoodWordsOntoProfileMoodKeys', () => {
+    // 情绪组的代表键取画像 MOOD_TAGS 的写法，帖子标签、画像关键词、自填标签才能同桶
+    expect(normalizeTagKey('伤感')).toBe('sad');
+    expect(normalizeTagKey('治愈')).toBe('calm');
+    expect(normalizeTagKey('怀旧')).toBe('nostalgic');
+    expect(normalizeTagKey('Happy')).toBe('happy');
+  });
+
   it('keepsSynonymGroupsInternallyConsistent', () => {
     // 表格自身不能有「一个词属于两组」的冲突，否则折叠结果取决于
     // 遍历顺序，且随表格更新静默改变。
