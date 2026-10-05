@@ -409,17 +409,24 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
 
     getClusterSnapshot() {
       const rows = q('SELECT * FROM community_clusters', []);
+      // memberUserIds 从 community_members 按 cluster_id 反查。一次取齐再在内存分组：
+      // 逐簇各查一次是 1+K 次查询，而每次发帖 / DJ 换块分发都要读一遍快照
+      const membersByCluster = new Map();
+      for (const m of q('SELECT user_id, cluster_id FROM community_members WHERE cluster_id IS NOT NULL ORDER BY rowid', [])) {
+        const cid = Number(m.cluster_id);
+        if (!membersByCluster.has(cid)) membersByCluster.set(cid, []);
+        membersByCluster.get(cid).push(String(m.user_id));
+      }
       return rows.map((r) => {
         let centroid;
         try { centroid = JSON.parse(r.centroid); } catch { centroid = {}; }
-        // memberUserIds 从 community_members 按 cluster_id 反查
-        const members = q('SELECT user_id FROM community_members WHERE cluster_id = ?', [Number(r.cluster_id)]);
+        const clusterId = Number(r.cluster_id);
         return {
-          clusterId: Number(r.cluster_id),
+          clusterId,
           label: r.label || '',
           centroid,
           memberCount: Number(r.member_count) || 0,
-          memberUserIds: members.map((m) => String(m.user_id)),
+          memberUserIds: membersByCluster.get(clusterId) || [],
         };
       });
     },

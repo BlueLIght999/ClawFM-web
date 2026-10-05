@@ -52,6 +52,10 @@ CREATE TABLE community_inbox (
   target_id TEXT NOT NULL, from_cluster INTEGER, reason TEXT, summary TEXT,
   read INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE community_clusters (
+  cluster_id INTEGER PRIMARY KEY, label TEXT, centroid TEXT, member_count INTEGER DEFAULT 0,
+  updated_at DATETIME
+);
 CREATE TABLE community_dm_threads (
   id INTEGER PRIMARY KEY AUTOINCREMENT, thread_key TEXT NOT NULL UNIQUE,
   user_a TEXT NOT NULL, user_b TEXT NOT NULL, agent_author_user_id TEXT,
@@ -252,6 +256,41 @@ describe('community sqlite repository', () => {
       expect(mine).toHaveLength(1);
       expect(theirs).toHaveLength(1);
       expect(mine[0].lastMessage).toContain('first');
+    });
+  });
+  describe('getClusterSnapshot', () => {
+    function seed(clusterCount) {
+      const clusters = Array.from({ length: clusterCount }, (_, i) => ({
+        clusterId: i, label: `c${i}`, centroid: { genre_rock: i + 1 }, memberCount: 2,
+      }));
+      repo.saveClusterSnapshot(clusters);
+      for (let i = 0; i < clusterCount; i += 1) {
+        helpers.execute('INSERT INTO community_members (user_id, cluster_id) VALUES (?, ?), (?, ?)', [`a${i}`, i, `b${i}`, i]);
+      }
+      helpers.execute('INSERT INTO community_members (user_id, cluster_id) VALUES (?, NULL)', ['loner']);
+    }
+
+    it('attachesEachClustersMembers_andLeavesUnclusteredMembersOut', () => {
+      seed(2);
+      const snap = repo.getClusterSnapshot();
+      expect(snap).toEqual([
+        { clusterId: 0, label: 'c0', centroid: { genre_rock: 1 }, memberCount: 2, memberUserIds: ['a0', 'b0'] },
+        { clusterId: 1, label: 'c1', centroid: { genre_rock: 2 }, memberCount: 2, memberUserIds: ['a1', 'b1'] },
+      ]);
+    });
+
+    it('keepsAClusterWithNoMembersAsAnEmptyList', () => {
+      repo.saveClusterSnapshot([{ clusterId: 5, label: 'empty', centroid: {}, memberCount: 0 }]);
+      expect(repo.getClusterSnapshot()[0].memberUserIds).toEqual([]);
+    });
+
+    it('usesAConstantNumberOfQueries_regardlessOfClusterCount', () => {
+      // 每次发帖/DJ 换块分发都会读一遍快照：逐簇反查成员是 1+K 次查询（N+1）
+      seed(6);
+      let calls = 0;
+      const counting = { ...helpers, queryAll: (...a) => { calls += 1; return helpers.queryAll(...a); } };
+      createSqliteCommunityRepository(counting).getClusterSnapshot();
+      expect(calls).toBe(2);
     });
   });
 });
