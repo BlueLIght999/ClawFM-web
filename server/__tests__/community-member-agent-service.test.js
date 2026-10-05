@@ -74,6 +74,26 @@ describe('member agent service', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('commentOnPost_rejectsCommentingOnOwnPost', async () => {
+    // 让自己的 agent 给自己的帖子捧场：feed 上看起来像别人的认同（RC7 署名也救不回来），
+    // 且会白花一次模型调用
+    let called = false;
+    const repo = makeMockRepo({
+      post: { id: 5, userId: 'u1', content: '后摇', autoTags: ['postrock'] },
+      config: { rules: { canComment: true, allowedTopics: [] } },
+    });
+    const service = createMemberAgentService({
+      communityRepository: repo,
+      memberAgentLoopPort: { generateComment: async () => { called = true; return 'x'; } },
+      eventPublisher: publisher,
+    });
+    const r = await service.commentOnPost({ postId: 5, byUserId: 'u1' });
+    expect(r).toEqual({ ok: false, error: 'cannot_comment_own_post' });
+    expect(called).toBe(false);
+    expect(repo.created).toHaveLength(0);
+    expect(publisher.emits).toHaveLength(0);
+  });
+
   it('commentOnPost_postNotFound', async () => {
     const repo = makeMockRepo({ post: null });
     const service = createMemberAgentService({ communityRepository: repo, memberAgentLoopPort: { generateComment: async () => 'x' }, eventPublisher: publisher });

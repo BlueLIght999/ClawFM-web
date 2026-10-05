@@ -713,7 +713,7 @@ function PostCard({ post, currentMember, onLike, onTriggerAgentComment, onInvite
                 type="button"
                 className="community-btn"
                 onClick={handleAgentComment}
-                disabled={agentPending}
+                disabled={agentPending || post.userId === currentMember.userId}
                 title="Let my agent comment (F8)"
                 style={{ padding: '4px 8px', fontSize: 7 }}
               >{agentPending ? 'AGENT...' : 'AGENT COMMENT'}</button>

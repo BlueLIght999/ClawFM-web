@@ -24,6 +24,8 @@ export function createMemberAgentService({ communityRepository, memberAgentLoopP
   async function commentOnPost({ postId, byUserId }) {
     const post = repo.getPost(Number(postId));
     if (!post) return { ok: false, error: 'post_not_found' };
+    // 自评：自己的 agent 给自己的帖子捧场，在 feed 上像是别人的认同；放在调模型之前，不白花一次调用
+    if (String(post.userId) === String(byUserId)) return { ok: false, error: 'cannot_comment_own_post' };
 
     const config = repo.getMemberAgentConfig(byUserId);
     const rules = normalizeAgentRules(config?.rules);

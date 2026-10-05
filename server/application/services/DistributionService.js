@@ -78,6 +78,24 @@ export function createDistributionService({communityRepository, eventPublisher, 
   }
 
   /**
+   * 帖子分发时调用方没给作者，就从帖子本身取作者（缺标签时也取帖子的标签）。
+   *
+   * agent 工具 distribute_to_cluster 的参数全由模型生成，没有可信的调用者身份：
+   * 不取作者，作者会收到自己的帖子；帖子不存在（模型编的 id）就不分发，
+   * 免得每个匹配成员的收件箱里各留一条死链。调用方给了作者（发帖触发）就照用，不多读一次。
+   *
+   * @param {{targetType:string, targetId:string, contentTags?:string[], fromUserId:string|null}} params
+   * @returns {{contentTags: string[]|undefined, fromUserId: string|null} | null} null：帖子不存在
+   */
+  function resolveSource({ targetType, targetId, contentTags, fromUserId }) {
+    if (targetType !== 'post' || fromUserId !== null) return { contentTags, fromUserId };
+    const post = repo.getPost(Number(targetId));
+    if (!post) return null;
+    const hasTags = Array.isArray(contentTags) && contentTags.length > 0;
+    return { contentTags: hasTags ? contentTags : post.autoTags, fromUserId: String(post.userId) };
+  }
+
+  /**
    * 按内容标签分发到匹配簇（发帖 / DJ 歌单两个触发点）。
    *
    * @param {object} params
@@ -92,8 +110,11 @@ export function createDistributionService({communityRepository, eventPublisher, 
   function distribute({ targetType, targetId, contentTags, fromUserId = null, reason = null, summary = null }) {
     // fromUserId/reason default to null (not undefined), so their tags admit null:
     // a `string`-only tag made the null default itself the type error (TS2322 x2).
+    const source = resolveSource({ targetType, targetId, contentTags, fromUserId });
+    if (!source) return { pushedTo: 0, matchedClusters: [], skipped: 0 };
+
     const clusters = repo.getClusterSnapshot();
-    const matched = matchClustersForContent({ contentTags, clusters });
+    const matched = matchClustersForContent({ contentTags: source.contentTags, clusters });
     if (matched.length === 0) {
       return { pushedTo: 0, matchedClusters: [], skipped: 0 };
     }
@@ -102,7 +123,7 @@ export function createDistributionService({communityRepository, eventPublisher, 
     const { pushed, skipped } = deliver(
       collectRecipients(matched),
       (uid) => clusterOf.get(uid) ?? null,
-      { targetType, targetId, fromUserId, reason, summary },
+      { targetType, targetId, fromUserId: source.fromUserId, reason, summary },
     );
 
     return {

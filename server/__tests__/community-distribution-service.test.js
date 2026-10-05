@@ -1,10 +1,11 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { createDistributionService } from '../application/services/DistributionService.js';
 
-function makeMockRepo(clusters, dedupMap = {}, members = {}) {
+function makeMockRepo(clusters, dedupMap = {}, members = {}, posts = {}) {
   const inbox = [];
   return {
     inbox,
+    getPost: (id) => posts[id] || null,
     getClusterSnapshot: () => clusters,
     getMember: (uid) => (uid in members ? { userId: uid, clusterId: members[uid] } : null),
     listClusterMembers: (cid) => Object.entries(members).filter(([, c]) => c === cid).map(([userId]) => ({ userId, clusterId: cid })),
@@ -31,7 +32,7 @@ describe('distribution service', () => {
   it('distribute_pushesToMatchedClusterMembers', () => {
     const repo = makeMockRepo(clusters);
     const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
-    const r = service.distribute({ targetType: 'post', targetId: '1', contentTags: ['rock'] });
+    const r = service.distribute({ targetType: 'song', targetId: '1', contentTags: ['rock'] });
     expect(r.pushedTo).toBe(2);
     expect(r.matchedClusters.length).toBe(1);
     expect(r.matchedClusters[0].clusterId).toBe(0);
@@ -41,9 +42,9 @@ describe('distribution service', () => {
   });
 
   it('distribute_skipsDedupedRecipients', () => {
-    const repo = makeMockRepo(clusters, { 'a:post:1': true });
+    const repo = makeMockRepo(clusters, { 'a:song:1': true });
     const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
-    const r = service.distribute({ targetType: 'post', targetId: '1', contentTags: ['rock'] });
+    const r = service.distribute({ targetType: 'song', targetId: '1', contentTags: ['rock'] });
     expect(r.pushedTo).toBe(1); // only b
     expect(r.skipped).toBe(1);
     expect(repo.inbox.length).toBe(1);
@@ -53,7 +54,7 @@ describe('distribution service', () => {
   it('distribute_returnsZeroWhenNoMatch', () => {
     const repo = makeMockRepo(clusters);
     const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
-    const r = service.distribute({ targetType: 'post', targetId: '2', contentTags: ['metal'] });
+    const r = service.distribute({ targetType: 'song', targetId: '2', contentTags: ['metal'] });
     expect(r.pushedTo).toBe(0);
     expect(r.matchedClusters).toEqual([]);
     expect(repo.inbox.length).toBe(0);
@@ -95,7 +96,7 @@ describe('distribution service', () => {
     ];
     const repo = makeMockRepo(overlapping);
     const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
-    service.distribute({ targetType: 'post', targetId: '3', contentTags: ['rock', 'pop'] });
+    service.distribute({ targetType: 'song', targetId: '3', contentTags: ['rock', 'pop'] });
     expect(repo.inbox).toHaveLength(1);
     expect(repo.inbox[0].fromCluster).toBe(8);
   });
@@ -138,9 +139,45 @@ describe('distribution service', () => {
   it('getInbox_returnsUserInbox', () => {
     const repo = makeMockRepo(clusters);
     const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
-    service.distribute({ targetType: 'post', targetId: '1', contentTags: ['rock'] });
+    service.distribute({ targetType: 'song', targetId: '1', contentTags: ['rock'] });
     const inbox = service.getInbox('a');
     expect(inbox.length).toBe(1);
     expect(inbox[0].targetId).toBe('1');
+  });
+  // 调用方没给作者时（agent 工具 distribute_to_cluster 的参数全由模型生成，没有可信身份），
+  // 帖子的作者从帖子本身取，而不是信模型
+  it('distribute_post_resolvesTheAuthorFromThePostWhenNoneGiven', () => {
+    const repo = makeMockRepo(clusters, {}, {}, { 7: { id: 7, userId: 'a', autoTags: ['rock'] } });
+    const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
+    const r = service.distribute({ targetType: 'post', targetId: '7', contentTags: ['rock'] });
+    expect(r.pushedTo).toBe(1);
+    expect(repo.inbox.map((e) => e.userId)).toEqual(['b']);
+    expect(publisher.emits[0].payload.fromUserId).toBe('a');
+  });
+
+  it('distribute_post_fallsBackToThePostsOwnTags', () => {
+    const repo = makeMockRepo(clusters, {}, {}, { 7: { id: 7, userId: 'c', autoTags: ['rock'] } });
+    const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
+    const r = service.distribute({ targetType: 'post', targetId: '7' });
+    expect(r.matchedClusters.map((m) => m.clusterId)).toEqual([0]);
+    expect(r.pushedTo).toBe(2);
+  });
+
+  it('distribute_post_skipsAPostThatDoesNotExist', () => {
+    // 模型编出来的 targetId 不该在每个匹配成员的收件箱里各留一条死链
+    const repo = makeMockRepo(clusters);
+    const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
+    const r = service.distribute({ targetType: 'post', targetId: '404', contentTags: ['rock'] });
+    expect(r).toEqual({ pushedTo: 0, matchedClusters: [], skipped: 0 });
+    expect(repo.inbox).toHaveLength(0);
+  });
+
+  it('distribute_post_trustsAnExplicitAuthorWithoutReadingThePost', () => {
+    // 发帖触发自己带作者与标签：不必为每次发帖多读一次帖子
+    const repo = makeMockRepo(clusters);
+    repo.getPost = () => { throw new Error('should not read'); };
+    const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
+    const r = service.distribute({ targetType: 'post', targetId: '1', contentTags: ['rock'], fromUserId: 'a' });
+    expect(r.pushedTo).toBe(1);
   });
 });

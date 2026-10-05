@@ -113,6 +113,24 @@ describe('CommunityView 发现流', () => {
   });
 });
 
+describe('CommunityView 帖子操作', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ctx.currentMember = { userId: 'u1', nickname: '我' };
+    ctx.fetchFeed = noop;
+  });
+
+  it('自己的帖子上 AGENT COMMENT 不可点（服务端会回 cannot_comment_own_post）', async () => {
+    ctx.feed = [
+      { id: 1, userId: 'u1', type: 'reflection', content: '我的帖', autoTags: [], likes: 0 },
+      { id: 2, userId: 'u2', type: 'reflection', content: '别人的帖', autoTags: [], likes: 0 },
+    ];
+    render(<CommunityView />);
+    const buttons = await screen.findAllByRole('button', { name: 'AGENT COMMENT' });
+    expect(buttons.map((b) => b.disabled)).toEqual([true, false]);
+  });
+});
+
 describe('CommunityView 邀请候选', () => {
   beforeEach(() => {
     vi.clearAllMocks();
