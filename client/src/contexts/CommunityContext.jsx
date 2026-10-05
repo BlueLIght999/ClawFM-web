@@ -26,6 +26,8 @@ const DEFAULT_COMMUNITY_STATE = {
   memberCache: {},
   // 收件箱（F4 分发推送，离线可见）
   inbox: [],
+  // 本次会话里点赞过的歌 id（F4 点赞某歌）。服务端按歌幂等，这里只给按钮一个已赞态
+  likedSongIds: [],
   // 簇列表（F3 聚类结果）
   clusters: [],
   // 实时通知（F4 push / F8 agent-comment / F9 invitation / comment-new / follow）— 仅内存
@@ -278,6 +280,29 @@ export function CommunityProvider({ socket, children }) {
       followingFeed: prev.followingFeed.map(p => p.id === postId ? { ...p, liked, likes } : p),
     }));
     return { liked, likes };
+  }, []);
+
+  /**
+   * 点赞正在听的歌（F4「成员点赞某歌 → 推给同簇其他人」）。
+   * 身份由服务端取登录态；body 只带收件人那边展示用的歌名/歌手。
+   */
+  const likeSong = useCallback(async ({ songId, title, artist }) => {
+    const res = await fetch(`/api/community/songs/${encodeURIComponent(songId)}/like`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, artist }),
+    });
+    if (!res.ok) {
+      let error = 'like_song_failed';
+      try { error = (await res.json()).error || error; } catch { /* 非 JSON 响应，沿用默认错误码 */ }
+      throw new Error(error);
+    }
+    const data = (await res.json()).data;
+    const id = String(songId);
+    setState(prev => (prev.likedSongIds.includes(id)
+      ? prev
+      : { ...prev, likedSongIds: [...prev.likedSongIds, id] }));
+    return data;
   }, []);
 
   /** 拉收件箱（F4） */
@@ -699,7 +724,7 @@ export function CommunityProvider({ socket, children }) {
     // socket emit
     identify, joinRoom, leaveRoom, roomSkip,
     // http
-    createMember, updateMemberProfile, updateAvatar, updateSelfTags, fetchSimilarMembers, refreshProfile, createPost, fetchFeed, likePost,
+    createMember, updateMemberProfile, updateAvatar, updateSelfTags, fetchSimilarMembers, refreshProfile, createPost, fetchFeed, likePost, likeSong,
     fetchInbox, fetchClusters, triggerAgentComment, updateAgentConfig,
     // F9 invitation http
     invite, respondInvitation, fetchInvitations, bringPlaylist,

@@ -1,11 +1,13 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { createDistributionService } from '../application/services/DistributionService.js';
 
-function makeMockRepo(clusters, dedupMap = {}) {
+function makeMockRepo(clusters, dedupMap = {}, members = {}) {
   const inbox = [];
   return {
     inbox,
     getClusterSnapshot: () => clusters,
+    getMember: (uid) => (uid in members ? { userId: uid, clusterId: members[uid] } : null),
+    listClusterMembers: (cid) => Object.entries(members).filter(([, c]) => c === cid).map(([userId]) => ({ userId, clusterId: cid })),
     hasInboxRecently: (uid, type, id) => !!dedupMap[`${uid}:${type}:${id}`],
     createInbox: (entry) => { inbox.push(entry); return inbox.length; },
     listInbox: (userId) => inbox.filter((e) => e.userId === userId),
@@ -96,6 +98,41 @@ describe('distribution service', () => {
     service.distribute({ targetType: 'post', targetId: '3', contentTags: ['rock', 'pop'] });
     expect(repo.inbox).toHaveLength(1);
     expect(repo.inbox[0].fromCluster).toBe(8);
+  });
+
+  it('distribute_carriesTheSummaryOntoInboxAndPush', () => {
+    // 收件箱只存 targetType/targetId 时，收件人看到的是一行没有内容的「push」
+    const repo = makeMockRepo(clusters);
+    const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
+    service.distribute({ targetType: 'playlist', targetId: 'p#0', contentTags: ['pop'], summary: '晨光微醒 · pop' });
+    expect(repo.inbox[0].summary).toBe('晨光微醒 · pop');
+    expect(publisher.emits[0].payload.summary).toBe('晨光微醒 · pop');
+  });
+
+  it('shareWithClusterPeers_pushesToTheSharersClusterButNotTheSharer', () => {
+    // PRD F4：成员点赞某歌 → 推给同簇其他人（按簇归属，不按标签匹配）
+    const repo = makeMockRepo([], {}, { a: 3, b: 3, c: 4 });
+    const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
+    const r = service.shareWithClusterPeers({ userId: 'a', targetType: 'song', targetId: 's9', summary: '晴天 — 周杰伦', reason: 'peer_liked' });
+    expect(r.pushedTo).toBe(1);
+    expect(repo.inbox).toEqual([{ userId: 'b', targetType: 'song', targetId: 's9', fromCluster: 3, reason: 'peer_liked', summary: '晴天 — 周杰伦' }]);
+    expect(publisher.emits[0].targetUserId).toBe('b');
+    expect(publisher.emits[0].payload.fromUserId).toBe('a');
+  });
+
+  it('shareWithClusterPeers_doesNothingForAnUnclusteredMember', () => {
+    const repo = makeMockRepo([], {}, { a: null, b: null });
+    const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
+    expect(service.shareWithClusterPeers({ userId: 'a', targetType: 'song', targetId: 's9' }).pushedTo).toBe(0);
+    expect(service.shareWithClusterPeers({ userId: 'ghost', targetType: 'song', targetId: 's9' }).pushedTo).toBe(0);
+    expect(repo.inbox).toHaveLength(0);
+  });
+
+  it('shareWithClusterPeers_honoursTheDailyDedup', () => {
+    const repo = makeMockRepo([], { 'b:song:s9': true }, { a: 3, b: 3 });
+    const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
+    const r = service.shareWithClusterPeers({ userId: 'a', targetType: 'song', targetId: 's9' });
+    expect(r).toMatchObject({ pushedTo: 0, skipped: 1 });
   });
 
   it('getInbox_returnsUserInbox', () => {

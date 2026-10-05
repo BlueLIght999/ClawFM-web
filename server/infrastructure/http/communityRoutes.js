@@ -28,6 +28,12 @@ const SELF_TAG_ERROR_STATUS = {
  * ——被邀请方本人若因拼错 id 拿到 404，与越权者拿到同一个码，两边都看不出真正原因。
  * 邀请 id 是自增的，本来也不构成不可枚举的资源。
  */
+/** 点歌失败 → HTTP 状态码。not_member：已登录但还没加入社区，与未登录的 401 区分。 */
+const SONG_LIKE_ERROR_STATUS = {
+  song_id_required: 400,
+  not_member: 403,
+};
+
 const INVITATION_ERROR_STATUS = {
   not_found: 404,
   invitation_not_found: 404,
@@ -261,6 +267,15 @@ export function createCommunityRouter(services) {
   router.get('/posts/:id/like', (req, res) => {
     // 查询当前用户是否已赞
     return ok(res, { liked: communityService.hasLiked(req.communityUserId, Number(req.params.id)) });
+  });
+
+  // POST /songs/:songId/like — 点赞正在听的歌（F4：推给同簇其他人）
+  // 身份只取登录态：点赞会以本人名义推给同簇成员，不接受请求体里的 userId
+  router.post('/songs/:songId/like', (req, res) => {
+    const { title, artist } = req.body || {};
+    const result = communityService.likeSong({ userId: req.communityUserId, songId: req.params.songId, title, artist });
+    if (!result.ok) return fail(res, result.error, SONG_LIKE_ERROR_STATUS[result.error] || 400);
+    return ok(res, { liked: result.liked, alreadyLiked: result.alreadyLiked });
   });
 
   router.get('/posts/:id/likers', (_req, res) => {

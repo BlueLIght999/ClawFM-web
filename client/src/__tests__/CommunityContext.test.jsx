@@ -229,6 +229,32 @@ describe('CommunityContext', () => {
     vi.unstubAllGlobals();
   });
 
+  it('likeSong posts the song to /songs/:id/like and remembers it as liked', async () => {
+    // F4「成员点赞某歌 → 推给同簇其他人」：身份取登录态，body 只带展示用的歌名/歌手
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ ok: true, data: { liked: true, alreadyLiked: false } }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderCommunityHook();
+    await act(async () => { await result.current.likeSong({ songId: 's/9', title: '晴天', artist: '周杰伦' }); });
+    expect(fetchMock).toHaveBeenCalledWith('/api/community/songs/s%2F9/like', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ title: '晴天', artist: '周杰伦' }),
+    }));
+    expect(result.current.likedSongIds).toEqual(['s/9']);
+    vi.unstubAllGlobals();
+  });
+
+  it('likeSong surfaces the backend error and leaves the song unliked', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 403, json: async () => ({ ok: false, error: 'not_member' }),
+    }));
+    const { result } = renderCommunityHook();
+    await expect(act(async () => { await result.current.likeSong({ songId: 's9' }); })).rejects.toThrow('not_member');
+    expect(result.current.likedSongIds).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+
   it('HTTP error throws', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));
     const { result } = renderCommunityHook();

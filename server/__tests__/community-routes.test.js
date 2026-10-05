@@ -11,6 +11,8 @@ const savedSelfTags = { tags: null };
 const invalidationCount = { n: 0 };
 // 邀请的「被邀请方」身份，可被单个用例改写以模拟越权（默认与登录身份一致）
 const invitationInvitee = { uid: 'u1' };
+// likeSong 收到的入参：断言身份取自登录态而不是请求体
+const songLikes = [];
 
 function makeMockServices() {
   const profiles = new Map();
@@ -46,6 +48,12 @@ function makeMockServices() {
       listPostsByUser: (userId) => [{ id: 1, userId, type: 'reflection', content: '我的帖' }],
       listFeedFromFollowing: (userId) => [{ id: 2, userId: 'u2', type: 'reflection', content: '关注的人的帖' }],
       listInbox: (userId) => [{ id: 1, userId, targetType: 'post', targetId: '5', fromCluster: 1, reason: 'test', read: false }],
+      likeSong: ({ userId, songId, title, artist }) => {
+        songLikes.push({ userId, songId, title, artist });
+        if (!String(songId || '').trim()) return { ok: false, error: 'song_id_required' };
+        if (userId === 'u3') return { ok: false, error: 'not_member' };
+        return { ok: true, liked: true, alreadyLiked: false };
+      },
     },
     memberProfileService: {
       buildProfile: async (userId) => {
@@ -213,6 +221,32 @@ describe('community routes', () => {
     const res = await request(app).get('/api/community/posts/1/like');
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveProperty('liked');
+  });
+
+  // ── F4：点赞正在听的歌 ──
+  it('POST /songs/:songId/like likes as the logged-in member, ignoring a userId in the body', async () => {
+    songLikes.length = 0;
+    const res = await request(app).post('/api/community/songs/s9/like').send({ userId: 'u2', title: '晴天', artist: '周杰伦' });
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ liked: true, alreadyLiked: false });
+    expect(songLikes).toEqual([{ userId: 'u1', songId: 's9', title: '晴天', artist: '周杰伦' }]);
+  });
+
+  it('POST /songs/:songId/like 403 when the logged-in user is not a member', async () => {
+    mockAuth.uid = 'u3';
+    try {
+      const res = await request(app).post('/api/community/songs/s9/like').send({});
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('not_member');
+    } finally {
+      mockAuth.uid = 'u1';
+    }
+  });
+
+  it('POST /songs/:songId/like 400 for a blank song id', async () => {
+    const res = await request(app).post('/api/community/songs/%20/like').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('song_id_required');
   });
 
   it('GET /posts/:id/likers returns liker members', async () => {

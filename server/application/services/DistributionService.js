@@ -2,6 +2,7 @@
  * DistributionService — Agent 分发用例（F4）。
  *
  * 编排：取簇快照 → matchClustersForContent → collectRecipients → 逐成员去重(RC1) + 入 inbox + emit community:push。
+ * shareWithClusterPeers 走同一条投递路径，收件人换成分享者的同簇成员。
  * 依赖 CommunityRepository Port + domain distributionRules + eventPublisher。
  */
 import { matchClustersForContent, collectRecipients } from '../../domain/community/distributionRules.js';
@@ -38,25 +39,14 @@ export function createDistributionService({communityRepository, eventPublisher, 
   const repo = communityRepository;
 
   /**
-   * @param {object} params
-   * @param {string} params.targetType    - post/playlist/song
-   * @param {string} params.targetId
-   * @param {string[]} [params.contentTags]
-   * @param {string|null} [params.fromUserId]
-   * @param {string|null} [params.reason]
-   * @returns {{pushedTo:number, matchedClusters:Array, skipped:number}}
+   * 逐收件人：去重(RC1) → 入 inbox → 定向 emit。作者本人跳过。
+   *
+   * @param {Iterable<string>} recipients
+   * @param {(uid: string) => number|null} clusterOf 收件人归到哪个簇（写进 fromCluster）
+   * @param {{targetType:string, targetId:string, fromUserId:string|null, reason:string|null, summary:string|null}} item
+   * @returns {{pushed:number, skipped:number}}
    */
-  function distribute({ targetType, targetId, contentTags, fromUserId = null, reason = null }) {
-    // fromUserId/reason default to null (not undefined), so their tags admit null:
-    // a `string`-only tag made the null default itself the type error (TS2322 x2).
-    const clusters = repo.getClusterSnapshot();
-    const matched = matchClustersForContent({ contentTags, clusters });
-    if (matched.length === 0) {
-      return { pushedTo: 0, matchedClusters: [], skipped: 0 };
-    }
-
-    const recipients = collectRecipients(matched);
-    const clusterOf = bestClusterByMember(matched);
+  function deliver(recipients, clusterOf, { targetType, targetId, fromUserId, reason, summary }) {
     const author = fromUserId === null ? null : String(fromUserId);
     let pushed = 0;
     let skipped = 0;
@@ -74,16 +64,46 @@ export function createDistributionService({communityRepository, eventPublisher, 
         logger?.warn?.({ component: 'community', err: e?.message }, 'dedup check failed, proceeding');
       }
 
-      const fromCluster = clusterOf.get(uid) ?? null;
+      const fromCluster = clusterOf(uid);
 
       try {
-        repo.createInbox({ userId: uid, targetType, targetId, fromCluster, reason });
-        eventPublisher?.emit?.('community:push', { userId: uid, targetType, targetId, fromCluster, reason, fromUserId }, uid);
+        repo.createInbox({ userId: uid, targetType, targetId, fromCluster, reason, summary });
+        eventPublisher?.emit?.('community:push', { userId: uid, targetType, targetId, fromCluster, reason, summary, fromUserId }, uid);
         pushed += 1;
       } catch (e) {
         logger?.warn?.({ component: 'community', err: e?.message, uid }, 'inbox create failed');
       }
     }
+    return { pushed, skipped };
+  }
+
+  /**
+   * 按内容标签分发到匹配簇（发帖 / DJ 歌单两个触发点）。
+   *
+   * @param {object} params
+   * @param {string} params.targetType    - post/playlist/song
+   * @param {string} params.targetId
+   * @param {string[]} [params.contentTags]
+   * @param {string|null} [params.fromUserId]
+   * @param {string|null} [params.reason]
+   * @param {string|null} [params.summary] - 收件箱一行展示的摘要；inbox 只存引用时收件人看不出推的是什么
+   * @returns {{pushedTo:number, matchedClusters:Array, skipped:number}}
+   */
+  function distribute({ targetType, targetId, contentTags, fromUserId = null, reason = null, summary = null }) {
+    // fromUserId/reason default to null (not undefined), so their tags admit null:
+    // a `string`-only tag made the null default itself the type error (TS2322 x2).
+    const clusters = repo.getClusterSnapshot();
+    const matched = matchClustersForContent({ contentTags, clusters });
+    if (matched.length === 0) {
+      return { pushedTo: 0, matchedClusters: [], skipped: 0 };
+    }
+
+    const clusterOf = bestClusterByMember(matched);
+    const { pushed, skipped } = deliver(
+      collectRecipients(matched),
+      (uid) => clusterOf.get(uid) ?? null,
+      { targetType, targetId, fromUserId, reason, summary },
+    );
 
     return {
       pushedTo: pushed,
@@ -92,9 +112,29 @@ export function createDistributionService({communityRepository, eventPublisher, 
     };
   }
 
+  /**
+   * 推给分享者所在簇的其他成员（PRD F4「成员点赞某歌 → 推给同簇其他人」）。
+   *
+   * 不走标签匹配：这里的依据是「和我同簇」，不是内容像不像。只读一个簇的成员，
+   * 不取全量快照。尚未聚类的成员没有同簇的人，直接返回。
+   *
+   * @param {{userId:string, targetType:string, targetId:string, reason?:string|null, summary?:string|null}} params
+   * @returns {{pushedTo:number, skipped:number, clusterId:number|null}}
+   */
+  function shareWithClusterPeers({ userId, targetType, targetId, reason = null, summary = null }) {
+    const clusterId = repo.getMember(userId)?.clusterId ?? null;
+    if (clusterId === null) return { pushedTo: 0, skipped: 0, clusterId: null };
+
+    const peers = repo.listClusterMembers(clusterId).map((m) => String(m.userId));
+    const { pushed, skipped } = deliver(peers, () => clusterId, {
+      targetType, targetId, fromUserId: String(userId), reason, summary,
+    });
+    return { pushedTo: pushed, skipped, clusterId };
+  }
+
   function getInbox(userId) {
     return repo.listInbox(userId);
   }
 
-  return { distribute, getInbox };
+  return { distribute, shareWithClusterPeers, getInbox };
 }

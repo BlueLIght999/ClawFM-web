@@ -878,6 +878,13 @@ function ComposeTab({ currentMember, onCreate, onError }) {
 }
 
 // ── 收件箱 Tab — 列表行（Suno track list 风格）────────────
+/** 收件箱一行「为什么推给我」：分发 reason → 展示文案（F4 三个触发）。 */
+const INBOX_REASON_LABELS = {
+  post_tags: 'matching post',
+  dj_playlist: 'DJ is playing',
+  peer_liked: 'cluster peer liked',
+};
+
 function InboxTab({ inbox, currentMember }) {
   if (!currentMember) {
     return (
@@ -901,11 +908,12 @@ function InboxTab({ inbox, currentMember }) {
         <div key={item.id} className="community-list-item">
           <div className="community-list-thumb">✉</div>
           <div className="community-list-body">
-            <div className="community-list-title">{item.title || 'Untitled'}</div>
-            {item.summary && <div className="community-list-summary">{item.summary}</div>}
+            {/* 摘要列是后加的，旧行没有：退回目标类型 + id，至少能认出是哪条 */}
+            <div className="community-list-title">{item.summary || `${item.targetType} ${item.targetId}`}</div>
           </div>
           <div className="community-list-meta">
-            {item.kind || 'push'}{item.from_cluster ? ` · ${item.from_cluster}` : ''}
+            {INBOX_REASON_LABELS[item.reason] || 'push'}
+            {item.fromCluster !== null && item.fromCluster !== undefined ? ` · cluster #${item.fromCluster}` : ''}
           </div>
         </div>
       ))}

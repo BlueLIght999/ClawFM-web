@@ -140,6 +140,93 @@ describe('Recommender Characterization — recommendation behavior invariants', 
     });
   });
 
+  describe('onBlockActivated — DJ 播到某歌单（F4 触发）', () => {
+    const blocks = [
+      { theme: '晨光微醒', genreHints: ['pop'], targetCount: 6 },
+      { theme: '城市节拍', genreHints: ['folk'], targetCount: 7 },
+    ];
+
+    function fillWith(block) {
+      return vi.spyOn(QueueFillStrategies.prototype, 'fillQueue').mockResolvedValue({
+        allSongs: [{ id: 's1' }],
+        activeBlockHints: block ? [block] : null,
+      });
+    }
+
+    it('announcesABlockOnceWhenItFirstEntersTheQueue', async () => {
+      await recommender.init('user123');
+      vi.spyOn(recommender, '_buildSeedPool').mockResolvedValue();
+      const seen = [];
+      recommender.onBlockActivated((a) => seen.push(a));
+      recommender.setPlanBlocks(blocks, 'plan-1');
+      fillWith(blocks[0]);
+
+      await recommender.fillQueue(15, blocks);
+      await recommender.fillQueue(15, blocks);
+
+      expect(seen).toEqual([{ planId: 'plan-1', blockIndex: 0, block: blocks[0] }]);
+    });
+
+    it('announcesAgainWhenProgressionMovesToTheNextBlock', async () => {
+      await recommender.init('user123');
+      vi.spyOn(recommender, '_buildSeedPool').mockResolvedValue();
+      const seen = [];
+      recommender.onBlockActivated((a) => seen.push(a.blockIndex));
+      recommender.setPlanBlocks(blocks, 'plan-1');
+      fillWith(blocks[0]);
+      await recommender.fillQueue(15, blocks);
+
+      recommender._planProgress.currentBlockIndex = 1;
+      fillWith(blocks[1]);
+      await recommender.fillQueue(15, blocks);
+
+      expect(seen).toEqual([0, 1]);
+    });
+
+    it('announcesANewPlanEvenWithoutAPlanId', async () => {
+      // recurringTasks / agent 工具换计划时不传 planId：块 0 换了主题也得算新块
+      await recommender.init('user123');
+      vi.spyOn(recommender, '_buildSeedPool').mockResolvedValue();
+      const seen = [];
+      recommender.onBlockActivated((a) => seen.push(a.block.theme));
+      recommender.setPlanBlocks(blocks);
+      fillWith(blocks[0]);
+      await recommender.fillQueue(15, blocks);
+
+      const next = [{ theme: '深夜电台', genreHints: ['ambient'] }];
+      recommender.setPlanBlocks(next);
+      fillWith(next[0]);
+      await recommender.fillQueue(15, next);
+
+      expect(seen).toEqual(['晨光微醒', '深夜电台']);
+    });
+
+    it('staysSilentWhenTheFillAddedNothingOrHadNoBlock', async () => {
+      // 没有歌真正进队列，就谈不上「播到」这个歌单
+      await recommender.init('user123');
+      vi.spyOn(recommender, '_buildSeedPool').mockResolvedValue();
+      const seen = [];
+      recommender.onBlockActivated((a) => seen.push(a));
+      vi.spyOn(QueueFillStrategies.prototype, 'fillQueue').mockResolvedValue({ allSongs: [], activeBlockHints: [blocks[0]] });
+      await recommender.fillQueue(15, blocks);
+      fillWith(null);
+      await recommender.fillQueue(15);
+
+      expect(seen).toEqual([]);
+    });
+
+    it('keepsFillingWhenTheListenerThrows', async () => {
+      // 分发是增强：它出错不能让电台停止补队列
+      await recommender.init('user123');
+      vi.spyOn(recommender, '_buildSeedPool').mockResolvedValue();
+      recommender.onBlockActivated(() => { throw new Error('boom'); });
+      recommender.setPlanBlocks(blocks, 'plan-1');
+      fillWith(blocks[0]);
+
+      await expect(recommender.fillQueue(15, blocks)).resolves.toEqual([{ id: 's1' }]);
+    });
+  });
+
   describe('fillQueueByPreference — preference-based filling', () => {
     it('adds songs to queue when results available', async () => {
       const songs = [{ id: 's1' }, { id: 's2' }];

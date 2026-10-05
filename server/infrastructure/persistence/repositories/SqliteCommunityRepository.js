@@ -230,6 +230,14 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
       );
     },
 
+    hasListenAction(userId, songId, action) {
+      const row = one(
+        'SELECT id FROM community_listens WHERE user_id = ? AND song_id = ? AND action = ? LIMIT 1',
+        [String(userId), String(songId), String(action)]
+      );
+      return !!row;
+    },
+
     createPost(post) {
       const {
         userId, type, content, parentId, songId, playlistId,
@@ -438,14 +446,15 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
 
     createInbox(entry) {
       run(
-        `INSERT INTO community_inbox (user_id, target_type, target_id, from_cluster, reason)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO community_inbox (user_id, target_type, target_id, from_cluster, reason, summary)
+         VALUES (?, ?, ?, ?, ?, ?)`,
         [
           String(entry.userId),
           entry.targetType,
           String(entry.targetId),
           entry.fromCluster === null || entry.fromCluster === undefined ? null : Number(entry.fromCluster),
           entry.reason || null,
+          entry.summary || null,
         ]
       );
       const row = one('SELECT id FROM community_inbox WHERE rowid = last_insert_rowid()');
@@ -463,6 +472,7 @@ export function createSqliteCommunityRepository(deps = { queryAll, queryOne, exe
         targetId: String(r.target_id),
         fromCluster: r.from_cluster === null || r.from_cluster === undefined ? null : Number(r.from_cluster),
         reason: r.reason,
+        summary: r.summary || null,
         read: Number(r.read) === 1,
         createdAt: r.created_at,
       }));

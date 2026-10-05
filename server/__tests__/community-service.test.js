@@ -37,6 +37,12 @@ function makeMockRepo() {
       const p = posts.get(id);
       if (p) p.likes += 1;
     },
+    listens: [],
+    getMember(uid) { return uid === 'ghost' ? null : { userId: uid, clusterId: 1 }; },
+    recordListen(l) { repo.listens.push(l); },
+    hasListenAction(uid, songId, action) {
+      return repo.listens.some((l) => l.userId === uid && l.songId === songId && l.action === action);
+    },
   };
   return repo;
 }
@@ -187,6 +193,47 @@ describe('community service', () => {
     expect(svc.getFeed({ limit: 10 }).map((p) => p.id)).toEqual([b, a]);
     // 传 forUserId → 反序（a,b）
     expect(svc.getFeed({ limit: 10, forUserId: 'u9' }).map((p) => p.id)).toEqual([a, b]);
+  });
+
+  // ── F4: 成员点赞某歌 → 推给同簇其他人 ──
+  it('likeSong_recordsTheLikeAndHandsItToTheSharer', () => {
+    const shared = [];
+    const repo = makeMockRepo();
+    const svc = createCommunityService({ communityRepository: repo, songLikeSharer: (x) => shared.push(x) });
+    const r = svc.likeSong({ userId: 'u1', songId: 's9', title: ' 晴天 ', artist: '周杰伦' });
+    expect(r).toEqual({ ok: true, liked: true, alreadyLiked: false });
+    expect(repo.listens).toEqual([{ userId: 'u1', songId: 's9', title: '晴天', artist: '周杰伦', action: 'liked' }]);
+    expect(shared).toEqual([{ userId: 'u1', songId: 's9', summary: '晴天 — 周杰伦' }]);
+  });
+
+  it('likeSong_isIdempotent', () => {
+    // 连点不该重复记行为（画像的 replay_lover 计数会被刷高），也不该重复分发
+    const shared = [];
+    const repo = makeMockRepo();
+    const svc = createCommunityService({ communityRepository: repo, songLikeSharer: (x) => shared.push(x) });
+    svc.likeSong({ userId: 'u1', songId: 's9', title: '晴天' });
+    const again = svc.likeSong({ userId: 'u1', songId: 's9', title: '晴天' });
+    expect(again).toEqual({ ok: true, liked: true, alreadyLiked: true });
+    expect(repo.listens).toHaveLength(1);
+    expect(shared).toHaveLength(1);
+  });
+
+  it('likeSong_fallsBackToTheSongIdForTheSummary', () => {
+    const shared = [];
+    const svc = createCommunityService({ communityRepository: makeMockRepo(), songLikeSharer: (x) => shared.push(x) });
+    svc.likeSong({ userId: 'u1', songId: 's9' });
+    expect(shared[0].summary).toBe('s9');
+  });
+
+  it('likeSong_rejectsAMissingSongOrANonMember', () => {
+    const svc = createCommunityService({ communityRepository: makeMockRepo() });
+    expect(svc.likeSong({ userId: 'u1', songId: '  ' })).toEqual({ ok: false, error: 'song_id_required' });
+    expect(svc.likeSong({ userId: 'ghost', songId: 's9' })).toEqual({ ok: false, error: 'not_member' });
+  });
+
+  it('likeSong_stillSucceedsWhenTheSharerThrows', () => {
+    const svc = createCommunityService({ communityRepository: makeMockRepo(), songLikeSharer: () => { throw new Error('boom'); } });
+    expect(svc.likeSong({ userId: 'u1', songId: 's9' }).ok).toBe(true);
   });
 
   // ── F2/§6: community:post-new event ──

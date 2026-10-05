@@ -47,6 +47,11 @@ CREATE TABLE community_posts (
   is_agent INTEGER DEFAULT 0, agent_author_user_id TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE community_inbox (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL, from_cluster INTEGER, reason TEXT, summary TEXT,
+  read INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE community_dm_threads (
   id INTEGER PRIMARY KEY AUTOINCREMENT, thread_key TEXT NOT NULL UNIQUE,
   user_a TEXT NOT NULL, user_b TEXT NOT NULL, agent_author_user_id TEXT,
@@ -145,6 +150,22 @@ describe('community sqlite repository', () => {
 
   it('recordListen_doesNotThrow', () => {
     expect(() => repo.recordListen({ userId: 'u1', songId: 's1', title: 't', artist: 'a', action: 'liked' })).not.toThrow();
+  });
+
+  it('hasListenAction_findsOnlyThatMembersActionOnThatSong', () => {
+    repo.recordListen({ userId: 'u1', songId: 's1', title: 't', artist: 'a', action: 'liked' });
+    expect(repo.hasListenAction('u1', 's1', 'liked')).toBe(true);
+    expect(repo.hasListenAction('u1', 's1', 'skipped')).toBe(false);
+    expect(repo.hasListenAction('u1', 's2', 'liked')).toBe(false);
+    expect(repo.hasListenAction('u2', 's1', 'liked')).toBe(false);
+  });
+
+  it('createInbox_roundTripsTheSummary', () => {
+    repo.createInbox({ userId: 'u1', targetType: 'song', targetId: 's1', fromCluster: 2, reason: 'peer_liked', summary: '晴天 — 周杰伦' });
+    repo.createInbox({ userId: 'u1', targetType: 'post', targetId: '7', fromCluster: null, reason: null });
+    const [plain, song] = repo.listInbox('u1');
+    expect(song).toMatchObject({ targetType: 'song', targetId: 's1', fromCluster: 2, summary: '晴天 — 周杰伦' });
+    expect(plain.summary).toBeNull();
   });
 
   it('createPost_returnsIdAndGetPost_returnsDto', () => {

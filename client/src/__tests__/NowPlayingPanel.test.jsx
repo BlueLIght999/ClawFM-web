@@ -52,4 +52,26 @@ describe('NowPlayingPanel', () => {
     expect(screen.getByRole('button', { name: 'Resume' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Next track' })).toBeDisabled();
   });
+  // F4「成员点赞某歌 → 推给同簇其他人」
+  it('likeButton_callsOnLike_andShowsLikedState', () => {
+    const onLike = vi.fn();
+    const { rerender } = render(<NowPlayingPanel song={song} onLike={onLike} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Like song' }));
+    expect(onLike).toHaveBeenCalledOnce();
+
+    rerender(<NowPlayingPanel song={song} onLike={onLike} liked />);
+    expect(screen.getByRole('button', { name: 'Liked' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('likeButton_isHidden_withoutAnOnLikeHandler', () => {
+    // 不是社区成员时不给入口：点了也只会拿到 not_member
+    render(<NowPlayingPanel song={song} />);
+    expect(screen.queryByRole('button', { name: 'Like song' })).toBeNull();
+  });
+
+  it('likeButton_isDisabled_whenSongIsEmpty', () => {
+    render(<NowPlayingPanel song={null} onLike={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Like song' })).toBeDisabled();
+  });
 });

@@ -3,6 +3,8 @@ import {
   matchClustersForContent,
   collectRecipients,
   clusterKeywords,
+  clipSummary,
+  planBlockDistribution,
 } from '../domain/community/distributionRules.js';
 
 function makeCluster(clusterId, label, centroid, memberUserIds) {
@@ -277,5 +279,64 @@ describe('community distribution rules', () => {
 
   it('collectRecipients_collapsesSameIdAcrossIdTypes', () => {
     expect(collectRecipients([{ memberUserIds: [1] }, { memberUserIds: ['1'] }])).toEqual(['1']);
+  });
+});
+
+describe('clipSummary', () => {
+  it('collapsesWhitespaceAndTrims', () => {
+    expect(clipSummary('  深夜\n\n后摇   一起听 ')).toBe('深夜 后摇 一起听');
+  });
+
+  it('clipsByCodePointWithAnEllipsis', () => {
+    // 按码点截：切在代理对中间会在收件人那边渲染出乱码
+    expect(clipSummary('🎵'.repeat(10), 4)).toBe('🎵🎵🎵…');
+  });
+
+  it('leavesTextAtTheLimitUntouched', () => {
+    expect(clipSummary('abcd', 4)).toBe('abcd');
+  });
+
+  it('returnsEmptyForNonStrings', () => {
+    expect(clipSummary(null)).toBe('');
+    expect(clipSummary(42)).toBe('');
+  });
+});
+
+describe('planBlockDistribution', () => {
+  const block = { theme: '城市节拍', genreHints: ['indie pop', 'folk'], targetCount: 7 };
+
+  it('mapsABlockToAPlaylistDistributionKeyedByPlanAndIndex', () => {
+    expect(planBlockDistribution({ planId: '2026-10-05-calm-v1', blockIndex: 1, block })).toEqual({
+      targetType: 'playlist',
+      targetId: '2026-10-05-calm-v1#1',
+      contentTags: ['indie', 'pop', 'folk'],
+      summary: '城市节拍 · indie pop / folk',
+    });
+  });
+
+  it('foldsGenreHintsOntoTheClusterFeatureVocabulary', () => {
+    // 簇关键词来自 genre_rnb / genre_postrock 这类归一键，原样的「R&B」「post-rock」配不上
+    const r = planBlockDistribution({ planId: 'p', blockIndex: 0, block: { theme: '温暖声线', genreHints: ['R&B', 'post-rock'] } });
+    expect(r.contentTags).toEqual(['rnb', 'postrock']);
+  });
+
+  it('keysOnTheThemeWhenThePlanHasNoId', () => {
+    // 部分换计划路径（recurringTasks / agent 工具）只传 blocks 不传 planId
+    const r = planBlockDistribution({ planId: null, blockIndex: 2, block });
+    expect(r.targetId).toBe('theme:城市节拍');
+  });
+
+  it('returnsNullWhenNoHintMapsToAKnownTag', () => {
+    // 没有可匹配的标签就不会命中任何簇，不必进分发
+    expect(planBlockDistribution({ planId: 'p', blockIndex: 0, block: { theme: '午后', genreHints: ['vaporwave'] } })).toBeNull();
+  });
+
+  it('returnsNullWithoutAnyIdentity', () => {
+    expect(planBlockDistribution({ planId: null, blockIndex: 0, block: { genreHints: ['rock'] } })).toBeNull();
+  });
+
+  it('returnsNullForAMissingBlock', () => {
+    expect(planBlockDistribution({ planId: 'p', blockIndex: 0, block: null })).toBeNull();
+    expect(planBlockDistribution(undefined)).toBeNull();
   });
 });

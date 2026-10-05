@@ -302,6 +302,11 @@
   color: #fff;
 }
 
+.radio-icon-button.liked {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .radio-icon-button:disabled {
   cursor: not-allowed;
   opacity: 0.42;

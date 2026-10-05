@@ -177,3 +177,33 @@ describe('CommunityView 邀请候选', () => {
     });
   });
 });
+
+describe('CommunityView 收件箱', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ctx.currentMember = { userId: 'u1', nickname: '我' };
+  });
+
+  it('按仓储的 camelCase 字段渲染：摘要作标题，来源写明是哪个触发与哪个簇', async () => {
+    // 此前读 title/kind/from_cluster，仓储一个都不给：每一行都是「Untitled · push」
+    ctx.inbox = [
+      { id: 2, targetType: 'song', targetId: 's9', fromCluster: 4, reason: 'peer_liked', summary: '晴天 — 周杰伦' },
+      { id: 1, targetType: 'playlist', targetId: 'p1#0', fromCluster: 2, reason: 'dj_playlist', summary: '深夜后摇 · post-rock' },
+    ];
+    render(<CommunityView />);
+    fireEvent.click(screen.getByRole('button', { name: 'INBOX' }));
+    expect(await screen.findByText('晴天 — 周杰伦')).toBeTruthy();
+    expect(screen.getByText('深夜后摇 · post-rock')).toBeTruthy();
+    expect(screen.getByText(/cluster peer liked · cluster #4/i)).toBeTruthy();
+    expect(screen.getByText(/DJ is playing · cluster #2/i)).toBeTruthy();
+    expect(screen.queryByText('Untitled')).toBeNull();
+  });
+
+  it('旧行没有摘要时退回到目标类型与 id，而不是 Untitled', async () => {
+    ctx.inbox = [{ id: 1, targetType: 'post', targetId: '42', fromCluster: null, reason: 'post_tags', summary: null }];
+    render(<CommunityView />);
+    fireEvent.click(screen.getByRole('button', { name: 'INBOX' }));
+    expect(await screen.findByText('post 42')).toBeTruthy();
+    expect(screen.queryByText('Untitled')).toBeNull();
+  });
+});

@@ -47,6 +47,7 @@
  * @property {(userId: string) => {userId:string, neteaseUid:string, cookieEncrypted:string, fetchedAt:string|null}|null} getMemberAuth
  * @property {(userId: string) => void} touchMemberAuthFetched
  * @property {(l: {userId:string, songId:string, title:string, artist:string, action:string}) => void} recordListen
+ * @property {(userId: string, songId: string, action: string) => boolean} hasListenAction - 该成员是否对该歌记过这个动作（点赞幂等用）
  * @property {(p: object) => number} createPost
  * @property {(id: number) => CommunityPost|null} getPost
  * @property {(opts: {limit:number, cursor:number|null}) => CommunityPost[]} listFeed
@@ -61,7 +62,7 @@
  * @property {(clusters: Array, memberAssignments: Record<string, number>) => void} [saveClusterResult] 原子写入快照+成员归属（可选；缺省时服务回落为 saveClusterSnapshot + setMemberCluster）
  * @property {() => Array} getClusterSnapshot
  * @property {(clusterId: number) => CommunityMember[]} listClusterMembers
- * @property {(entry: {userId:string, targetType:string, targetId:string, fromCluster:number|null, reason:string|null}) => number} createInbox
+ * @property {(entry: {userId:string, targetType:string, targetId:string, fromCluster:number|null, reason:string|null, summary?:string|null}) => number} createInbox
  * @property {(userId: string) => Array} listInbox
  * @property {(userId: string, targetType: string, targetId: string) => boolean} hasInboxRecently
  * @property {(userId: string) => {userId:string, rules:object, personaSnapshot:string|null}|null} getMemberAgentConfig

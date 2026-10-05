@@ -37,6 +37,8 @@ import { createGenreSearchEngine } from '../domain/routing/GenreSearchEngine.js'
  * @property {number} _seedPoolRetryCount
  * @property {number} _seedPoolMaxRetries
  * @property {null|(() => void)} _onLoginExpired
+ * @property {null|((activation: {planId: string|null, blockIndex: number, block: object}) => void)} _onBlockActivated
+ * @property {string|null} _announcedBlockKey
  */
 export class Recommender {
   constructor({
@@ -63,11 +65,22 @@ export class Recommender {
     this._seedPoolRetryCount = 0;
     this._seedPoolMaxRetries = 3;
     this._onLoginExpired = null;
+    this._onBlockActivated = null;
+    this._announcedBlockKey = null;
   }
 
   /** Register a callback invoked when seed pool build fails due to login expiry. */
   onLoginExpired(callback) {
     this._onLoginExpired = callback;
+  }
+
+  /**
+   * Register a callback for when a plan block's songs first enter the queue
+   * (PRD F4: "DJ 播到某歌单 → 推给曲风匹配的簇"). Fires once per block activation,
+   * covering auto progression as well as select/pin, which all go through fillQueue.
+   */
+  onBlockActivated(callback) {
+    this._onBlockActivated = callback;
   }
 
   configure({ music, listenHistory, seedPool, profile, corpus }) {
@@ -145,6 +158,22 @@ export class Recommender {
     this.queueStore.addSongs(allSongs);
     if (activeBlockHints) {
       this._planProgress.songsFilledInBlock += allSongs.length;
+      this._announceBlock(activeBlockHints[0]);
+    }
+  }
+
+  _announceBlock(block) {
+    if (!block || !this._onBlockActivated) return;
+    const { planId = null, currentBlockIndex = 0 } = this._planProgress;
+    // Theme is part of the key: some plan swaps arrive without a planId, and a
+    // new plan's block 0 must still count as a new block.
+    const key = `${planId}#${currentBlockIndex}#${block.theme || ''}`;
+    if (key === this._announcedBlockKey) return;
+    this._announcedBlockKey = key;
+    try {
+      this._onBlockActivated({ planId: planId ?? null, blockIndex: currentBlockIndex, block });
+    } catch (e) {
+      console.warn(`[Recommender] block activation listener failed: ${e.message}`);
     }
   }
 

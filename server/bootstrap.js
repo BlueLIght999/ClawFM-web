@@ -105,6 +105,7 @@ import { createCookieCipher, deriveKey } from './infrastructure/netease/CookieCi
 import { createCommunityEventPublisher } from './infrastructure/community/CommunityEventPublisher.js';
 import { createMemberAgentLoopAdapter } from './infrastructure/community/MemberAgentLoopAdapter.js';
 import { personalizeFeed } from './domain/community/feedPersonalizationRules.js';
+import { planBlockDistribution } from './domain/community/distributionRules.js';
 
 /**
  * Wire all dependencies and return a services object.
@@ -212,25 +213,45 @@ export function createServices(io) {
     },
   });
   const distributionService = createDistributionService({ communityRepository, eventPublisher: communityEventPublisher, logger });
+  // F4 三个分发触发都挪出请求/播放路径：分发对每个收件人一读一写，簇大时会把
+  // 触发方（发帖响应、点赞响应、推荐器补歌）拖慢到与簇大小成正比，而触发方都不需要等它。
+  const distributeLater = (label, context, run) => {
+    setImmediate(() => {
+      try {
+        run();
+      } catch (e) {
+        logger?.warn?.({ component: 'community', ...context, err: e?.message }, `${label} failed`);
+      }
+    });
+  };
+  // F4「DJ 播到某歌单 → 推给曲风匹配的簇」
+  recommender.onBlockActivated((activation) => {
+    const plan = planBlockDistribution(activation);
+    if (!plan) return;
+    distributeLater('playlist distribution', { targetId: plan.targetId }, () => {
+      distributionService.distribute({ ...plan, reason: 'dj_playlist' });
+    });
+  });
   const communityService = createCommunityService({
     communityRepository,
     eventPublisher: communityEventPublisher,
     logger,
-    // F4 发帖触发分发。挪出请求：分发对每个收件人一读一写，簇大时会把发帖响应
-    // 拖慢到与簇大小成正比；发帖人不需要等它。
+    // F4「成员发帖 → 分发到标签匹配的簇」
     postDistributor: (post) => {
-      setImmediate(() => {
-        try {
-          distributionService.distribute({
-            targetType: 'post',
-            targetId: String(post.id),
-            contentTags: post.autoTags,
-            fromUserId: post.userId,
-            reason: 'post_tags',
-          });
-        } catch (e) {
-          logger?.warn?.({ component: 'community', postId: post.id, err: e?.message }, 'post distribution failed');
-        }
+      distributeLater('post distribution', { postId: post.id }, () => {
+        distributionService.distribute({
+          targetType: 'post',
+          targetId: String(post.id),
+          contentTags: post.autoTags,
+          fromUserId: post.userId,
+          reason: 'post_tags',
+        });
+      });
+    },
+    // F4「成员点赞某歌 → 推给同簇其他人」
+    songLikeSharer: ({ userId, songId, summary }) => {
+      distributeLater('song like sharing', { songId }, () => {
+        distributionService.shareWithClusterPeers({ userId, targetType: 'song', targetId: songId, summary, reason: 'peer_liked' });
       });
     },
     feedPersonalizer: (userId, posts) => {

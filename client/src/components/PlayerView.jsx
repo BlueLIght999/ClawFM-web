@@ -23,7 +23,7 @@ export function PlayerView({
   isDjThinking,
   error, socket, weather = '',
   currentSong, elapsed, duration, queueMode, upcomingSongs,
-  musicAudioRef, onSkip, onPrevious, onPause, onResume, onSetMode,
+  musicAudioRef, onSkip, onPrevious, onPause, onResume, onSetMode, onLike, liked,
 }) {
   const taste = useTasteSummary();
   const selectUpcomingSong = (index) => socket?.emit('player:skip-to-index', { index });
@@ -34,7 +34,8 @@ export function PlayerView({
         error={error}
         nowPlaying={
           <NowPlayingPanel song={currentSong} isPlaying={isPlaying}
-            onPrevious={onPrevious} onPause={onPause} onResume={onResume} onSkip={onSkip} />
+            onPrevious={onPrevious} onPause={onPause} onResume={onResume} onSkip={onSkip}
+            onLike={onLike} liked={liked} />
         }
         spectrum={<Spectrum audioElement={audioEl} isPlaying={isPlaying} theme={theme} songKey={currentSong?.id} />}
         agent={

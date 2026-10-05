@@ -183,6 +183,7 @@ function createTables(db) {
       target_id TEXT NOT NULL,
       from_cluster INTEGER,
       reason TEXT,
+      summary TEXT,
       read INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -274,6 +275,8 @@ function createTables(db) {
   // 头像上传：为已有 community_members 表补图片二进制与 MIME 列
   ensureColumn(db, 'community_members', 'avatar_binary', 'BLOB');
   ensureColumn(db, 'community_members', 'avatar_mime', 'TEXT');
+  // F4 收件箱摘要：只存 target 引用时，收件人看不出推来的是什么
+  ensureColumn(db, 'community_inbox', 'summary', 'TEXT');
 }
 
 /**

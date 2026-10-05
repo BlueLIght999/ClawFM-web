@@ -7,11 +7,13 @@
 import { validatePost } from '../../domain/community/postRules.js';
 import { validateFollow } from '../../domain/community/followRules.js';
 import { extractPostTags } from '../../domain/community/postTagRules.js';
+import { clipSummary } from '../../domain/community/distributionRules.js';
 
 /**
- * @param {{communityRepository: import('../ports/repos/CommunityRepository.js').CommunityRepository, feedPersonalizer?: ((userId: string, posts: Array) => Array), postDistributor?: ((post: object) => void), eventPublisher?: {emit?: (event:string, payload:object, targetUserId?:string|null)=>void}, logger?: {warn?: Function}}} [deps]
+ * @param {{communityRepository: import('../ports/repos/CommunityRepository.js').CommunityRepository, feedPersonalizer?: ((userId: string, posts: Array) => Array), postDistributor?: ((post: object) => void), songLikeSharer?: ((like: {userId: string, songId: string, summary: string}) => void), eventPublisher?: {emit?: (event:string, payload:object, targetUserId?:string|null)=>void}, logger?: {warn?: Function}}} [deps]
  *   feedPersonalizer: F9 发现流个性化（按 active feed-invitations 加权）；
  *   postDistributor: F4 发帖触发分发（按帖子 autoTags 推给匹配簇）；
+ *   songLikeSharer: F4 点歌触发分发（推给点赞者的同簇成员）；
  *   eventPublisher: 用于 community:post-new 广播
  */
 // The `= {}` default is cast rather than the dependency being marked optional:
@@ -19,7 +21,7 @@ import { extractPostTags } from '../../domain/community/postTagRules.js';
 // typing it optional would trade one honest error for ~100 false
 // possibly-undefined ones. A caller that omits it fails at first use -- which is
 // the existing behaviour -- and the cast keeps that contract documented.
-export function createCommunityService({communityRepository, feedPersonalizer, postDistributor, eventPublisher, logger} = /** @type {any} */ ({})) {
+export function createCommunityService({communityRepository, feedPersonalizer, postDistributor, songLikeSharer, eventPublisher, logger} = /** @type {any} */ ({})) {
   const repo = communityRepository;
   const personalize = typeof feedPersonalizer === 'function' ? feedPersonalizer : (_uid, posts) => posts;
 
@@ -197,11 +199,47 @@ export function createCommunityService({communityRepository, feedPersonalizer, p
     return repo.listInbox(userId);
   }
 
+  /**
+   * 成员点赞正在听的歌（F4「成员点赞某歌 → 推给同簇其他人」）。
+   *
+   * 幂等：同一首歌只记一次 liked。连点若每次都记，画像融合里的 replay_lover
+   * 计数会被刷高；分发虽有 24h 去重，也不必每次都去查一遍同簇成员。
+   *
+   * @param {{userId: string, songId: string, title?: string, artist?: string}} input
+   * @returns {{ok:true, liked:true, alreadyLiked:boolean} | {ok:false, error:string}}
+   */
+  function likeSong({ userId, songId, title, artist }) {
+    const id = typeof songId === 'string' || typeof songId === 'number' ? String(songId).trim() : '';
+    if (!id) return { ok: false, error: 'song_id_required' };
+    if (!repo.getMember(String(userId))) return { ok: false, error: 'not_member' };
+    if (repo.hasListenAction(String(userId), id, 'liked')) return { ok: true, liked: true, alreadyLiked: true };
+
+    const cleanTitle = clipSummary(title);
+    const cleanArtist = clipSummary(artist);
+    repo.recordListen({ userId: String(userId), songId: id, title: cleanTitle, artist: cleanArtist, action: 'liked' });
+    shareLike({
+      userId: String(userId),
+      songId: id,
+      summary: clipSummary([cleanTitle, cleanArtist].filter(Boolean).join(' — ')) || id,
+    });
+    return { ok: true, liked: true, alreadyLiked: false };
+  }
+
+  /** 与 distributePost 同理：分发失败不影响点赞本身。 */
+  function shareLike(like) {
+    if (typeof songLikeSharer !== 'function') return;
+    try {
+      songLikeSharer(like);
+    } catch (e) {
+      logger?.warn?.({ component: 'community', songId: like.songId, err: e?.message }, 'song like sharing failed');
+    }
+  }
+
   return {
     createPost, getFeed, getPost, getPostWithComments, listComments,
     likePost, toggleLike, hasLiked, listLikers, createComment,
     follow, unfollow, isFollowing, listFollowers, listFollowing,
     listPostsByUser, listFeedFromFollowing,
-    listInbox,
+    listInbox, likeSong,
   };
 }

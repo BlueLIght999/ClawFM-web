@@ -1,7 +1,12 @@
-import { Pause, Play, SkipBack, SkipForward } from 'lucide-react';
+import { Heart, Pause, Play, SkipBack, SkipForward } from 'lucide-react';
 
-/** Compact current-song summary wired to the existing playback callbacks. */
-export function NowPlayingPanel({ song, isPlaying = false, onPrevious, onPause, onResume, onSkip }) {
+/**
+ * Compact current-song summary wired to the existing playback callbacks.
+ *
+ * onLike 只在当前用户是社区成员时传入（F4 点赞某歌 → 推给同簇其他人）；
+ * 不传就不给入口，免得点了只拿到 not_member。
+ */
+export function NowPlayingPanel({ song, isPlaying = false, onPrevious, onPause, onResume, onSkip, onLike, liked = false }) {
   const hasSong = Boolean(song?.id || song?.title);
   const title = song?.title || 'WAITING FOR SIGNAL';
 
@@ -24,6 +29,13 @@ export function NowPlayingPanel({ song, isPlaying = false, onPrevious, onPause, 
           primary
         />
         <TransportButton label="Next track" disabled={!hasSong} onClick={onSkip} icon={SkipForward} />
+        {onLike && (
+          <button type="button" className={`radio-icon-button${liked ? ' liked' : ''}`}
+            aria-label={liked ? 'Liked' : 'Like song'} title={liked ? 'Liked' : 'Like song'}
+            aria-pressed={liked} disabled={!hasSong} onClick={onLike}>
+            <Heart size={17} strokeWidth={2.2} fill={liked ? 'currentColor' : 'none'} aria-hidden="true" />
+          </button>
+        )}
       </div>
     </section>
   );

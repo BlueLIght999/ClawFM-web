@@ -15,6 +15,7 @@ import { useUI } from './contexts/UIContext.jsx';
 import { useCrabSocketEvents } from './hooks/useCrabSocketEvents.js';
 import { useSystemSocketEvents } from './hooks/useSystemSocketEvents.js';
 import { useCommunitySocketEvents } from './hooks/useCommunitySocketEvents.js';
+import { useSongLike } from './hooks/useSongLike.js';
 import { useAudioErrorHandler } from './hooks/useAudioErrorHandler.js';
 import { useGeolocation } from './hooks/useGeolocation.js';
 import { useCrabInteraction } from './hooks/useCrabInteraction.js';
@@ -82,6 +83,7 @@ export default function App({ socket, connected }) {
   useCrabSocketEvents(socket);
   useSystemSocketEvents(socket);
   useCommunitySocketEvents(socket);
+  const { onLike: handleLikeSong, liked: currentSongLiked } = useSongLike(radioState.currentSong);
 
   // Send browser geolocation to server for accurate weather
   useGeolocation(socket, connected);
@@ -155,6 +157,8 @@ export default function App({ socket, connected }) {
         onPause={handlePause}
         onResume={handleResume}
         onSetMode={handleSetMode}
+        onLike={handleLikeSong}
+        liked={currentSongLiked}
         weather={weather}
       />
 

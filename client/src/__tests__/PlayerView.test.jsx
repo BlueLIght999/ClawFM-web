@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { PlayerView } from '../components/PlayerView.jsx';
 
 vi.mock('../components/agent-radio/AgentRadioShell.jsx', () => ({
@@ -13,7 +13,12 @@ vi.mock('../components/agent-radio/AgentStage.jsx', () => ({
   AgentStage: ({ crab, dialog, chat }) => <div data-testid="agent-stage">{crab}{dialog}{chat}</div>,
 }));
 vi.mock('../components/agent-radio/NowPlayingPanel.jsx', () => ({
-  NowPlayingPanel: ({ song }) => <div data-testid="now-playing">{song?.title}</div>,
+  NowPlayingPanel: ({ song, onLike, liked }) => (
+    <div data-testid="now-playing">
+      {song?.title}
+      {onLike && <button type="button" onClick={onLike}>{liked ? 'liked' : 'like'}</button>}
+    </div>
+  ),
 }));
 vi.mock('../components/agent-radio/TastePanel.jsx', () => ({
   TastePanel: ({ data, weather }) => <div data-testid="taste-panel">{data?.currentMood}:{weather}</div>,
@@ -105,6 +110,13 @@ describe('PlayerView', () => {
     expect(screen.getByTestId('playlist-list')).toBeInTheDocument();
     expect(screen.getByTestId('lyrics')).toBeInTheDocument();
     expect(screen.getByTestId('player-bar')).toBeInTheDocument();
+  });
+
+  it('passesSongLikeToNowPlaying', () => {
+    const onLike = vi.fn();
+    render(<PlayerView {...defaultProps} onLike={onLike} liked />);
+    fireEvent.click(screen.getByRole('button', { name: 'liked' }));
+    expect(onLike).toHaveBeenCalledOnce();
   });
 
   it('hidesContent_whenNotVisible', () => {

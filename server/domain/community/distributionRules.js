@@ -5,8 +5,15 @@
  * 选出匹配的簇。纯函数，零 IO，遵循 D1/D2。
  */
 import { generateClusterLabel } from './clustering/FeatureExtractor.js';
+import { extractPostTags } from './postTagRules.js';
 
 const TOP_FEATURES_PER_CLUSTER = 5;
+
+/** 收件箱一行的摘要上限（码点）。只是让收件人认出是什么，不是正文。 */
+export const SUMMARY_MAX = 80;
+
+/** 一个歌单块最多带几个标签进匹配：块的 genreHints 通常 2-3 个，留一点余量给主题词。 */
+const PLAYLIST_TAG_LIMIT = 5;
 
 /**
  * 从质心向量提取 top-N 关键词（特征名去前缀）。
@@ -82,4 +89,61 @@ export function collectRecipients(matchedClusters) {
     for (const uid of c.memberUserIds || []) set.add(String(uid));
   }
   return [...set];
+}
+
+/**
+ * 把任意文本收成一行收件箱摘要：折叠空白，超长按码点截断加省略号。
+ *
+ * 按码点而不是 UTF-16 单元截：切在代理对中间，收件人那边会渲染出一个乱码字符。
+ *
+ * @param {unknown} text
+ * @param {number} [max=SUMMARY_MAX]
+ * @returns {string}
+ */
+export function clipSummary(text, max = SUMMARY_MAX) {
+  if (typeof text !== 'string') return '';
+  const chars = [...text.replace(/\s+/g, ' ').trim()];
+  if (chars.length <= max) return chars.join('');
+  return `${chars.slice(0, Math.max(max - 1, 0)).join('')}…`;
+}
+
+/**
+ * DJ 切到某个歌单块 → 一次 playlist 分发的参数（PRD F4「DJ 播到某歌单 → 推给曲风匹配的簇」）。
+ *
+ * contentTags 不直接用 genreHints：簇关键词是 genre_rnb / genre_postrock 这类归一键，
+ * 原样的「R&B」「post-rock」「indie pop」一个都配不上。这里走发帖同一套正文认标签，
+ * 输出与召回层、簇特征同一份词表。
+ *
+ * targetId 决定 24h 去重（RC1）的粒度：同一计划的同一块一天只推一次。部分换计划
+ * 路径不带 planId，退回按主题去重。
+ *
+ * @param {{planId?: string|null, blockIndex?: number, block?: {theme?: string, genreHints?: string[]}|null}} [activation]
+ * @returns {{targetType:'playlist', targetId:string, contentTags:string[], summary:string}|null}
+ *   null：缺块、无可用标识、或认不出任何标签（匹配不到簇，不必进分发）
+ */
+export function planBlockDistribution(activation) {
+  const block = activation?.block;
+  if (!block) return null;
+  const theme = typeof block.theme === 'string' ? block.theme.trim() : '';
+  const hints = Array.isArray(block.genreHints) ? block.genreHints.filter((h) => typeof h === 'string' && h.trim()) : [];
+
+  const targetId = blockTargetId(activation, theme);
+  if (!targetId) return null;
+
+  // 换行分隔，避免相邻两个 hint 拼出一个本不存在的写法
+  const contentTags = extractPostTags([...hints, theme].join('\n'), { limit: PLAYLIST_TAG_LIMIT });
+  if (contentTags.length === 0) return null;
+
+  const summary = clipSummary(hints.length > 0 ? `${theme} · ${hints.join(' / ')}` : theme);
+  return { targetType: 'playlist', targetId, contentTags, summary };
+}
+
+/**
+ * 歌单块的去重标识：有计划就按「计划#块序号」，没有就退回按主题；两者都没有给空串。
+ * @param {{planId?: string|null, blockIndex?: number}} activation
+ * @param {string} theme
+ */
+function blockTargetId({ planId, blockIndex }, theme) {
+  if (planId) return `${planId}#${Number(blockIndex) || 0}`;
+  return theme ? `theme:${theme}` : '';
 }
