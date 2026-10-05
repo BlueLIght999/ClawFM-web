@@ -105,6 +105,7 @@ import { createCookieCipher, deriveKey } from './infrastructure/netease/CookieCi
 import { createCommunityEventPublisher } from './infrastructure/community/CommunityEventPublisher.js';
 import { createMemberAgentLoopAdapter } from './infrastructure/community/MemberAgentLoopAdapter.js';
 import { personalizeFeed } from './domain/community/feedPersonalizationRules.js';
+import { feedInviteeIds } from './domain/community/invitationRules.js';
 import { planBlockDistribution } from './domain/community/distributionRules.js';
 
 /**
@@ -254,11 +255,12 @@ export function createServices(io) {
         distributionService.shareWithClusterPeers({ userId, targetType: 'song', targetId: songId, summary, reason: 'peer_liked' });
       });
     },
+    // F9：按「我邀请进发现流」的成员品味加权；方向（只认我发出的邀请）由 feedInviteeIds 判定
     feedPersonalizer: (userId, posts) => {
       try {
-        const invs = communityRepository.listInvitations(userId).filter((i) => i.status === 'active' && i.contextType === 'feed');
-        if (invs.length === 0) return posts;
-        const profiles = invs.map((i) => communityRepository.getProfile(i.toUserId)).filter(Boolean);
+        const ids = feedInviteeIds(communityRepository.listInvitations(userId), userId);
+        if (ids.length === 0) return posts;
+        const profiles = ids.map((id) => communityRepository.getProfile(id)).filter(Boolean);
         if (profiles.length === 0) return posts;
         return personalizeFeed(posts, profiles);
       } catch {

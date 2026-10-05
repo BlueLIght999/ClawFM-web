@@ -13,7 +13,7 @@
  * @typedef {object} NeteaseMemberHistoryPort
  * @property {(neteaseUid: string, cookie: string) => Promise<NeteaseHistorySignals>} fetchMemberHistory
  * @property {(neteaseUid: string, cookie: string) => Promise<Array<{id:string, name:string, trackCount:number, coverUrl:string}>>} fetchMemberPlaylists
- *   F9 `bring_playlist` 路径：InvitationService.respond 在成员接受邀请时拉其歌单。
+ *   F9 `bring_playlist` 路径：InvitationService.bringPlaylist 在邀请 active 时拉被邀请方歌单。
  *   此前 port 只声明了 fetchMemberHistory，导致调用点报 TS2339——实现
  *   （NeteaseMemberHistoryAdapter）与调用方都已具备该方法，缺的是 port 声明本身。
  */

@@ -3,6 +3,7 @@
  *
  * 状态：pending → accepted | rejected；accepted → active；active → ended。
  * rejected / ended 为终态。RC8：被邀请方必须开 canBeInvited + sharePlaylists。
+ * 被邀请方「接受」即生效：accepted 只是途经态，见 settleResponse。
  * 纯函数，零 IO，遵循 D1/D2。
  */
 
@@ -40,6 +41,65 @@ export function transition(invitation, toStatus) {
     return { ok: false, error: 'invalid_transition', from, to: toStatus };
   }
   return { ok: true, status: toStatus };
+}
+
+/**
+ * 被邀请方表态后邀请应落到的状态：接受直接推进到 active，其余同 transition。
+ *
+ * accepted → active 这条边此前没有任何调用方会走——客户端只发 accepted/rejected，
+ * 服务端也不推进，邀请于是永远停在 accepted：bring_playlist 只认 active，发现流
+ * 加权也只认 active，整个 F9 在端到端上从未生效。推进放在 domain 而不是服务里，
+ * 是因为「接受即生效」是业务规则：RC8 的双向授权在发邀请时已校验，接受是
+ * 被邀请方最后一道同意，中间没有别的步骤可等。
+ *
+ * @param {object} invitation
+ * @param {string} toStatus
+ * @returns {{ok:true, status:string} | {ok:false, error:string, from?:string, to?:string}}
+ */
+export function settleResponse(invitation, toStatus) {
+  const t = transition(invitation, toStatus);
+  if (!t.ok || t.status !== 'accepted') return t;
+  return transition({ status: 'accepted' }, 'active');
+}
+
+/**
+ * 调用者是否为这条邀请的参与方（邀请方或被邀请方）。
+ *
+ * 缺调用者时返回 false（fail-closed）：不能默认放行，否则校验等于可选；
+ * 空串调用者也不能与一条缺 fromUserId 的脏记录「相等」。
+ *
+ * @param {object|null|undefined} invitation
+ * @param {string|null|undefined} callerUserId
+ * @returns {boolean}
+ */
+export function isParticipant(invitation, callerUserId) {
+  if (!invitation || !callerUserId) return false;
+  const caller = String(callerUserId);
+  return caller === String(invitation.fromUserId ?? '') || caller === String(invitation.toUserId ?? '');
+}
+
+/**
+ * 某成员发现流要按谁的品味加权：只取 TA 发出、已生效、目的地是 feed 的邀请的被邀请方。
+ *
+ * 方向必须看：仓储 listInvitations 返回与该成员相关的双向邀请。若不分方向，
+ * 被邀请方自己的 feed 也会按这些邀请「加权」——取到的是 TA 本人的画像，等于
+ * 按自己的品味给自己重排，与 F9「B 的品味融入 A 的发现流」恰好相反。
+ * 同一被邀请方多条邀请只算一次（保持首次出现顺序）。
+ *
+ * @param {Array<object>|null|undefined} invitations
+ * @param {string} viewerUserId
+ * @returns {string[]}
+ */
+export function feedInviteeIds(invitations, viewerUserId) {
+  if (!viewerUserId) return [];
+  const viewer = String(viewerUserId);
+  const ids = new Set();
+  for (const inv of Array.isArray(invitations) ? invitations : []) {
+    if (String(inv?.fromUserId ?? '') !== viewer) continue;
+    if (!isActive(inv) || inv.contextType !== 'feed') continue;
+    ids.add(String(inv.toUserId));
+  }
+  return [...ids];
 }
 
 /**

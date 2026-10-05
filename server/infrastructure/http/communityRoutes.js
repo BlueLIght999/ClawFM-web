@@ -39,6 +39,8 @@ const INVITATION_ERROR_STATUS = {
   invitation_not_found: 404,
   not_participant: 403,
   not_authorized: 403,
+  // 被邀请方事后关掉了分享：同意已撤回，与越权同属「无权」
+  sharing_disabled: 403,
   invitation_not_active: 409,
 };
 
@@ -464,10 +466,11 @@ export function createCommunityRouter(services) {
       return ok(res, services.invitationService.listForUser(userId));
     });
 
-    // POST /invitations/:id/bring-playlist — 触发被邀请方 agent 把歌单带入上下文（仅被邀请方本人）
+    // POST /invitations/:id/bring-playlist — 把被邀请方的歌单带入邀请上下文（邀请任一方可触发）
     router.post('/invitations/:id/bring-playlist', async (req, res) => {
       try {
-        // 这条路径会解密被邀请方的网易云 cookie，调用者必须是其本人
+        // 这条路径会解密被邀请方的网易云 cookie：调用者须是邀请参与方，且被邀请方
+        // 当前仍开着 sharePlaylists——两项都由服务在解密前校验，身份只取登录态
         const r = await services.invitationService.bringPlaylist(Number(req.params.id), req.communityUserId);
         if (!r.ok) return fail(res, r.error, INVITATION_ERROR_STATUS[r.error] ?? 400);
         return ok(res, r);

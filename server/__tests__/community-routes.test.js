@@ -11,6 +11,8 @@ const savedSelfTags = { tags: null };
 const invalidationCount = { n: 0 };
 // 邀请的「被邀请方」身份，可被单个用例改写以模拟越权（默认与登录身份一致）
 const invitationInvitee = { uid: 'u1' };
+// 同一条邀请的邀请方：bring-playlist 双方都能触发，respond 只认被邀请方
+const INVITATION_INVITER_UID = 'u2';
 // likeSong 收到的入参：断言身份取自登录态而不是请求体
 const songLikes = [];
 
@@ -116,7 +118,7 @@ function makeMockServices() {
       listForUser: (userId) => [{ id: 1, fromUserId: 'u2', toUserId: userId, status: 'pending', contextType: 'feed' }],
       bringPlaylist: async (invitationId, callerUserId) => {
         if (invitationId === 999) return { ok: false, error: 'invitation_not_found' };
-        if (callerUserId !== invitationInvitee.uid) return { ok: false, error: 'not_participant' };
+        if (![INVITATION_INVITER_UID, invitationInvitee.uid].includes(callerUserId)) return { ok: false, error: 'not_participant' };
         return { ok: true, playlists: [{ id: 'pl1', name: 'MyPlaylist' }] };
       },
     },
@@ -580,11 +582,32 @@ describe('community routes', () => {
     expect(res.body.error).toBe('not_participant');
   });
 
-  it('POST /invitations/:id/bring-playlist 403 when caller is not the invitee', async () => {
+  it('POST /invitations/:id/bring-playlist 403 when caller is not a participant', async () => {
     invitationInvitee.uid = 'someone-else';
     const res = await request(app).post('/api/community/invitations/1/bring-playlist');
     expect(res.status).toBe(403);
     expect(res.body.error).toBe('not_participant');
+  });
+
+  it('POST /invitations/:id/bring-playlist lets the inviter trigger it', async () => {
+    // 路由不得另加「仅被邀请方」的守卫：邀请方来取歌单正是 F9 的本意
+    mockAuth.uid = INVITATION_INVITER_UID;
+    app = makeApp();
+    const res = await request(app).post('/api/community/invitations/1/bring-playlist');
+    expect(res.status).toBe(200);
+    expect(res.body.data.playlists[0].id).toBe('pl1');
+  });
+
+  it('POST /invitations/:id/bring-playlist 403 when the invitee has turned sharing off', async () => {
+    // 与 not_participant 同属「无权」，而不是 400 的请求格式错
+    const services = makeMockServices();
+    services.invitationService.bringPlaylist = async () => ({ ok: false, error: 'sharing_disabled' });
+    const app2 = express();
+    app2.use(express.json());
+    app2.use('/api/community', createCommunityRouter(services));
+    const res = await request(app2).post('/api/community/invitations/1/bring-playlist');
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('sharing_disabled');
   });
 
   it('POST /invitations/:id/bring-playlist 409 when the invitation is not active', async () => {

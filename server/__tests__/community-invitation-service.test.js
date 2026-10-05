@@ -63,13 +63,22 @@ describe('invitation service', () => {
     expect(publisher.emits).toHaveLength(0);
   });
 
-  it('respond_appliesValidTransition', () => {
+  it('respond_acceptingActivatesTheInvitation', () => {
+    // 接受即生效：此前落库的是 accepted，而 bring_playlist 与发现流加权只认 active，
+    // 又没有任何调用方把 accepted 推进到 active——邀请于是永远不生效
     const repo = makeMockRepo({ invitation: { id: 1, status: 'pending', fromUserId: 'a', toUserId: 'b' } });
     const service = createInvitationService({ communityRepository: repo, eventPublisher: publisher });
     const r = service.respond(1, 'accepted', 'b');
-    expect(r.ok).toBe(true);
-    expect(r.status).toBe('accepted');
-    expect(repo.updates[0]).toEqual({ id: 1, status: 'accepted' });
+    expect(r).toEqual({ ok: true, status: 'active' });
+    expect(repo.updates).toEqual([{ id: 1, status: 'active' }]);
+  });
+
+  it('respond_rejectingPersistsRejected', () => {
+    const repo = makeMockRepo({ invitation: { id: 1, status: 'pending', fromUserId: 'a', toUserId: 'b' } });
+    const service = createInvitationService({ communityRepository: repo, eventPublisher: publisher });
+    const r = service.respond(1, 'rejected', 'b');
+    expect(r).toEqual({ ok: true, status: 'rejected' });
+    expect(repo.updates).toEqual([{ id: 1, status: 'rejected' }]);
   });
 
   it('respond_rejectsInvalidTransition', () => {
@@ -135,11 +144,14 @@ describe('invitation service', () => {
 });
 
 describe('invitation service bringPlaylist', () => {
-  function makeBringRepo(invitation, auth = null) {
+  // 默认被邀请方仍开着分享：bring_playlist 在解密前要重查一次 sharePlaylists
+  const SHARING_ON = { rules: { canBeInvited: true, sharePlaylists: true } };
+
+  function makeBringRepo(invitation, auth = null, inviteeConfig = SHARING_ON) {
     return {
       getInvitation: () => invitation,
       getMemberAuth: () => auth,
-      getMemberAgentConfig: () => null,
+      getMemberAgentConfig: () => inviteeConfig,
       createInvitation: (inv) => ({ id: 1, ...inv }),
       updateInvitationStatus: () => {},
       listInvitations: () => [],
@@ -239,21 +251,53 @@ describe('invitation service bringPlaylist', () => {
     expect(fetchCalls).toBe(0);
   });
 
-  it('rejectsTheInviterFromBringingTheInviteesPlaylist', async () => {
-    // 歌单与 cookie 都属于被邀请方，邀请方无权代他触发
+  it('letsTheInviterBringTheInviteesPlaylist', async () => {
+    // 被邀请方开 sharePlaylists 并接受邀请，就是同意把歌单带给邀请方——
+    // 歌单本来就推给邀请方，邀请方自己来要是这条授权的本意
     const repo = makeBringRepo(
       { id: 1, status: 'active', contextType: 'feed', fromUserId: 'a', toUserId: 'b' },
       { userId: 'b', neteaseUid: '123', cookieEncrypted: 'v1:enc' }
     );
     const service = createInvitationService({
       communityRepository: repo,
-      neteaseHistoryPort: { fetchMemberPlaylists: async () => [] },
+      neteaseHistoryPort: {
+        fetchMemberPlaylists: async () => [
+          { id: 'pl1', name: '深夜后摇', trackCount: 1, coverUrl: '' },
+          { id: 'pl2', name: '通勤', trackCount: 3, coverUrl: '' },
+        ],
+      },
       cookieCipherPort: { decrypt: () => 'c' },
       eventPublisher: publisher,
     });
     const r = await service.bringPlaylist(1, 'a');
-    expect(r.ok).toBe(false);
-    expect(r.error).toBe('not_participant');
+    expect(r.ok).toBe(true);
+    expect(publisher.emits.map((e) => [e.event, e.target])).toEqual([['community:push', 'a']]);
+    // 歌单来源仍是被邀请方，与谁触发无关；摘要与分发推送同形，通知面板才不是一串 JSON
+    expect(publisher.emits[0].payload).toMatchObject({ fromUserId: 'b', summary: '深夜后摇 / 通勤' });
+  });
+
+  it('rejectsOnceTheInviteeTurnsSharingOffWithoutDecrypting', async () => {
+    // 授权在发邀请时校验过一次，但被邀请方之后可以关掉分享：邀请方能触发后，
+    // 这条重查是被邀请方撤回同意的唯一途径，且必须挡在解密之前
+    const repo = makeBringRepo(
+      { id: 1, status: 'active', contextType: 'feed', fromUserId: 'a', toUserId: 'b' },
+      { userId: 'b', neteaseUid: '123', cookieEncrypted: 'v1:enc' },
+      { rules: { canBeInvited: true, sharePlaylists: false } }
+    );
+    let decryptCalls = 0;
+    let fetchCalls = 0;
+    const service = createInvitationService({
+      communityRepository: repo,
+      neteaseHistoryPort: { fetchMemberPlaylists: async () => { fetchCalls += 1; return []; } },
+      cookieCipherPort: { decrypt: () => { decryptCalls += 1; return 'c'; } },
+      eventPublisher: publisher,
+    });
+    for (const caller of ['a', 'b']) {
+      expect(await service.bringPlaylist(1, caller)).toEqual({ ok: false, error: 'sharing_disabled' });
+    }
+    expect(decryptCalls).toBe(0);
+    expect(fetchCalls).toBe(0);
+    expect(publisher.emits).toHaveLength(0);
   });
 
   it('bringPlaylist_failsClosedWithoutACaller', async () => {
