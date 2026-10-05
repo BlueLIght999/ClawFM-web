@@ -43,6 +43,8 @@ export function createInvitationService({communityRepository, neteaseHistoryPort
    * @returns {{ok:true, id:number} | {ok:false, error:string, reasons?:string[]}}
    */
   function invite({ fromUserId, toUserId, contextType = 'feed', contextId = null }) {
+    // 自邀：被邀请方就是本人，RC8 的「对方同意」形同虚设，feed 加权也无意义
+    if (String(fromUserId) === String(toUserId)) return { ok: false, error: 'cannot_invite_self' };
     const toConfig = repo.getMemberAgentConfig(toUserId);
     const toRules = normalizeAgentRules(toConfig?.rules);
     const auth = checkInvitationAuthorization({ toRules });

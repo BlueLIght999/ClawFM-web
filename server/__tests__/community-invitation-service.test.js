@@ -52,6 +52,17 @@ describe('invitation service', () => {
     expect(r.ok).toBe(false);
   });
 
+  it('invite_rejectsInvitingYourself', () => {
+    // 自邀会让 A 的 feed 按 A 自己的品味「加权」（无意义），且绕开双向授权：
+    // 被邀请方就是本人，RC8 的「对方同意」形同虚设
+    const repo = makeMockRepo({ toConfig: { rules: { canBeInvited: true, sharePlaylists: true } } });
+    const service = createInvitationService({ communityRepository: repo, eventPublisher: publisher });
+    const r = service.invite({ fromUserId: 'a', toUserId: 'a' });
+    expect(r).toEqual({ ok: false, error: 'cannot_invite_self' });
+    expect(repo.created).toHaveLength(0);
+    expect(publisher.emits).toHaveLength(0);
+  });
+
   it('respond_appliesValidTransition', () => {
     const repo = makeMockRepo({ invitation: { id: 1, status: 'pending', fromUserId: 'a', toUserId: 'b' } });
     const service = createInvitationService({ communityRepository: repo, eventPublisher: publisher });
