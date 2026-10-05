@@ -46,9 +46,10 @@ export default function CommunityView() {
   const {
     currentMember, feed, followingFeed, commentsByPost, memberCache, inbox, clusters, notifications, agentConfig,
     rooms, roomState, invitations, authUid, dmThreads, dmMessagesByThread,
+    similarMembers, similarHasTags,
     fetchFeed, fetchInbox, fetchClusters, fetchFollowingFeed,
     createPost, likePost, triggerAgentComment, updateAgentConfig,
-    createMember, updateMemberProfile, updateAvatar, updateSelfTags, clearNotifications,
+    createMember, updateMemberProfile, updateAvatar, updateSelfTags, fetchSimilarMembers, clearNotifications,
     fetchComments, createComment, follow, unfollow, fetchMember,
     fetchRooms, createRoom, joinRoomHttp, endRoom,
     invite, respondInvitation, fetchInvitations, bringPlaylist,
@@ -61,6 +62,8 @@ export default function CommunityView() {
   const [feedCursor, setFeedCursor] = useState(null);
   const [hasMoreFeed, setHasMoreFeed] = useState(true);
   const [dmActiveThreadId, setDmActiveThreadId] = useState(null);
+  // 相似成员候选拉取失败（社区未启用 / 网络错）。失败不阻断邀请：面板退回手填 userId。
+  const [similarFailed, setSimilarFailed] = useState(false);
 
   // ── Profile 编辑（改头像 / 改昵称）──
   const [editingProfile, setEditingProfile] = useState(false);
@@ -139,11 +142,16 @@ export default function CommunityView() {
     fetchRooms().catch(e => setError(e.message));
   }, [activeTab, fetchRooms]);
 
-  // 切到 invitations 时拉邀请列表
+  // 切到 invitations 时拉邀请列表 + 相似成员候选。
+  // 候选失败不该挡住整个面板：列表与手填邀请都不依赖它，所以这里单独吞掉错误、
+  // 只标记候选不可用，而不是像别的 effect 那样 setError 打断页面。
   useEffect(() => {
     if (activeTab !== 'invitations' || !currentMember) return;
     fetchInvitations(currentMember.userId).catch(e => setError(e.message));
-  }, [activeTab, currentMember, fetchInvitations]);
+    fetchSimilarMembers(currentMember.userId)
+      .then(() => setSimilarFailed(false))
+      .catch(() => setSimilarFailed(true));
+  }, [activeTab, currentMember, fetchInvitations, fetchSimilarMembers]);
 
   // 切到 following 时拉关注流
   useEffect(() => {
@@ -348,6 +356,9 @@ export default function CommunityView() {
         <InvitationsTab
           invitations={invitations}
           currentMember={currentMember}
+          similarMembers={similarMembers}
+          similarHasTags={similarHasTags}
+          similarFailed={similarFailed}
           onRespond={respondInvitation}
           onBringPlaylist={bringPlaylist}
           onInvite={invite}
@@ -1384,7 +1395,11 @@ function RoomInterior({ roomState, currentMember, onEnd, onSkip }) {
 }
 
 // ── 邀请 Tab — 发起 + 列表 + 响应（F9）──────────────────
-function InvitationsTab({ invitations, currentMember, onRespond, onBringPlaylist, onInvite, onError }) {
+function InvitationsTab({
+  invitations, currentMember,
+  similarMembers = [], similarHasTags = false, similarFailed = false,
+  onRespond, onBringPlaylist, onInvite, onError,
+}) {
   const [inviteToUserId, setInviteToUserId] = useState('');
   const [inviting, setInviting] = useState(false);
 
@@ -1397,12 +1412,13 @@ function InvitationsTab({ invitations, currentMember, onRespond, onBringPlaylist
     );
   }
 
-  const handleInvite = async (e) => {
-    e.preventDefault();
-    if (!inviteToUserId.trim()) return;
+  /** 按 userId 发起邀请，并清掉手填输入（点了候选就该清掉，否则会误以为还没选人）。 */
+  const sendInvite = async (toUserId) => {
+    const target = String(toUserId || '').trim();
+    if (!target || inviting) return;
     setInviting(true);
     try {
-      await onInvite({ fromUserId: currentMember.userId, toUserId: inviteToUserId.trim() });
+      await onInvite({ fromUserId: currentMember.userId, toUserId: target });
       setInviteToUserId('');
     } catch (err) {
       onError(err.message);
@@ -1411,13 +1427,51 @@ function InvitationsTab({ invitations, currentMember, onRespond, onBringPlaylist
     }
   };
 
+  const handleInvite = async (e) => {
+    e.preventDefault();
+    await sendInvite(inviteToUserId);
+  };
+
   const sent = invitations.filter(inv => inv.fromUserId === currentMember.userId);
   const received = invitations.filter(inv => inv.toUserId === currentMember.userId);
 
+  // 候选区三种状态必须区分开，否则用户看到空区不知道该做什么：
+  //   拉取失败 → 说明候选不可用（仍可手填）
+  //   没填标签 → 该去填标签，这是邀不到的根因
+  //   有标签但无人相似 → 正常结果，换人只能靠手填
+  const renderCandidates = () => {
+    if (similarFailed) {
+      return <div className="community-invite-hint">Similar members unavailable — invite by user id below.</div>;
+    }
+    if (similarMembers.length === 0) {
+      return similarHasTags
+        ? <div className="community-invite-hint">No similar members yet.</div>
+        : <div className="community-invite-hint">Add your interest tags to see similar members.</div>;
+    }
+    return (
+      <div className="community-invite-chips">
+        {similarMembers.map(c => (
+          <button
+            key={c.userId}
+            type="button"
+            className="community-invite-chip"
+            disabled={inviting}
+            onClick={() => sendInvite(c.userId)}
+            title={c.sharedTags?.length ? `共同标签：${c.sharedTags.join(' / ')}` : undefined}
+          >
+            {c.nickname || c.userId}
+            {c.sharedTags?.length > 0 && <span className="community-invite-chip-tags">{c.sharedTags.join(' / ')}</span>}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <>
+      <div className="community-composer-label">INVITE AN AGENT</div>
+      {renderCandidates()}
       <form className="community-composer" onSubmit={handleInvite}>
-        <div className="community-composer-label">INVITE AN AGENT</div>
         <div className="community-composer-row">
           <input
             className="community-composer-input"

@@ -257,6 +257,34 @@ describe('CommunityContext', () => {
     vi.unstubAllGlobals();
   });
 
+  // ── 相似成员（F1 自填标签的下游：邀请候选）──
+  it('fetchSimilarMembers GETs /members/:id/similar and stores candidates', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({
+        ok: true,
+        data: { userId: 'u1', hasTags: true, candidates: [{ userId: 'u2', nickname: '阿七', score: 0.5, sharedTags: ['后摇'] }] },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderCommunityHook();
+    await act(async () => { await result.current.fetchSimilarMembers('u1'); });
+    expect(fetchMock).toHaveBeenCalledWith('/api/community/members/u1/similar', expect.objectContaining({ method: 'GET' }));
+    expect(result.current.similarMembers.length).toBe(1);
+    expect(result.current.similarMembers[0].userId).toBe('u2');
+    // hasTags 要留住：空列表里「没填标签」与「有标签但没人相似」是两种状态，
+    // 合成一个空数组就没法给用户不同的提示
+    expect(result.current.similarHasTags).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it('fetchSimilarMembers throws on failure', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 501 }));
+    const { result } = renderCommunityHook();
+    await expect(act(async () => { await result.current.fetchSimilarMembers('u1'); }))
+      .rejects.toThrow('fetch_similar_members_failed');
+    vi.unstubAllGlobals();
+  });
+
   it('updateSelfTags surfaces backend error code on rejection', async () => {
     // 后端以 error 字段说明拒绝原因，前端透传该码而非笼统的 update_self_tags_failed
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({

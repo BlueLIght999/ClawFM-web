@@ -38,6 +38,11 @@ const DEFAULT_COMMUNITY_STATE = {
   roomState: null, // { roomId, isPlaying, currentSong, playlists, ... }
   // 我相关的邀请列表（F9）
   invitations: [],
+  // 与我兴趣标签最重合的成员（F1 自填标签的下游：邀请候选）
+  similarMembers: [],
+  // 上面那份候选里「我自己有没有标签」。false 表示还没填标签（该引导去填），
+  // true 且候选为空才是「有标签但暂无相似的人」——两种空状态的提示不同
+  similarHasTags: false,
   // 私信会话列表（DM / agent DM）：{ id, peer:{userId,nickname,avatarUrl,isAgent}, lastMessage, ... }
   dmThreads: [],
   // 私信会话消息缓存：{ [threadId]: message[] }（按需拉取）
@@ -142,6 +147,25 @@ export function CommunityProvider({ socket, children }) {
     // 用后端归一后的列表覆盖本地，避免前端残留未 trim/未去重的原始输入
     const current = stateRef.current.currentMember;
     if (current) updateState({ currentMember: { ...current, selfTags: data.selfTags } });
+    return data;
+  }, [updateState]);
+
+  /**
+   * 拉「与我兴趣标签最重合的其他成员」（F1 自填标签的下游消费）。
+   *
+   * userId 只用来拼 URL：服务端那条路由走 assertSelf，非本人一律 403，
+   * 所以这里传别人的 id 拿不到数据，不需要在前端再拦一道。
+   *
+   * 不做静默降级：失败就抛，由调用方决定是提示还是回落到手填输入。
+   */
+  const fetchSimilarMembers = useCallback(async (userId) => {
+    const res = await fetch(`/api/community/members/${encodeURIComponent(userId)}/similar`, { method: 'GET' });
+    if (!res.ok) throw new Error('fetch_similar_members_failed');
+    const data = (await res.json()).data;
+    updateState({
+      similarMembers: Array.isArray(data?.candidates) ? data.candidates : [],
+      similarHasTags: data?.hasTags === true,
+    });
     return data;
   }, [updateState]);
 
@@ -675,7 +699,7 @@ export function CommunityProvider({ socket, children }) {
     // socket emit
     identify, joinRoom, leaveRoom, roomSkip,
     // http
-    createMember, updateMemberProfile, updateAvatar, updateSelfTags, refreshProfile, createPost, fetchFeed, likePost,
+    createMember, updateMemberProfile, updateAvatar, updateSelfTags, fetchSimilarMembers, refreshProfile, createPost, fetchFeed, likePost,
     fetchInbox, fetchClusters, triggerAgentComment, updateAgentConfig,
     // F9 invitation http
     invite, respondInvitation, fetchInvitations, bringPlaylist,

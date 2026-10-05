@@ -496,6 +496,52 @@
   text-transform: uppercase;
 }
 
+/* === 邀请面板：相似成员候选（F1 标签 → F9 邀请）=== */
+.community-invite-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: -4px 0 4px;
+}
+
+/* 候选是一个按钮而非标签：点它即发起邀请，所以 hover 要给出可点反馈 */
+.community-invite-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-dim);
+  padding: 4px 7px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.community-invite-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: 0 0 8px var(--shadow-accent-outer);
+}
+
+.community-invite-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.community-invite-chip-tags {
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+/* 空态/失败提示：不用 community-empty（那是整块的居中空屏），这里只是一行副文 */
+.community-invite-hint {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: -4px 0 4px;
+}
+
 .community-composer textarea {
   width: 100%;
   min-height: 100px;
