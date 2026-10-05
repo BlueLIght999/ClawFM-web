@@ -211,9 +211,28 @@ export function createServices(io) {
       return res?.choices?.[0]?.message?.content || '';
     },
   });
+  const distributionService = createDistributionService({ communityRepository, eventPublisher: communityEventPublisher, logger });
   const communityService = createCommunityService({
     communityRepository,
     eventPublisher: communityEventPublisher,
+    logger,
+    // F4 发帖触发分发。挪出请求：分发对每个收件人一读一写，簇大时会把发帖响应
+    // 拖慢到与簇大小成正比；发帖人不需要等它。
+    postDistributor: (post) => {
+      setImmediate(() => {
+        try {
+          distributionService.distribute({
+            targetType: 'post',
+            targetId: String(post.id),
+            contentTags: post.autoTags,
+            fromUserId: post.userId,
+            reason: 'post_tags',
+          });
+        } catch (e) {
+          logger?.warn?.({ component: 'community', postId: post.id, err: e?.message }, 'post distribution failed');
+        }
+      });
+    },
     feedPersonalizer: (userId, posts) => {
       try {
         const invs = communityRepository.listInvitations(userId).filter((i) => i.status === 'active' && i.contextType === 'feed');
@@ -234,7 +253,6 @@ export function createServices(io) {
   });
   const clusterService = createClusterService({ communityRepository, eventPublisher: communityEventPublisher, logger });
   const similarMembersService = createSimilarMembersService({ communityRepository, logger });
-  const distributionService = createDistributionService({ communityRepository, eventPublisher: communityEventPublisher, logger });
   const memberAgentService = createMemberAgentService({ communityRepository, memberAgentLoopPort, eventPublisher: communityEventPublisher, logger });
   const invitationService = createInvitationService({
     communityRepository,

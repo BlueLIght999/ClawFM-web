@@ -9,8 +9,9 @@ import { validateFollow } from '../../domain/community/followRules.js';
 import { extractPostTags } from '../../domain/community/postTagRules.js';
 
 /**
- * @param {{communityRepository: import('../ports/repos/CommunityRepository.js').CommunityRepository, feedPersonalizer?: ((userId: string, posts: Array) => Array), eventPublisher?: {emit?: (event:string, payload:object, targetUserId?:string|null)=>void}}} [deps]
+ * @param {{communityRepository: import('../ports/repos/CommunityRepository.js').CommunityRepository, feedPersonalizer?: ((userId: string, posts: Array) => Array), postDistributor?: ((post: object) => void), eventPublisher?: {emit?: (event:string, payload:object, targetUserId?:string|null)=>void}, logger?: {warn?: Function}}} [deps]
  *   feedPersonalizer: F9 发现流个性化（按 active feed-invitations 加权）；
+ *   postDistributor: F4 发帖触发分发（按帖子 autoTags 推给匹配簇）；
  *   eventPublisher: 用于 community:post-new 广播
  */
 // The `= {}` default is cast rather than the dependency being marked optional:
@@ -18,7 +19,7 @@ import { extractPostTags } from '../../domain/community/postTagRules.js';
 // typing it optional would trade one honest error for ~100 false
 // possibly-undefined ones. A caller that omits it fails at first use -- which is
 // the existing behaviour -- and the cast keeps that contract documented.
-export function createCommunityService({communityRepository, feedPersonalizer, eventPublisher} = /** @type {any} */ ({})) {
+export function createCommunityService({communityRepository, feedPersonalizer, postDistributor, eventPublisher, logger} = /** @type {any} */ ({})) {
   const repo = communityRepository;
   const personalize = typeof feedPersonalizer === 'function' ? feedPersonalizer : (_uid, posts) => posts;
 
@@ -52,8 +53,24 @@ export function createCommunityService({communityRepository, feedPersonalizer, e
     const saved = repo.getPost(id);
     if (post.type !== 'comment') {
       eventPublisher?.emit?.('community:post-new', saved, null);
+      distributePost(saved);
     }
     return { ok: true, post: saved };
+  }
+
+  /**
+   * F4：成员发帖 → 推给标签匹配的簇。没有标签的帖子匹配不到任何簇，不进分发。
+   * 分发是增强：它失败不该让已落库的帖子对发帖人显示为失败，所以这里兜住。
+   * @param {object|null} saved
+   */
+  function distributePost(saved) {
+    if (typeof postDistributor !== 'function') return;
+    if (!Array.isArray(saved?.autoTags) || saved.autoTags.length === 0) return;
+    try {
+      postDistributor(saved);
+    } catch (e) {
+      logger?.warn?.({ component: 'community', postId: saved.id, err: e?.message }, 'post distribution failed');
+    }
   }
 
   /**

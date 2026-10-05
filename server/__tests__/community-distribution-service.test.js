@@ -74,6 +74,30 @@ describe('distribution service', () => {
     expect(repo.inbox[0].userId).toBe('c');
   });
 
+  it('distribute_neverPushesTheAuthorTheirOwnContent', () => {
+    // 成员发帖后自己也在匹配簇里：把自己的帖推进自己的收件箱是噪音
+    const repo = makeMockRepo(clusters);
+    const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
+    const r = service.distribute({ targetType: 'post', targetId: '1', contentTags: ['rock'], fromUserId: 'a' });
+    expect(r.pushedTo).toBe(1);
+    expect(repo.inbox.map((e) => e.userId)).toEqual(['b']);
+    expect(publisher.emits.map((e) => e.targetUserId)).toEqual(['b']);
+  });
+
+  it('distribute_attributesAMemberInSeveralMatchedClustersToTheBestScoringOne', () => {
+    // 同一成员可能出现在多个匹配簇（快照合并或历史数据）。fromCluster 取得分最高的那个，
+    // 与此前逐个 find 的语义一致（matched 已按得分降序）
+    const overlapping = [
+      { clusterId: 7, label: 'rock', centroid: { genre_rock: 1 }, memberUserIds: ['x'] },
+      { clusterId: 8, label: 'rock·pop', centroid: { genre_rock: 1, genre_pop: 1 }, memberUserIds: ['x'] },
+    ];
+    const repo = makeMockRepo(overlapping);
+    const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });
+    service.distribute({ targetType: 'post', targetId: '3', contentTags: ['rock', 'pop'] });
+    expect(repo.inbox).toHaveLength(1);
+    expect(repo.inbox[0].fromCluster).toBe(8);
+  });
+
   it('getInbox_returnsUserInbox', () => {
     const repo = makeMockRepo(clusters);
     const service = createDistributionService({ communityRepository: repo, eventPublisher: publisher });

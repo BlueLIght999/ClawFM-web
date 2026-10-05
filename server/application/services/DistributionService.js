@@ -7,6 +7,26 @@
 import { matchClustersForContent, collectRecipients } from '../../domain/community/distributionRules.js';
 
 /**
+ * 成员 → 其所在的得分最高的匹配簇。
+ *
+ * 一次建表代替逐成员 matched.find(...memberUserIds.includes)：后者是
+ * O(收件人 × 簇数 × 簇大小)，簇一大就在发帖路径上退化成平方级。
+ * matched 已按得分降序，先到先得即「得分最高」，与原 find 语义一致。
+ *
+ * @param {Array<{clusterId:number, memberUserIds?:string[]}>} matched
+ * @returns {Map<string, number>}
+ */
+function bestClusterByMember(matched) {
+  const map = new Map();
+  for (const m of matched) {
+    for (const uid of m.memberUserIds || []) {
+      if (!map.has(uid)) map.set(uid, m.clusterId);
+    }
+  }
+  return map;
+}
+
+/**
  * @param {{communityRepository: import('../ports/repos/CommunityRepository.js').CommunityRepository, eventPublisher?: {emit?: (event:string, payload:object, targetUserId?:string)=>void}, logger?: {warn?:Function}}} [deps]
  */
 // The `= {}` default is cast rather than the dependency being marked optional:
@@ -36,10 +56,14 @@ export function createDistributionService({communityRepository, eventPublisher, 
     }
 
     const recipients = collectRecipients(matched);
+    const clusterOf = bestClusterByMember(matched);
+    const author = fromUserId === null ? null : String(fromUserId);
     let pushed = 0;
     let skipped = 0;
 
     for (const uid of recipients) {
+      // 作者自己通常就在匹配簇里：把自己的内容推进自己的收件箱是噪音
+      if (author !== null && String(uid) === author) continue;
       // RC1: 24h 去重
       try {
         if (repo.hasInboxRecently(uid, targetType, targetId)) {
@@ -50,8 +74,7 @@ export function createDistributionService({communityRepository, eventPublisher, 
         logger?.warn?.({ component: 'community', err: e?.message }, 'dedup check failed, proceeding');
       }
 
-      const matchedCluster = matched.find((m) => (m.memberUserIds || []).includes(uid));
-      const fromCluster = matchedCluster ? matchedCluster.clusterId : null;
+      const fromCluster = clusterOf.get(uid) ?? null;
 
       try {
         repo.createInbox({ userId: uid, targetType, targetId, fromCluster, reason });

@@ -99,6 +99,35 @@ describe('community service', () => {
     expect(r.post.autoTags).toEqual(['rnb']);
   });
 
+  it('createPost_handsTaggedPostsToTheDistributor', () => {
+    // PRD F4 触发时机之一：成员发帖 → 按标签推给匹配簇
+    const handed = [];
+    const svc = createCommunityService({ communityRepository: makeMockRepo(), postDistributor: (p) => handed.push(p) });
+    const r = svc.createPost({ userId: 'u1', type: 'reflection', content: '后摇之夜' });
+    expect(handed).toHaveLength(1);
+    expect(handed[0].id).toBe(r.post.id);
+    expect(handed[0].autoTags).toEqual(['postrock']);
+  });
+
+  it('createPost_skipsTheDistributorForCommentsAndUntaggedPosts', () => {
+    // 评论不分发（与不发 post-new 同理）；没有标签的帖子匹配不到任何簇，不必进分发
+    const handed = [];
+    const svc = createCommunityService({ communityRepository: makeMockRepo(), postDistributor: (p) => handed.push(p) });
+    svc.createPost({ userId: 'u1', type: 'comment', content: '后摇', parentId: 1 });
+    svc.createPost({ userId: 'u1', type: 'reflection', content: '今天天气不错' });
+    expect(handed).toHaveLength(0);
+  });
+
+  it('createPost_stillSucceedsWhenTheDistributorThrows', () => {
+    // 分发是增强：它失败不该让已落库的帖子对发帖人显示为失败
+    const svc = createCommunityService({
+      communityRepository: makeMockRepo(),
+      postDistributor: () => { throw new Error('boom'); },
+    });
+    const r = svc.createPost({ userId: 'u1', type: 'reflection', content: '后摇' });
+    expect(r.ok).toBe(true);
+  });
+
   it('createPost_passesAgentFlagsThrough', () => {
     const r = service.createPost({
       userId: 'u1', type: 'comment', content: '代发', parentId: 5,
