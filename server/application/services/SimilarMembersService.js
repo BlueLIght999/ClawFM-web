@@ -88,7 +88,7 @@ function rankCandidates(recalled, members, queryKeys) {
 
 /**
  * @param {object} deps
- * @param {{listMembersWithTags?: () => Array<object>, getProfile?: (userId:string) => object|null, getMember?: (userId:string) => object|null}} deps.communityRepository
+ * @param {{listMembersWithTags?: () => Array<object>, getMember?: (userId:string) => object|null}} deps.communityRepository
  * @param {{warn?: Function}} [deps.logger]
  * @param {number} [deps.ttlMs]
  */
@@ -97,27 +97,26 @@ export function createSimilarMembersService({ communityRepository, logger, ttlMs
   const cache = createTagIndexCache({ communityRepository, logger, ttlMs });
 
   /**
-   * 取当前登录用户自己的标签。
+   * 取查询方自己的归一标签键。
    *
-   * 偏好 profile.userTags（融合路 3 的显式标签，写入时已落库），回退到成员行的
-   * self_tags——两者由同一个写路由同时更新，回退只是防御路由注释里已声明的
-   * 「画像重建失败但标签已落库」降级态。
+   * 与候选同源：都取自同一份快照里的 self_tags。此前这里优先读 profile.userTags，
+   * 画像重建失败时它是旧标签，而候选用的是新 self_tags——两边按不同的标签集合
+   * 算相似度。从快照取还顺带省掉每次请求一次读库：快照已在缓存里，且已归一。
    *
-   * @param {string} userId
-   * @returns {unknown[]}
+   * 快照不在场（仓储读失败）时才回退读成员行，只为如实报告 hasTags；
+   * 那种情况下候选本来就为空，这次读库不在热路径上。
+   *
+   * 不在快照里 ≡ 没有可用标签：toIndexEntry 只把有可用标签的成员放进 members。
+   *
+   * @param {string} uid
+   * @param {{members: Map<string, {canonical: Set<string>}>}|null} snap
+   * @returns {Set<string>}
    */
-  function ownTags(userId) {
-    const uid = String(userId ?? '');
-    if (uid.length === 0) return [];
-
-    const profile = typeof repo.getProfile === 'function' ? repo.getProfile(uid) : null;
-    const fromProfile = profile?.userTags;
-    if (Array.isArray(fromProfile) && fromProfile.length > 0) {
-      return fromProfile.map((t) => (t && typeof t === 'object' ? t.tag : t));
-    }
-
+  function ownKeys(uid, snap) {
+    if (uid.length === 0) return new Set();
+    if (snap !== null) return snap.members.get(uid)?.canonical ?? new Set();
     const member = typeof repo.getMember === 'function' ? repo.getMember(uid) : null;
-    return Array.isArray(member?.selfTags) ? member.selfTags : [];
+    return new Set(canonicalizeTags(Array.isArray(member?.selfTags) ? member.selfTags : []));
   }
 
   /**
@@ -134,14 +133,13 @@ export function createSimilarMembersService({ communityRepository, logger, ttlMs
    */
   function findSimilar({ userId, limit } = /** @type {any} */ ({})) {
     const uid = String(userId ?? '');
-    const queryKeys = new Set(canonicalizeTags(ownTags(uid)));
+    const snap = cache.snapshot();
+    const queryKeys = ownKeys(uid, snap);
 
     // 空结果里区分「自己没有标签」与「有标签但没人相似」——前者前端该引导去填标签，
     // 后者该原样展示空列表。合成一个空数组会把两种状态压成同一种。
     if (queryKeys.size === 0) return { userId: uid, hasTags: false, candidates: [] };
-
-    const snap = cache.snapshot();
-    if (snap === null || snap.members.size === 0) return { userId: uid, hasTags: true, candidates: [] };
+    if (snap === null) return { userId: uid, hasTags: true, candidates: [] };
 
     // 召回上限固定取 default：Jaccard 按比例排序，先按「共享个数」砍到 limit
     // 会砍掉「共享 1 个但分母很小」的高分候选。

@@ -9,7 +9,7 @@ import { SIMILAR_MEMBERS_CACHE_TTL_MS } from '../application/services/TagIndexCa
  * 造一个只实现相似成员所需方法的仓储替身。
  * @param {object} opts
  * @param {Array<{userId:string, nickname?:string, avatarUrl?:string, tags:string[]}>} opts.members
- * @param {object|null} [opts.profile] getProfile 的返回值（含 userTags）
+ * @param {object|null} [opts.profile] getProfile 的返回值（服务不该读它，见同源用例）
  * @param {Error} [opts.throws] 让 listMembersWithTags 抛出
  */
 function makeRepo({ members = [], profile = null, throws = null } = {}) {
@@ -35,7 +35,6 @@ describe('SimilarMembersService.findSimilar', () => {
     // 召回按共享个数召回，重排按比例——「2 里共享 2」必须排在「50 里共享 2」之前，
     // 这正是两段式存在的理由：只按 sharedCount 排会把后者排前面。
     const repo = makeRepo({
-      profile: { userTags: [{ tag: '后摇' }, { tag: '爵士' }] },
       members: [
         { userId: 'me', tags: ['后摇', '爵士'] },
         { userId: 'narrow', tags: ['后摇', '爵士'] },
@@ -54,7 +53,6 @@ describe('SimilarMembersService.findSimilar', () => {
 
   it('excludes the caller from their own results', () => {
     const repo = makeRepo({
-      profile: { userTags: ['后摇'] },
       members: [{ userId: 'me', tags: ['后摇'] }],
     });
     const res = makeService(repo).findSimilar({ userId: 'me' });
@@ -71,7 +69,6 @@ describe('SimilarMembersService.findSimilar', () => {
 
   it('reports hasTags=true with an empty list when nobody shares a tag', () => {
     const repo = makeRepo({
-      profile: { userTags: ['后摇'] },
       members: [
         { userId: 'me', tags: ['后摇'] },
         { userId: 'other', tags: ['电音'] },
@@ -82,11 +79,9 @@ describe('SimilarMembersService.findSimilar', () => {
     expect(res.candidates).toEqual([]);
   });
 
-  it('prefers profile.userTags and folds {tag} objects', () => {
-    // 融合路 3 落库的是 [{tag, weight}]，不是裸字符串
+  it('returns canonical keys as sharedTags', () => {
     const repo = makeRepo({
-      profile: { userTags: [{ tag: '后摇', weight: 1 }] },
-      members: [{ userId: 'other', tags: ['后摇'] }],
+      members: [{ userId: 'me', tags: ['后摇'] }, { userId: 'other', tags: ['后摇'] }],
     });
     const { candidates } = makeService(repo).findSimilar({ userId: 'me' });
     expect(candidates).toHaveLength(1);
@@ -94,24 +89,39 @@ describe('SimilarMembersService.findSimilar', () => {
     expect(candidates[0].sharedTags).toEqual(['postrock']);
   });
 
-  it('falls back to the member row when the profile has no usable tags', () => {
-    // 降级态：画像重建失败但标签已落库（见 self-tags 路由注释）
+  it('reads the caller tags from the same snapshot as the candidates, not from the profile', () => {
+    // 查询侧与候选侧必须同源：此前查询侧优先读 profile.userTags，画像重建失败时
+    // 它是旧标签，而候选侧读的是新 self_tags，两边按不同的标签集合算相似度。
     const repo = makeRepo({
-      profile: { userTags: [] },
+      profile: { userTags: ['电音'] }, // 过时的画像标签：必须被忽略
       members: [
         { userId: 'me', tags: ['后摇'] },
-        { userId: 'other', tags: ['后摇'] },
+        { userId: 'postrock-fan', tags: ['后摇'] },
+        { userId: 'edm-fan', tags: ['电音'] },
       ],
     });
     const { candidates } = makeService(repo).findSimilar({ userId: 'me' });
-    expect(candidates.map((c) => c.userId)).toEqual(['other']);
+    expect(candidates.map((c) => c.userId)).toEqual(['postrock-fan']);
+  });
+
+  it('does no per-request repository read once the index is cached', () => {
+    // 查询方标签从快照取，不再每次请求读 getProfile/getMember
+    const repo = makeRepo({
+      members: [{ userId: 'me', tags: ['后摇'] }, { userId: 'o', tags: ['后摇'] }],
+    });
+    const getProfile = vi.fn(repo.getProfile);
+    const getMember = vi.fn(repo.getMember);
+    const svc = makeService({ ...repo, getProfile, getMember });
+    svc.findSimilar({ userId: 'me' });
+    svc.findSimilar({ userId: 'me' });
+    expect(getProfile).not.toHaveBeenCalled();
+    expect(getMember).not.toHaveBeenCalled();
   });
 
   it('matches through synonym folding, not literal string equality', () => {
     // 「爵士」与「Jazz」同桶：判等来源与召回层同源（都走 canonicalizeTags）
     const repo = makeRepo({
-      profile: { userTags: ['Jazz'] },
-      members: [{ userId: 'other', tags: ['爵士'] }],
+      members: [{ userId: 'me', tags: ['Jazz'] }, { userId: 'other', tags: ['爵士'] }],
     });
     const { candidates } = makeService(repo).findSimilar({ userId: 'me' });
     expect(candidates.map((c) => c.userId)).toEqual(['other']);
@@ -119,8 +129,8 @@ describe('SimilarMembersService.findSimilar', () => {
 
   it('skips members with no usable tags', () => {
     const repo = makeRepo({
-      profile: { userTags: ['后摇'] },
       members: [
+        { userId: 'me', tags: ['后摇'] },
         { userId: 'empty', tags: ['   '] },
         { userId: 'good', tags: ['后摇'] },
       ],
@@ -131,8 +141,7 @@ describe('SimilarMembersService.findSimilar', () => {
 
   it('skips rows with an empty userId', () => {
     const repo = makeRepo({
-      profile: { userTags: ['后摇'] },
-      members: [{ userId: '', tags: ['后摇'] }, { userId: 'good', tags: ['后摇'] }],
+      members: [{ userId: 'me', tags: ['后摇'] }, { userId: '', tags: ['后摇'] }, { userId: 'good', tags: ['后摇'] }],
     });
     const { candidates } = makeService(repo).findSimilar({ userId: 'me' });
     expect(candidates.map((c) => c.userId)).toEqual(['good']);
@@ -146,8 +155,8 @@ describe('SimilarMembersService.findSimilar', () => {
       { userId: 'alpha', tags: ['后摇'] },
       { userId: 'mid', tags: ['后摇'] },
     ];
-    const forward = makeService(makeRepo({ profile: { userTags: ['后摇'] }, members })).findSimilar({ userId: 'me' });
-    const reversed = makeService(makeRepo({ profile: { userTags: ['后摇'] }, members: [...members].reverse() })).findSimilar({ userId: 'me' });
+    const forward = makeService(makeRepo({ members })).findSimilar({ userId: 'me' });
+    const reversed = makeService(makeRepo({ members: [...members].reverse() })).findSimilar({ userId: 'me' });
 
     expect(forward.candidates.map((c) => c.userId)).toEqual(['alpha', 'mid', 'zeta']);
     expect(reversed.candidates.map((c) => c.userId)).toEqual(['alpha', 'mid', 'zeta']);
@@ -156,10 +165,11 @@ describe('SimilarMembersService.findSimilar', () => {
   it('degrades to an empty list when the repository read throws', () => {
     // 相似成员是增强功能，仓储读失败不该把整个社区页拖红
     const warn = vi.fn();
-    const repo = makeRepo({
-      profile: { userTags: ['后摇'] },
-      throws: new Error('db is locked'),
-    });
+    // 快照不在场时回退读成员行，只为如实报告 hasTags
+    const repo = {
+      ...makeRepo({ throws: new Error('db is locked') }),
+      getMember: () => ({ userId: 'me', selfTags: ['后摇'] }),
+    };
     const res = makeService(repo, { logger: { warn } }).findSimilar({ userId: 'me' });
 
     expect(res).toEqual({ userId: 'me', hasTags: true, candidates: [] });
@@ -175,7 +185,7 @@ describe('SimilarMembersService limit handling', () => {
 
   /** @param {unknown} limit @returns {number} 候选数 */
   function withLimit(limit) {
-    const repo = makeRepo({ profile: { userTags: ['后摇'] }, members });
+    const repo = makeRepo({ members });
     return makeService(repo).findSimilar({ userId: 'me', limit }).candidates.length;
   }
 
@@ -189,7 +199,6 @@ describe('SimilarMembersService limit handling', () => {
       userId: `x${i}`, tags: ['后摇'],
     }));
     const repo = makeRepo({
-      profile: { userTags: ['后摇'] },
       members: [{ userId: 'me', tags: ['后摇'] }, ...many],
     });
     const svc = makeService(repo);
@@ -218,7 +227,6 @@ describe('SimilarMembersService caching', () => {
   it('serves repeat calls from the cached index', () => {
     // 建索引是这条路径上最贵的一步（实测 2000 成员 11.8ms vs 单次召回 0.5ms）
     const repo = makeRepo({
-      profile: { userTags: ['后摇'] },
       members: [{ userId: 'me', tags: ['后摇'] }, { userId: 'o', tags: ['后摇'] }],
     });
     let reads = 0;
@@ -235,7 +243,6 @@ describe('SimilarMembersService caching', () => {
   it('rebuilds after invalidate so a fresh tag write takes effect immediately', () => {
     // 显式失效是主路径：TTL 是兜底，不能让用户等 60s 才看到自己刚写的标签
     const repo = makeRepo({
-      profile: { userTags: ['后摇'] },
       members: [{ userId: 'me', tags: ['后摇'] }, { userId: 'o', tags: ['后摇'] }],
     });
     const svc = makeService(repo);
@@ -249,7 +256,7 @@ describe('SimilarMembersService caching', () => {
   });
 
   it('invalidate is idempotent', () => {
-    const repo = makeRepo({ profile: { userTags: ['后摇'] }, members: [{ userId: 'me', tags: ['后摇'] }] });
+    const repo = makeRepo({ members: [{ userId: 'me', tags: ['后摇'] }] });
     const svc = makeService(repo);
     svc.invalidate();
     svc.invalidate();
@@ -262,8 +269,7 @@ describe('SimilarMembersService caching', () => {
     vi.useFakeTimers();
     try {
       const repo = makeRepo({
-        profile: { userTags: ['后摇'] },
-        members: [{ userId: 'me', tags: ['后摇'] }, { userId: 'o', tags: ['后摇'] }],
+          members: [{ userId: 'me', tags: ['后摇'] }, { userId: 'o', tags: ['后摇'] }],
       });
       let reads = 0;
       const counting = { ...repo, listMembersWithTags: () => { reads += 1; return repo.listMembersWithTags(); } };
@@ -284,7 +290,7 @@ describe('SimilarMembersService caching', () => {
 
   it('honours a custom ttl over the module default', () => {
     expect(SIMILAR_MEMBERS_CACHE_TTL_MS).toBe(60 * 1000);
-    const repo = makeRepo({ profile: { userTags: ['后摇'] }, members: [{ userId: 'me', tags: ['后摇'] }] });
+    const repo = makeRepo({ members: [{ userId: 'me', tags: ['后摇'] }] });
     const svc = makeService(repo, { ttlMs: 5 });
     expect(svc.findSimilar({ userId: 'me' }).hasTags).toBe(true);
   });
