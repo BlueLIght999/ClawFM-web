@@ -123,4 +123,28 @@ describe('chatHandler — handleChatMessage', () => {
     await handleChatMessage('', io, socket, deps);
     expect(deps.agentLoopService.handleMessage).toHaveBeenCalled();
   });
+
+  // Community tools (bring_playlist / member comment / invite) get their identity
+  // from the tool context, and this is where it comes from: the server-side login
+  // state, resolved the same way as HTTP requireCommunityAuth and community:identify
+  describe('trusted caller', () => {
+    const handled = { handled: true, routing: {}, conversationResults: [], snapshot: {} };
+
+    it('passesLoggedInMember_asCallerUserId', async () => {
+      deps.agentLoopService.handleMessage.mockResolvedValue(handled);
+      deps.authRepository = { currentUid: () => 'u1' };
+      await handleChatMessage('hi', io, socket, deps);
+      expect(deps.agentLoopService.handleMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ text: 'hi', callerUserId: 'u1' }),
+      );
+    });
+
+    it('passesNullCaller_whenNobodyIsLoggedIn', async () => {
+      deps.agentLoopService.handleMessage.mockResolvedValue(handled);
+      await handleChatMessage('hi', io, socket, deps);
+      expect(deps.agentLoopService.handleMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ callerUserId: null }),
+      );
+    });
+  });
 });

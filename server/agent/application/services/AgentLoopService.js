@@ -21,7 +21,7 @@ import { matchSearchRoute } from '../../../domain/routing/matchSearchRoute.js';
  *
  * @returns {Promise<{conversationResults: Array, queueUpdate: object|null}>}
  */
-async function executeToolCalls(response, { toolRegistry, loopState, messages, queue, snapshot }) {
+async function executeToolCalls(response, { toolRegistry, loopState, messages, queue, snapshot, callerUserId }) {
   const conversationResults = [];
   let queueUpdatePayload = null;
 
@@ -39,7 +39,7 @@ async function executeToolCalls(response, { toolRegistry, loopState, messages, q
   const results = await Promise.all(
     toolCalls.map(tc => {
       const tool = toolRegistry.get(tc.name);
-      return executeToolSafely(tool, tc, { queue, snapshot });
+      return executeToolSafely(tool, tc, { queue, snapshot, callerUserId });
     }),
   );
 
@@ -59,12 +59,27 @@ async function executeToolCalls(response, { toolRegistry, loopState, messages, q
   return { conversationResults, queueUpdate: queueUpdatePayload };
 }
 
-async function executeToolSafely(tool, tc, { queue, snapshot }) {
+/**
+ * Run one tool call with the run-edge context as its second argument.
+ *
+ * The context is everything the tool may trust: `queue`/`snapshot` are server
+ * state, and `callerUserId` is the logged-in member as resolved by the
+ * transport (null when there is none). The model only ever produces
+ * `tc.arguments`; it never sees this context, so a tool that needs an identity
+ * must read it from here — an identity taken from the arguments is whatever the
+ * conversation talked the model into writing.
+ *
+ * @param {object|null|undefined} tool
+ * @param {{name: string, arguments?: object}} tc
+ * @param {{queue: object, snapshot: object|null, callerUserId: string|null}} context
+ * @returns {Promise<object>}
+ */
+async function executeToolSafely(tool, tc, { queue, snapshot, callerUserId }) {
   if (!tool) {
     return { handled: false, error: `未知工具: ${tc.name}` };
   }
   try {
-    return await tool.execute(tc.arguments || {}, { queue, snapshot });
+    return await tool.execute(tc.arguments || {}, { queue, snapshot, callerUserId });
   } catch (err) {
     return { handled: false, error: err.message };
   }
@@ -143,10 +158,10 @@ async function buildReactSession(text, { persona, contextBuilder, weather, toolR
  * has to handle the two outcomes: a usable response, or none at all (which the
  * caller answers by falling back to AgentTurnService).
  *
- * @param {object} ctx - { functionCalling, messages, tools, loopState, toolRegistry, queue, snapshot }
+ * @param {object} ctx - { functionCalling, messages, tools, loopState, toolRegistry, queue, snapshot, callerUserId }
  * @returns {Promise<{lastResponse: object|null, conversationResults: Array, queueUpdate: object|null}>}
  */
-async function runReactLoop({ functionCalling, messages, tools, loopState, toolRegistry, queue, snapshot }) {
+async function runReactLoop({ functionCalling, messages, tools, loopState, toolRegistry, queue, snapshot, callerUserId }) {
   const conversationResults = [];
   let queueUpdatePayload = null;
   let lastResponse = null;
@@ -159,7 +174,7 @@ async function runReactLoop({ functionCalling, messages, tools, loopState, toolR
     if (shouldStop(response, loopState)) break;
 
     const execResult = await executeToolCalls(response, {
-      toolRegistry, loopState, messages, queue, snapshot,
+      toolRegistry, loopState, messages, queue, snapshot, callerUserId,
     });
     conversationResults.push(...execResult.conversationResults);
     if (execResult.queueUpdate) queueUpdatePayload = execResult.queueUpdate;
@@ -194,26 +209,29 @@ async function finalResponseOf(response, { functionCalling, messages }) {
  * redirect: a message that gets fast-pathed is still the user's most recent
  * activity, and the proactive/typing paths read it.
  *
- * @param {{text: string, snapshot?: object|null}} input
+ * `callerUserId` is the transport's logged-in member; it reaches tools only
+ * through their context (see executeToolSafely), never through the prompt.
+ *
+ * @param {{text: string, snapshot?: object|null, callerUserId?: string|null}} input
  * @param {object} ctx - the service's assembled dependencies
  * @returns {Promise<object>}
  */
-async function handleAgentMessage({ text, snapshot = null }, ctx) {
+async function handleAgentMessage({ text, snapshot = null, callerUserId = null }, ctx) {
   ctx.userActivity.setLastUserChat(text);
 
   const redirect = preFlightCheck(text, snapshot, ctx);
   if (redirect) return redirect;
   if (!ctx.reactEnabled) return ctx.agentTurnService.handleMessage({ text, snapshot });
-  return runReactMessage({ text, snapshot }, ctx);
+  return runReactMessage({ text, snapshot, callerUserId }, ctx);
 }
 
 /**
  * The ReAct path proper, entered only once pre-flight and capability checks pass.
- * @param {{text: string, snapshot: object|null}} input
+ * @param {{text: string, snapshot: object|null, callerUserId: string|null}} input
  * @param {object} ctx
  * @returns {Promise<object>}
  */
-async function runReactMessage({ text, snapshot }, ctx) {
+async function runReactMessage({ text, snapshot, callerUserId }, ctx) {
   const { messages, tools, loopState } = await buildReactSession(text, ctx);
 
   const { lastResponse, conversationResults, queueUpdate } = await runReactLoop({
@@ -222,6 +240,7 @@ async function runReactMessage({ text, snapshot }, ctx) {
     toolRegistry: ctx.toolRegistry,
     queue: ctx.queue,
     snapshot,
+    callerUserId,
   });
 
   // The loop never got a response out of the LLM; let the fallback service try.

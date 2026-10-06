@@ -3,8 +3,26 @@
  *
  * 与 ToolFactory 解耦：单独注册器，bootstrap 在 createToolFactory 之后调用。
  * 工具闭包注入 community 服务，不 import infrastructure（守 agent/application 纯度）。
+ *
+ * 代成员行事的工具（代评 / 邀请 / 带歌单）身份只取运行循环注入的 context.callerUserId
+ * （socket 登录态，见 AgentLoopService.executeToolSafely），从不取 args：args 由模型
+ * 生成、对话就能改写，所以参数表里也不放任何身份字段。
  */
 import { createToolDefinition } from '../../domain/toolDefinition.js';
+
+/**
+ * 与 HTTP requireCommunityAuth 同构：没有可信调用者就不进 service，直接 auth_required。
+ * 包在 execute 外面而不是每个工具各判一次，新加的成员工具也就漏不掉这道校验。
+ * @param {(args: object, callerUserId: string) => Promise<object>} run
+ * @returns {(args?: object, context?: {callerUserId?: string|number|null}) => Promise<object>}
+ */
+function requireCaller(run) {
+  return async (args, context) => {
+    const callerUserId = context?.callerUserId;
+    if (!callerUserId) return { handled: false, error: 'auth_required' };
+    return run(args || {}, String(callerUserId));
+  };
+}
 
 /**
  * @param {object} deps
@@ -44,64 +62,56 @@ export function registerCommunityTools({ registry, distributionService, memberAg
 
   registry.register(createToolDefinition({
     name: 'comment_as_member_agent',
-    description: '成员触发：用其 agent persona 在指定帖子下生成评论（RC7 署名透明）。',
+    description: '用当前登录成员的 agent persona 在指定帖子下生成评论（RC7 署名透明）。',
     parameters: {
       type: 'object',
-      properties: { postId: { type: 'number' }, byUserId: { type: 'string' } },
-      required: ['postId', 'byUserId'],
+      properties: { postId: { type: 'number' } },
+      required: ['postId'],
     },
-    execute: async (args) => {
-      const r = await memberAgentService.commentOnPost({ postId: args.postId, byUserId: args.byUserId });
+    execute: requireCaller(async (args, callerUserId) => {
+      const r = await memberAgentService.commentOnPost({ postId: args.postId, byUserId: callerUserId });
       return r.ok ? { handled: true, commentId: r.commentId } : { handled: false, error: r.error };
-    },
+    }),
   }));
 
   registry.register(createToolDefinition({
     name: 'invite_member_agent',
-    description: '邀请某成员的 agent 携带其歌单与画像进入我的上下文（RC8 双向授权）。',
+    description: '以当前登录成员的名义，邀请某成员的 agent 携带其歌单与画像进入我的上下文（RC8 双向授权）。',
     parameters: {
       type: 'object',
       properties: {
-        fromUserId: { type: 'string' },
         toUserId: { type: 'string' },
         contextType: { type: 'string', enum: ['feed', 'room', 'conversation'] },
         contextId: { type: 'string' },
       },
-      required: ['fromUserId', 'toUserId'],
+      required: ['toUserId'],
     },
-    execute: async (args) => {
+    execute: requireCaller(async (args, callerUserId) => {
       const r = invitationService.invite({
-        fromUserId: args.fromUserId,
+        fromUserId: callerUserId,
         toUserId: args.toUserId,
         contextType: args.contextType || 'feed',
         contextId: args.contextId,
       });
       return r.ok ? { handled: true, id: r.id, status: r.status } : { handled: false, error: r.error, reasons: r.reasons };
-    },
+    }),
   }));
 
   registry.register(createToolDefinition({
     name: 'bring_playlist',
-    description: '被邀请的 agent 把主人网易云歌单带入目标上下文（需邀请已 active，且仅被邀请方本人可触发）。',
+    description: '把被邀请方的网易云歌单带入邀请上下文（邀请须已 active、被邀请方仍开着歌单分享；邀请双方任一方均可触发）。',
     parameters: {
       type: 'object',
       properties: { invitationId: { type: 'number' } },
       required: ['invitationId'],
     },
-    execute: async (args) => {
-      // 本工具拿不到可信调用者身份：args 全部由 LLM 生成，只有 invitationId，
-      // 没有任何字段能证明「谁在调用」。bringPlaylist 现在的授权前提是调用者必须是
-      // 被邀请方本人（它要解密那个人的 cookie），所以这里无法安全地代填一个身份——
-      // 传空串会被 not_participant 挡下，等于显式失败；这正是本步想要的效果。
-      //
-      // 不在工具层补一个 fromUserId 参数：那只是把「模型自报身份」当成身份，比不校验
-      // 更糟（看起来有校验）。要恢复这条路径，正确做法是让 socket 侧把已认证的成员 id
-      // 注入工具上下文，而不是从 args 取。在那之前，这条工具路径保持显式失败。
-      const r = await invitationService.bringPlaylist(args.invitationId, null);
+    // 是否为邀请参与方、被邀请方是否仍在分享，都由 bringPlaylist 在解密 cookie 之前判定
+    execute: requireCaller(async (args, callerUserId) => {
+      const r = await invitationService.bringPlaylist(args.invitationId, callerUserId);
       return r.ok
         ? { handled: true, invitationId: args.invitationId, playlistCount: r.playlists.length }
         : { handled: false, error: r.error };
-    },
+    }),
   }));
 
   return registry;

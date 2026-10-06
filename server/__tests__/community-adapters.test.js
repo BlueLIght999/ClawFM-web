@@ -67,8 +67,7 @@ describe('register community tools', () => {
         invitationService: {
           invite: (a) => { inviteCalls.push(a); return { ok: true, id: 1, status: 'pending' }; },
           listForUser: () => [],
-          // 记录调用者实参：该工具拿不到可信身份，必须显式传 null 而不是编一个
-          bringPlaylist: async (id, callerUserId) => { bringCalls.push({ id, callerUserId }); return { ok: false, error: 'not_participant' }; },
+          bringPlaylist: async (id, callerUserId) => { bringCalls.push({ id, callerUserId }); return { ok: true, playlists: [{ id: 1 }, { id: 2 }] }; },
         },
       },
       distCalls, commentCalls, inviteCalls, bringCalls,
@@ -103,30 +102,58 @@ describe('register community tools', () => {
     expect(mocks.distCalls[0].targetType).toBe('post');
   });
 
-  it('comment_as_member_agent_callsMemberAgentService', async () => {
-    registerCommunityTools({ registry, ...mocks.services });
-    const r = await registry.tools.get('comment_as_member_agent').execute({ postId: 5, byUserId: 'u1' });
-    expect(r.handled).toBe(true);
-    expect(r.commentId).toBe(9);
-    expect(mocks.commentCalls[0]).toEqual({ postId: 5, byUserId: 'u1' });
-  });
+  // 代成员行事的三个工具：身份只取运行循环注入的 context.callerUserId（socket 登录态）。
+  // args 由模型生成、对话就能改写，所以 args 里混进来的身份字段一律不认。
+  describe('trusted caller', () => {
+    const MEMBER_TOOLS = ['comment_as_member_agent', 'invite_member_agent', 'bring_playlist'];
 
-  it('invite_member_agent_callsInvitationService', async () => {
-    registerCommunityTools({ registry, ...mocks.services });
-    const r = await registry.tools.get('invite_member_agent').execute({ fromUserId: 'a', toUserId: 'b', contextType: 'feed' });
-    expect(r.handled).toBe(true);
-    expect(r.id).toBe(1);
-    expect(mocks.inviteCalls[0]).toEqual({ fromUserId: 'a', toUserId: 'b', contextType: 'feed', contextId: undefined });
-  });
+    it('comment_as_member_agent_commentsAsTheCallerNotWhomTheArgsName', async () => {
+      registerCommunityTools({ registry, ...mocks.services });
+      const r = await registry.tools.get('comment_as_member_agent').execute({ postId: 5, byUserId: 'evil' }, { callerUserId: 'u1' });
+      expect(r).toEqual({ handled: true, commentId: 9 });
+      expect(mocks.commentCalls).toEqual([{ postId: 5, byUserId: 'u1' }]);
+    });
 
-  it('bring_playlist_failsExplicitlyWithoutTrustedIdentity', async () => {
-    registerCommunityTools({ registry, ...mocks.services });
-    const r = await registry.tools.get('bring_playlist').execute({ invitationId: 7 });
-    // 工具的 args 全由 LLM 生成，没有可信调用者身份。不能编一个传下去——
-    // 那等于把「模型自报身份」当身份用。显式传 null，由 service 的 fail-closed 挡下。
-    expect(mocks.bringCalls[0]).toEqual({ id: 7, callerUserId: null });
-    expect(r.handled).toBe(false);
-    expect(r.error).toBe('not_participant');
+    it('invite_member_agent_invitesFromTheCallerNotWhomTheArgsName', async () => {
+      registerCommunityTools({ registry, ...mocks.services });
+      const r = await registry.tools.get('invite_member_agent').execute({ fromUserId: 'evil', toUserId: 'b', contextType: 'feed' }, { callerUserId: 'a' });
+      expect(r).toEqual({ handled: true, id: 1, status: 'pending' });
+      expect(mocks.inviteCalls).toEqual([{ fromUserId: 'a', toUserId: 'b', contextType: 'feed', contextId: undefined }]);
+    });
+
+    it('bring_playlist_bringsAsTheCaller', async () => {
+      // 邀请双方谁可以触发、被邀请方是否还在分享，由 service 判定；工具只负责递上可信身份
+      registerCommunityTools({ registry, ...mocks.services });
+      const r = await registry.tools.get('bring_playlist').execute({ invitationId: 7, callerUserId: 'evil' }, { callerUserId: 42 });
+      expect(r).toEqual({ handled: true, invitationId: 7, playlistCount: 2 });
+      expect(mocks.bringCalls).toEqual([{ id: 7, callerUserId: '42' }]);
+    });
+
+    it('refusesWithoutCallingTheServiceWhenNobodyIsLoggedIn', async () => {
+      registerCommunityTools({ registry, ...mocks.services });
+      for (const name of MEMBER_TOOLS) {
+        const execute = registry.tools.get(name).execute;
+        const args = { postId: 5, toUserId: 'b', invitationId: 7, byUserId: 'u1', fromUserId: 'u1' };
+        expect(await execute(args, { callerUserId: null })).toEqual({ handled: false, error: 'auth_required' });
+        expect(await execute(args)).toEqual({ handled: false, error: 'auth_required' });
+      }
+      expect(mocks.commentCalls).toEqual([]);
+      expect(mocks.inviteCalls).toEqual([]);
+      expect(mocks.bringCalls).toEqual([]);
+    });
+
+    it('exposesNoIdentityParameterToTheModel', () => {
+      // 参数表就是模型能填的全部内容：身份字段一旦出现在这里，模型就会去「填」它
+      registerCommunityTools({ registry, ...mocks.services });
+      for (const name of MEMBER_TOOLS) {
+        const { properties, required = [] } = registry.tools.get(name).parameters;
+        for (const field of ['byUserId', 'fromUserId', 'callerUserId', 'userId']) {
+          expect(properties).not.toHaveProperty(field);
+          expect(required).not.toContain(field);
+        }
+      }
+      expect(registry.tools.get('invite_member_agent').parameters.required).toEqual(['toUserId']);
+    });
   });
 
   it('skipsRegistrationWhenServicesMissing', () => {

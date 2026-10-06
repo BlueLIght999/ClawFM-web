@@ -204,6 +204,60 @@ describe('AgentLoopService ReAct', () => {
     expect(result.conversationResults[0].error).toContain('未知工具');
   });
 
+  // ── Trusted caller identity ───────────────────────────
+  // Community tools (bring_playlist / member comment / invite) must not take an
+  // identity from args: the model writes args from the conversation, so one
+  // sentence from the user can make it fill in someone else's userId. The
+  // transport injects the identity into the tool's second argument at the run
+  // edge instead (as LangChain InjectedToolArg / OpenAI Agents SDK RunContext
+  // do), where the model can neither see nor change it.
+
+  function registryCapturingContext(contexts) {
+    const registry = createMockToolRegistry();
+    registry.register(createToolDefinition({
+      name: 'whoami',
+      description: 'Capture the tool context',
+      parameters: { type: 'object', properties: {} },
+      execute: async (_args, context) => { contexts.push(context); return { handled: true }; },
+    }));
+    return registry;
+  }
+
+  it('toolContext_carriesTheTrustedCallerNotOneTheModelMadeUp', async () => {
+    const contexts = [];
+    const deps = createDeps({
+      toolRegistry: registryCapturingContext(contexts),
+      functionCalling: createMockFunctionCalling([
+        { content: null, toolCalls: [{ name: 'whoami', arguments: { callerUserId: 'evil' } }] },
+        { content: '好的', toolCalls: [] },
+      ]),
+    });
+    const service = createAgentLoopService(deps);
+
+    await service.handleMessage({ text: '讲个笑话', snapshot: null, callerUserId: 'u1' });
+
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0].callerUserId).toBe('u1');
+  });
+
+  it('toolContext_callerIsNullWhenTheTransportHasNoIdentity', async () => {
+    // The default must be an explicit null, not an undefined that slipped
+    // through: tools fail closed on it
+    const contexts = [];
+    const deps = createDeps({
+      toolRegistry: registryCapturingContext(contexts),
+      functionCalling: createMockFunctionCalling([
+        { content: null, toolCalls: [{ name: 'whoami', arguments: {} }] },
+        { content: '好的', toolCalls: [] },
+      ]),
+    });
+    const service = createAgentLoopService(deps);
+
+    await service.handleMessage({ text: '讲个笑话', snapshot: null });
+
+    expect(contexts[0]).toHaveProperty('callerUserId', null);
+  });
+
   it('maxIterationsReached_requestsWrapUp', async () => {
     const deps = createDeps({
       functionCalling: createMockFunctionCalling([

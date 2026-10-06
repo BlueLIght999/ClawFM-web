@@ -5,7 +5,9 @@
  * @param {string} params.name - Unique tool name (e.g., 'skip', 'recommend')
  * @param {string} [params.description] - Human-readable description for LLM
  * @param {object} [params.parameters] - JSON Schema for tool parameters
- * @param {Function} params.execute - Async executor: (args, context) => Promise<ToolResult>
+ * @param {Function} params.execute - Async executor: (args, context) => Promise<ToolResult>.
+ *   `args` come from the model; `context` ({queue, snapshot, callerUserId}) is
+ *   injected by the run loop and is the only trustworthy source of identity.
  * @returns {ToolDefinition}
  * @throws {Error} if name is empty or execute is not a function
  */

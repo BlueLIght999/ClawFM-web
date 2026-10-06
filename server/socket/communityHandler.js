@@ -6,6 +6,7 @@
  * room:join/leave/chat 房间基础；room:skip 房主切歌→RoomService.hostControl 广播 room:state。
  */
 import { EVENTS } from './events.js';
+import { resolveLoggedInUid } from './socketIdentity.js';
 
 /**
  * @param {{io?: import('socket.io').Server, roomService?: any, authRepository?: {currentUid?: () => string|null}, logger?: {warn?: Function, info?: Function, error?: Function}}} [deps]
@@ -23,10 +24,9 @@ export function createCommunityHandler({ io, roomService, authRepository, logger
     register(socket) {
       socket.on(EVENTS.COMMUNITY_IDENTIFY, (userId) => {
         if (!userId) return;
-        // 鉴权：自报 userId 须与当前网易云登录态一致
-        // 优先用 socket.data.uid（登录成功时已存），否则从 authRepository 反查（页面刷新恢复场景）
-        const loggedInUid = socket.data?.uid || authRepository?.currentUid?.() || '';
-        if (!loggedInUid || String(userId) !== String(loggedInUid)) {
+        // 鉴权：自报 userId 须与当前网易云登录态一致（解析口径见 socketIdentity）
+        const loggedInUid = resolveLoggedInUid(socket, authRepository);
+        if (!loggedInUid || String(userId) !== loggedInUid) {
           socket.emit('community:error', { error: 'auth_required', reason: 'userId mismatch with logged-in uid' });
           logger?.warn?.({ component: 'community', socketId: socket.id, claimed: userId, actual: loggedInUid }, 'community identify rejected');
           return;

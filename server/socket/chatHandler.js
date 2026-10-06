@@ -11,6 +11,7 @@
 import { EVENTS } from './events.js';
 import { emitConversationResult, emitStreamingConversationResult, emitDashboardEvent } from './emitHelpers.js';
 import { emitQueueUpdate } from './versionedRadioEmitter.js';
+import { resolveLoggedInUid } from './socketIdentity.js';
 
 let logger = console;
 export function setChatLogger(l) { logger = l; }
@@ -53,7 +54,14 @@ export async function handleChatMessage(text, io, socket, deps) {
   const messageId = `dj-${Date.now()}`;
   socket.emit(EVENTS.DJ_STREAM_START, { messageId, timestamp: Date.now() });
 
-  const turnResult = await agentLoopService.handleMessage({ text, snapshot: preRecommendSnapshot });
+  // callerUserId reaches community tools only through their context (see
+  // AgentLoopService.executeToolSafely): the model never sees it, so no
+  // conversation can rewrite it
+  const turnResult = await agentLoopService.handleMessage({
+    text,
+    snapshot: preRecommendSnapshot,
+    callerUserId: resolveLoggedInUid(socket, deps.authRepository),
+  });
   if (turnResult.unavailableMessage) {
     socket.emit(EVENTS.DJ_MESSAGE, turnResult.unavailableMessage);
     preRecommendSnapshot = turnResult.snapshot;
