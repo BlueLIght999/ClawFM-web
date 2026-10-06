@@ -368,11 +368,12 @@ export function CommunityProvider({ socket, children }) {
     });
     if (!res.ok) throw new Error('respond_invitation_failed');
     const data = (await res.json()).data;
-    // 更新本地邀请列表状态
+    // 以服务端落库的状态为准：接受即生效，请求 accepted 落的是 active
+    const persisted = data?.status || status;
     setState(prev => ({
       ...prev,
       invitations: prev.invitations.map(inv =>
-        inv.id === invitationId ? { ...inv, status } : inv
+        inv.id === invitationId ? { ...inv, status: persisted } : inv
       ),
     }));
     return data;
@@ -387,10 +388,15 @@ export function CommunityProvider({ socket, children }) {
     return invitations;
   }, [updateState]);
 
-  /** 触发被邀请方 agent 把歌单带入上下文 */
+  /** 把被邀请方的歌单带入邀请上下文（邀请双方任一方均可触发） */
   const bringPlaylist = useCallback(async (invitationId) => {
     const res = await fetch(`/api/community/invitations/${invitationId}/bring-playlist`, { method: 'POST' });
-    if (!res.ok) throw new Error('bring_playlist_failed');
+    if (!res.ok) {
+      // 后端以 error 字段说明原因（sharing_disabled / invitation_not_active / not_participant…）
+      let error = 'bring_playlist_failed';
+      try { error = (await res.json()).error || error; } catch { /* 非 JSON 响应，沿用默认错误码 */ }
+      throw new Error(error);
+    }
     return (await res.json()).data;
   }, []);
 
@@ -627,9 +633,17 @@ export function CommunityProvider({ socket, children }) {
     }));
   }, []);
 
-  /** 收到房间状态更新（room:state）— 更新当前房间状态 */
+  /**
+   * 收到房间状态更新（room:state）。两种推送各管一块、互不覆盖：
+   * 房主控制推播放态（不含歌单），bring_playlist 推被带入的歌单（type: playlists_brought，不含播放态）。
+   */
   const onRoomState = useCallback((payload) => {
-    setState(prev => ({ ...prev, roomState: payload }));
+    setState(prev => {
+      if (payload?.type === 'playlists_brought') {
+        return { ...prev, roomState: { ...prev.roomState, playlists: payload.playlists } };
+      }
+      return { ...prev, roomState: { playlists: prev.roomState?.playlists, ...payload } };
+    });
   }, []);
 
   // ── 私信 DM / agent DM HTTP 方法 ─────────────────────────

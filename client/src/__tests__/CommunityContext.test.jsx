@@ -262,6 +262,43 @@ describe('CommunityContext', () => {
     vi.unstubAllGlobals();
   });
 
+  // ── 邀请（F9）──
+  it('respondInvitation keeps the status the server persisted, not the one requested', async () => {
+    // 接受即生效：请求 accepted，服务端落的是 active。本地若记成 accepted，
+    // BRING PLAYLIST（只对 active 显示）要等下次整页刷新才出现
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ ok: true, data: { ok: true, status: 'active' } }),
+    }));
+    const { result } = renderCommunityHook();
+    await act(async () => {
+      await result.current.updateState({ invitations: [{ id: 5, fromUserId: 'u2', toUserId: 'u1', status: 'pending' }] });
+    });
+    await act(async () => { await result.current.respondInvitation(5, 'accepted'); });
+    expect(result.current.invitations[0].status).toBe('active');
+    vi.unstubAllGlobals();
+  });
+
+  it('bringPlaylist surfaces the backend reason', async () => {
+    // sharing_disabled / not_participant / invitation_not_active 各要不同的处理，笼统的失败码分不出来
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 403, json: async () => ({ ok: false, error: 'sharing_disabled' }),
+    }));
+    const { result } = renderCommunityHook();
+    await expect(act(async () => { await result.current.bringPlaylist(5); })).rejects.toThrow('sharing_disabled');
+    vi.unstubAllGlobals();
+  });
+
+  it('room:state from the host and from a brought playlist do not erase each other', async () => {
+    // 两种推送各管一块：房主控制推播放态（不含歌单），bring_playlist 推歌单（不含播放态）
+    const { result } = renderCommunityHook();
+    const playlists = [{ id: 'p1', name: '深夜后摇', trackCount: 12 }];
+    await act(async () => { result.current.onRoomState({ isPlaying: true, currentSong: '晴天' }); });
+    await act(async () => { result.current.onRoomState({ type: 'playlists_brought', invitationId: 5, fromUserId: 'u2', playlists }); });
+    expect(result.current.roomState).toMatchObject({ isPlaying: true, currentSong: '晴天', playlists });
+    await act(async () => { result.current.onRoomState({ isPlaying: false, currentSong: '七里香' }); });
+    expect(result.current.roomState).toMatchObject({ isPlaying: false, currentSong: '七里香', playlists });
+  });
+
   it('useCommunity throws when used outside provider', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => renderHook(() => useCommunity())).toThrow('useCommunity must be used within CommunityProvider');

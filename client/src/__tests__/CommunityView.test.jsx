@@ -74,10 +74,10 @@ vi.mock('../contexts/CommunityContext.jsx', () => ({
 
 const { default: CommunityView } = await import('../components/CommunityView.jsx');
 
-/** 切到 INVITATIONS tab 后渲染面板。 */
+/** 切到 INVITATIONS tab 后渲染面板（有 pending 邀请时 tab 名带角标，如 "INVS 1"）。 */
 async function openInvitations() {
   render(<CommunityView />);
-  fireEvent.click(screen.getByRole('button', { name: 'INVS' }));
+  fireEvent.click(screen.getByRole('button', { name: /^INVS/ }));
   await waitFor(() => expect(ctx.fetchInvitations).toHaveBeenCalled());
 }
 
@@ -193,6 +193,42 @@ describe('CommunityView 邀请候选', () => {
     await waitFor(() => {
       expect(ctx.invite).toHaveBeenCalledWith({ fromUserId: 'u1', toUserId: 'u9' });
     });
+  });
+});
+
+describe('CommunityView 携带歌单', () => {
+  // F9：A 邀请 B 的 agent，受益的是 A——把 B 的歌单带进来，邀请方自己就得能点
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ctx.currentMember = { userId: 'u1', nickname: '我' };
+    ctx.similarMembers = [];
+    ctx.feed = [];
+    ctx.fetchFeed = noop;
+    ctx.fetchInvitations = vi.fn().mockResolvedValue([]);
+    ctx.fetchSimilarMembers = vi.fn().mockResolvedValue({ candidates: [] });
+    ctx.bringPlaylist = vi.fn().mockResolvedValue({ ok: true, playlists: [] });
+  });
+
+  it('我发出且已生效的邀请上有 BRING PLAYLIST，点了带的是这条邀请', async () => {
+    ctx.invitations = [{ id: 5, fromUserId: 'u1', toUserId: 'u2', status: 'active', contextType: 'feed' }];
+    await openInvitations();
+    fireEvent.click(await screen.findByRole('button', { name: 'BRING PLAYLIST' }));
+    await waitFor(() => expect(ctx.bringPlaylist).toHaveBeenCalledWith(5));
+  });
+
+  it('对方还没接受的邀请上没有这个按钮', async () => {
+    ctx.invitations = [{ id: 6, fromUserId: 'u1', toUserId: 'u2', status: 'pending', contextType: 'feed' }];
+    await openInvitations();
+    expect(await screen.findByText('@u2')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'BRING PLAYLIST' })).toBeNull();
+  });
+
+  it('被邀请方关掉了分享时把服务端的原因亮出来', async () => {
+    ctx.invitations = [{ id: 5, fromUserId: 'u1', toUserId: 'u2', status: 'active', contextType: 'feed' }];
+    ctx.bringPlaylist = vi.fn().mockRejectedValue(new Error('sharing_disabled'));
+    await openInvitations();
+    fireEvent.click(await screen.findByRole('button', { name: 'BRING PLAYLIST' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('sharing_disabled');
   });
 });
 

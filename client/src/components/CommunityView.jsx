@@ -1567,7 +1567,17 @@ function InvitationsTab({
                     {inv.contextType} · {inv.status}
                   </div>
                 </div>
-                <div className="community-list-meta">{inv.status}</div>
+                {/* F9 的受益方是邀请方：对方接受后，由我把 TA 的歌单带进来 */}
+                {inv.status === 'active' ? (
+                  <button
+                    type="button"
+                    className="community-btn"
+                    style={{ padding: '4px 8px', fontSize: 7 }}
+                    onClick={() => onBringPlaylist(inv.id).catch(e => onError(e.message))}
+                  >BRING PLAYLIST</button>
+                ) : (
+                  <div className="community-list-meta">{inv.status}</div>
+                )}
               </div>
             ))}
           </div>
